@@ -1,0 +1,73 @@
+import {
+  IsEnum,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsBoolean,
+  IsObject,
+} from 'class-validator';
+import {
+  ChallengeCategory,
+  ChallengeDifficulty,
+  ChallengeStatus,
+} from '@prisma/client';
+
+export class CreateChallengeDto {
+  @IsString()
+  @IsNotEmpty({ message: 'Judul challenge tidak boleh kosong' })
+  title: string;
+
+  @IsString()
+  @IsNotEmpty({ message: 'Ringkasan tidak boleh kosong' })
+  summary: string;
+
+  @IsString()
+  @IsNotEmpty({ message: 'Deskripsi masalah tidak boleh kosong' })
+  description: string;
+
+  @IsEnum(ChallengeCategory)
+  category: ChallengeCategory;
+
+  @IsEnum(ChallengeDifficulty)
+  difficulty: ChallengeDifficulty;
+
+  @IsString()
+  @IsOptional()
+  datasetUrl?: string;
+
+  @IsString()
+  @IsOptional()
+  mockApiUrl?: string;
+
+  @IsString()
+  @IsOptional()
+  brandGuidelineUrl?: string;
+
+  @IsObject()
+  @IsOptional()
+  gradingRubric?: Record<string, any>;
+
+  @IsString()
+  @IsOptional()
+  rewardDescription?: string;
+
+  @IsString()
+  @IsOptional()
+  deadlineAt?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  isPrivate?: boolean;
+
+  @IsEnum(ChallengeStatus)
+  @IsOptional()
+  status?: ChallengeStatus;
+
+  @IsBoolean()
+  @IsOptional()
+  createdByAi?: boolean;
+
+  @IsString()
+  @IsOptional()
+  aiPromptUsed?: string;
+}

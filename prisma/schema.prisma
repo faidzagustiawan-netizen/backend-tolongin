@@ -1,0 +1,344 @@
+datasource db {
+  provider = "postgresql"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ==========================================
+// 1. USER MANAGEMENT & SECURITY
+// ==========================================
+
+enum Role {
+  TALENT
+  COMPANY
+  ADMIN
+}
+
+enum VerificationStatus {
+  UNVERIFIED
+  PENDING
+  VERIFIED
+  FAILED
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(TALENT)
+  isVerified   Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  talentProfile  TalentProfile?
+  companyProfile CompanyProfile?
+  discussions    Discussion[]
+  notifications  Notification[]
+
+  @@map("users")
+}
+
+model TalentProfile {
+  id          String   @id @default(uuid())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fullName    String
+  headline    String?
+  avatarUrl   String?
+  bio         String?
+  resumeUrl   String?
+  skills      String[]
+  githubUrl   String?
+  linkedinUrl String?
+  figmaUrl    String?
+
+  // AI Identity & Security
+  faceVerificationStatus VerificationStatus @default(UNVERIFIED)
+  ktpNik                 String? @unique // Untuk memastikan 1 identitas KTP 1 akun
+  biometricDataHash      String? @unique // Untuk verifikasi wajah anti-joki & memastikan 1 wajah 1 akun
+  biometricFeatureVector Json?   // Vektor fitur biometrik 64-dimensi untuk deteksi real-time anti-joki
+
+
+  // Gamification
+  xp    Int @default(0)
+  level Int @default(1)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  enrollments  ChallengeEnrollment[]
+  submissions  Submission[]
+  portfolios   Portfolio[]
+  earnedBadges TalentBadge[]
+
+  @@map("talent_profiles")
+}
+
+// ==========================================
+// 2. COMPANY & SUBSCRIPTION MODEL
+// ==========================================
+
+enum SubscriptionTier {
+  STARTUP
+  KONGLOMERAT
+  CUSTOM
+}
+
+model CompanyProfile {
+  id          String  @id @default(uuid())
+  userId      String  @unique // Akun PIC Perusahaan
+  user        User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  companyName String
+  logoUrl     String?
+  description String?
+  websiteUrl  String?
+  industry    String
+  companySize String?
+
+  // Validasi KYB (Know Your Business) & Subscription
+  kybStatus             VerificationStatus @default(UNVERIFIED)
+  subscriptionTier      SubscriptionTier   @default(STARTUP)
+  subscriptionExpiresAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  challenges Challenge[]
+
+  @@map("company_profiles")
+}
+
+// ==========================================
+// 3. CHALLENGE DIRECTORY & AI GENERATION
+// ==========================================
+
+enum ChallengeCategory {
+  UI_UX
+  FRONTEND
+  BACKEND
+  DATA_SCIENCE
+  MARKETING
+  PRODUCT
+}
+
+enum ChallengeDifficulty {
+  JUNIOR
+  MEDIOR
+  SENIOR
+}
+
+enum ChallengeStatus {
+  DRAFT
+  PUBLISHED
+  CLOSED
+}
+
+model Challenge {
+  id        String         @id @default(uuid())
+  companyId String
+  company   CompanyProfile @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  title       String
+  slug        String              @unique
+  summary     String
+  description String // Detail studi kasus / problem statement
+  category    ChallengeCategory
+  difficulty  ChallengeDifficulty
+
+  // Resource & Aset
+  datasetUrl        String?
+  mockApiUrl        String?
+  brandGuidelineUrl String?
+  briefAttachments  Json? // For images, videos, documents, external links related to brief
+
+  // Rubrik Penilaian (Penyimpanan JSON untuk fleksibilitas kriteria)
+  gradingRubric     Json
+  rewardDescription String?
+  deadlineAt        DateTime?
+  isPrivate         Boolean         @default(false)
+  status            ChallengeStatus @default(DRAFT)
+
+  // AI Challenge Generator Tracking
+  createdByAi  Boolean @default(false)
+  aiPromptUsed String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  enrollments ChallengeEnrollment[]
+  submissions Submission[]
+  discussions Discussion[]
+
+  @@map("challenges")
+}
+
+// ==========================================
+// 4. WORKSPACE & SUBMISSION
+// ==========================================
+
+enum EnrollmentStatus {
+  ENROLLED
+  IN_PROGRESS
+  SUBMITTED
+  EVALUATED
+  DROPPED
+}
+
+model ChallengeEnrollment {
+  id          String        @id @default(uuid())
+  talentId    String
+  talent      TalentProfile @relation(fields: [talentId], references: [id], onDelete: Cascade)
+  challengeId String
+  challenge   Challenge     @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+
+  status      EnrollmentStatus @default(ENROLLED)
+  ndaSignedAt DateTime?
+  startedAt   DateTime         @default(now())
+  completedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  submissions Submission[]
+
+  @@unique([talentId, challengeId])
+  @@map("challenge_enrollments")
+}
+
+enum SubmissionStatus {
+  PENDING_AI
+  UNDER_REVIEW
+  PASSED
+  FAILED
+}
+
+enum HiringStatus {
+  NONE
+  SHORTLISTED
+  INTERVIEW_INVITED
+  HIRED
+  REJECTED
+}
+
+model Submission {
+  id           String              @id @default(uuid())
+  enrollmentId String
+  enrollment   ChallengeEnrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  talentId     String
+  talent       TalentProfile       @relation(fields: [talentId], references: [id], onDelete: Cascade)
+  challengeId  String
+  challenge    Challenge           @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+
+  // Solusi yang dikumpulkan
+  solutionFilesUrl String?
+  repositoryUrl    String?
+  figmaUrl         String?
+  liveDemoUrl      String?
+  notes            String?
+
+  // AI Correction & Integrity
+  aiPlagiarismScore   Float? // 0.0 - 100.0%
+  aiCorrectionSummary String? // Analisis otomatis dari AI
+  aiScore             Float? // Skor awal dari AI (0-100)
+
+  // Review Manusia & Keputusan
+  finalScore       Float? // Skor dari rekruter
+  reviewerFeedback String? // Ulasan kualitatif
+  status           SubmissionStatus @default(PENDING_AI)
+  hiringStatus     HiringStatus     @default(NONE)
+  evaluatedAt      DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  portfolio Portfolio?
+
+  @@map("submissions")
+}
+
+// ==========================================
+// 5. DISKUSI & Q&A
+// ==========================================
+
+model Discussion {
+  id          String    @id @default(uuid())
+  challengeId String
+  challenge   Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  message  String
+  parentId String? // Untuk thread balasan (self-referencing)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("discussions")
+}
+
+// ==========================================
+// 6. PORTFOLIO SHOWCASE
+// ==========================================
+
+model Portfolio {
+  id           String        @id @default(uuid())
+  talentId     String
+  talent       TalentProfile @relation(fields: [talentId], references: [id], onDelete: Cascade)
+  submissionId String        @unique
+  submission   Submission    @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  isPublic         Boolean @default(true)
+  verifiedBadgeUrl String?
+  showcaseSummary  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("portfolios")
+}
+
+// ==========================================
+// 7. GAMIFICATION & NOTIFICATIONS
+// ==========================================
+
+model Badge {
+  id          String @id @default(uuid())
+  title       String @unique
+  description String
+  iconUrl     String
+  requiredXp  Int    @default(0)
+
+  earnedBy TalentBadge[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("badges")
+}
+
+model TalentBadge {
+  id       String        @id @default(uuid())
+  talentId String
+  talent   TalentProfile @relation(fields: [talentId], references: [id], onDelete: Cascade)
+  badgeId  String
+  badge    Badge         @relation(fields: [badgeId], references: [id], onDelete: Cascade)
+  earnedAt DateTime      @default(now())
+
+  @@unique([talentId, badgeId])
+  @@map("talent_badges")
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  content   String
+  isRead    Boolean  @default(false)
+  linkUrl   String?
+  createdAt DateTime @default(now())
+
+  @@map("notifications")
+}
