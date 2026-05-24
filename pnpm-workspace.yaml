@@ -5,3 +5,6 @@ allowBuilds:
   bcrypt: true
   prisma: true
   unrs-resolver: true
+
+packages:
+  - '.'
