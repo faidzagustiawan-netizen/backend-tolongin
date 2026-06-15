@@ -21,7 +21,7 @@ import { GenerateAiChallengeDto } from './dto/generate-ai-challenge.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
-import { ChallengeCategory, ChallengeDifficulty, Role } from '@prisma/client';
+import { ChallengeCategory, ChallengeDifficulty, ChallengeType, Role } from '@prisma/client';
 
 @ApiTags('Challenge Directory & AI Generator')
 @Controller('challenges')
@@ -84,7 +84,7 @@ export class ChallengesController {
 
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
-    summary: 'Membuat challenge baru (Khusus Perusahaan & Admin)',
+    summary: 'Membuat challenge baru (Khusus Perusahaan & Admin & Talent)',
   })
   @ApiResponse({
     status: 201,
@@ -92,14 +92,18 @@ export class ChallengesController {
   })
   @ApiResponse({ status: 403, description: 'Akses ditolak.' })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.COMPANY, Role.ADMIN)
+  @Roles(Role.COMPANY, Role.ADMIN, Role.TALENT)
   @Post()
   async create(
     @Request() req: any,
     @Body() createChallengeDto: CreateChallengeDto,
   ) {
-    const companyId = req.user.profileId;
-    return this.challengesService.create(companyId, createChallengeDto);
+    if (req.user.role === Role.TALENT) {
+      return this.challengesService.createPublic(req.user.userId, createChallengeDto);
+    } else {
+      const companyId = req.user.profileId;
+      return this.challengesService.create(companyId, createChallengeDto);
+    }
   }
 
   @ApiBearerAuth('JWT-auth')
@@ -113,13 +117,17 @@ export class ChallengesController {
   })
   @ApiResponse({ status: 403, description: 'Akses ditolak.' })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.COMPANY, Role.ADMIN)
+  @Roles(Role.COMPANY, Role.ADMIN, Role.TALENT)
   @Post('ai-generate')
   async generateAiChallenge(
     @Request() req: any,
     @Body() dto: GenerateAiChallengeDto,
   ) {
-    const companyId = req.user.profileId;
-    return this.challengesService.generateAiChallenge(companyId, dto);
+    if (req.user.role === Role.TALENT) {
+      return this.challengesService.generateAiPublicChallenge(req.user.userId, dto);
+    } else {
+      const companyId = req.user.profileId;
+      return this.challengesService.generateAiChallenge(companyId, dto);
+    }
   }
 }

@@ -16,6 +16,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { SeedModule } from './seed/seed.module';
 import { StorageModule } from './storage/storage.module';
 import { AiModule } from './ai/ai.module';
+import { TokensModule } from './tokens/tokens.module';
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { AiModule } from './ai/ai.module';
     SeedModule,
     StorageModule,
     AiModule,
+    TokensModule,
   ],
   controllers: [AppController],
   providers: [AppService],

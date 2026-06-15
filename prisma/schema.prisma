@@ -32,10 +32,11 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  talentProfile  TalentProfile?
-  companyProfile CompanyProfile?
-  discussions    Discussion[]
-  notifications  Notification[]
+  talentProfile     TalentProfile?
+  companyProfile    CompanyProfile?
+  discussions       Discussion[]
+  notifications     Notification[]
+  tokenTransactions TokenTransaction[]
 
   @@map("users")
 }
@@ -61,17 +62,19 @@ model TalentProfile {
   biometricFeatureVector Json?   // Vektor fitur biometrik 64-dimensi untuk deteksi real-time anti-joki
 
 
-  // Gamification
-  xp    Int @default(0)
-  level Int @default(1)
+  // Gamification & Economy
+  xp           Int @default(0)
+  level        Int @default(1)
+  tokenBalance Int @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  enrollments  ChallengeEnrollment[]
-  submissions  Submission[]
-  portfolios   Portfolio[]
-  earnedBadges TalentBadge[]
+  enrollments       ChallengeEnrollment[]
+  submissions       Submission[]
+  portfolios        Portfolio[]
+  earnedBadges      TalentBadge[]
+  createdChallenges Challenge[]           @relation("CreatedChallenges")
 
   @@map("talent_profiles")
 }
@@ -102,6 +105,9 @@ model CompanyProfile {
   subscriptionTier      SubscriptionTier   @default(STARTUP)
   subscriptionExpiresAt DateTime?
 
+  // Accountability
+  trustScore Int @default(100)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -113,6 +119,11 @@ model CompanyProfile {
 // ==========================================
 // 3. CHALLENGE DIRECTORY & AI GENERATION
 // ==========================================
+
+enum ChallengeType {
+  COMPANY
+  PUBLIC
+}
 
 enum ChallengeCategory {
   UI_UX
@@ -136,11 +147,14 @@ enum ChallengeStatus {
 }
 
 model Challenge {
-  id        String         @id @default(uuid())
-  companyId String
-  company   CompanyProfile @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  id        String          @id @default(uuid())
+  companyId String?
+  company   CompanyProfile? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  talentId  String?
+  creator   TalentProfile?  @relation("CreatedChallenges", fields: [talentId], references: [id], onDelete: SetNull)
 
-  title       String
+  challengeType ChallengeType @default(COMPANY)
+  title         String
   slug        String              @unique
   summary     String
   description String // Detail studi kasus / problem statement
@@ -248,6 +262,7 @@ model Submission {
   reviewerFeedback String? // Ulasan kualitatif
   status           SubmissionStatus @default(PENDING_AI)
   hiringStatus     HiringStatus     @default(NONE)
+  autoPassed       Boolean          @default(false)
   evaluatedAt      DateTime?
 
   createdAt DateTime @default(now())
@@ -341,4 +356,25 @@ model Notification {
   createdAt DateTime @default(now())
 
   @@map("notifications")
+}
+
+// ==========================================
+// 8. TOKEN ECONOMY
+// ==========================================
+
+enum TokenType {
+  EARN
+  SPEND
+}
+
+model TokenTransaction {
+  id          String    @id @default(uuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount      Int
+  type        TokenType
+  description String
+  createdAt   DateTime  @default(now())
+
+  @@map("token_transactions")
 }

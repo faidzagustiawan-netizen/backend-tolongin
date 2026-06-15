@@ -83,6 +83,7 @@ export class SeedService {
         description: 'Platform travel dan gaya hidup terdepan di Asia Tenggara.',
         websiteUrl: 'https://traveloka.com',
         companySize: '5,000+ employees',
+        trustScore: 65,
       },
       {
         email: 'hr@efishery.com',
@@ -108,9 +109,11 @@ export class SeedService {
         create: {
           userId: user.id, companyName: c.companyName, industry: c.industry, subscriptionTier: c.subscriptionTier,
           kybStatus: VerificationStatus.VERIFIED, logoUrl: c.logoUrl, description: c.description, websiteUrl: c.websiteUrl, companySize: c.companySize,
+          trustScore: c.trustScore || 100,
         },
         update: {
           companyName: c.companyName, industry: c.industry, subscriptionTier: c.subscriptionTier, logoUrl: c.logoUrl, description: c.description,
+          trustScore: c.trustScore || 100,
         },
       });
     }
@@ -156,9 +159,11 @@ export class SeedService {
         create: {
           userId: user.id, fullName: t.fullName, headline: t.headline, skills: t.skills, faceVerificationStatus: VerificationStatus.VERIFIED,
           xp: t.xp, level: t.level, avatarUrl: t.avatarUrl, githubUrl: t.githubUrl, linkedinUrl: t.linkedinUrl,
+          tokenBalance: 200,
         },
         update: {
           fullName: t.fullName, headline: t.headline, skills: t.skills, xp: t.xp, level: t.level, avatarUrl: t.avatarUrl,
+          tokenBalance: 200,
         },
       });
     }
@@ -242,24 +247,60 @@ export class SeedService {
           { type: 'video', url: 'https://www.youtube.com/embed/tgbNymZ7vqY', title: 'Contoh Kampanye Viral Sebelumnya' },
           { type: 'document', url: 'https://docs.google.com/document/d/guideline', label: 'Panduan Merek Traveloka & Tone of Voice' }
         ]
+      },
+      {
+        talentEmail: 'budi.developer@gmail.com',
+        type: 'PUBLIC',
+        title: 'Open Source - Bikin API Rate Limiter Sederhana dengan Redis',
+        slug: 'public-api-rate-limiter',
+        summary: 'Tantangan santai dari Budi: Bikin rate limiter untuk public API biar ga gampang diserang DDoS, pakai Redis dan Node.js.',
+        description: '### Deskripsi\nHalo! Ini public challenge pertama dari saya. Coba bikin sistem Rate Limiter sederhana. Jika request melebihi 100/menit per IP, blokir sementara dan kembalikan 429 Too Many Requests.\n\n### Kriteria Sukses\n- Menggunakan Redis untuk memory store.\n- Middleware berfungsi di Express / NestJS.',
+        category: ChallengeCategory.BACKEND,
+        difficulty: ChallengeDifficulty.JUNIOR,
+        rubric: {
+          code_cleanliness: 50, system_scalability: 50, durationHours: 24, requireProctoring: false, examMode: 'CREATIVE',
+          customOutputs: []
+        },
+        reward: '50 Token dari Sistem Tolongin',
+        briefAttachments: []
       }
     ];
 
     const challengeEntities: Record<string, any> = {};
     for (const ch of challengesData) {
-      const comp = companyProfiles[ch.companyEmail];
-      challengeEntities[ch.slug] = await this.prisma.challenge.upsert({
-        where: { slug: ch.slug },
-        create: {
-          companyId: comp.id, title: ch.title, slug: ch.slug, summary: ch.summary, description: ch.description,
-          category: ch.category, difficulty: ch.difficulty, gradingRubric: ch.rubric, status: ChallengeStatus.PUBLISHED,
-          rewardDescription: ch.reward, deadlineAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), briefAttachments: ch.briefAttachments,
-        },
-        update: {
-          title: ch.title, summary: ch.summary, description: ch.description, category: ch.category,
-          difficulty: ch.difficulty, gradingRubric: ch.rubric, rewardDescription: ch.reward, briefAttachments: ch.briefAttachments,
-        },
-      });
+      if (ch.type === 'PUBLIC') {
+        const talent = talentProfiles[ch.talentEmail!];
+        challengeEntities[ch.slug] = await this.prisma.challenge.upsert({
+          where: { slug: ch.slug },
+          create: {
+            talentId: talent.id, title: ch.title, slug: ch.slug, summary: ch.summary, description: ch.description,
+            category: ch.category, difficulty: ch.difficulty, gradingRubric: ch.rubric, status: ChallengeStatus.PUBLISHED,
+            rewardDescription: ch.reward, deadlineAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), briefAttachments: ch.briefAttachments,
+            challengeType: 'PUBLIC',
+          },
+          update: {
+            title: ch.title, summary: ch.summary, description: ch.description, category: ch.category,
+            difficulty: ch.difficulty, gradingRubric: ch.rubric, rewardDescription: ch.reward, briefAttachments: ch.briefAttachments,
+            challengeType: 'PUBLIC',
+          },
+        });
+      } else {
+        const comp = companyProfiles[ch.companyEmail!];
+        challengeEntities[ch.slug] = await this.prisma.challenge.upsert({
+          where: { slug: ch.slug },
+          create: {
+            companyId: comp.id, title: ch.title, slug: ch.slug, summary: ch.summary, description: ch.description,
+            category: ch.category, difficulty: ch.difficulty, gradingRubric: ch.rubric, status: ChallengeStatus.PUBLISHED,
+            rewardDescription: ch.reward, deadlineAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), briefAttachments: ch.briefAttachments,
+            challengeType: 'COMPANY',
+          },
+          update: {
+            title: ch.title, summary: ch.summary, description: ch.description, category: ch.category,
+            difficulty: ch.difficulty, gradingRubric: ch.rubric, rewardDescription: ch.reward, briefAttachments: ch.briefAttachments,
+            challengeType: 'COMPANY',
+          },
+        });
+      }
     }
 
     // 5. Buat Riwayat Diskusi / Q&A

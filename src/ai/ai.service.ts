@@ -182,6 +182,71 @@ Berikan penilaian akhir berupa objek JSON dengan struktur persis berikut:
     };
   }
 
+  async generateChallengeContent(promptStr: string, category: string, difficulty: string, companyName: string): Promise<{ title: string, summary: string, description: string, rubric: Record<string, number> }> {
+    const prompt = `Anda adalah AI Technical Recruiter Senior. Buatlah rancangan studi kasus (challenge) rekrutmen IT berdasarkan kebutuhan berikut:
+Perusahaan: ${companyName}
+Kategori Pekerjaan: ${category}
+Tingkat Kesulitan: ${difficulty}
+Kebutuhan Khusus / Prompt: "${promptStr}"
+
+Berikan respons dalam format JSON persis dengan struktur ini:
+{
+  "title": "Judul studi kasus yang menarik dan profesional (maks 60 karakter)",
+  "summary": "Ringkasan singkat tentang tantangan ini (maks 150 karakter)",
+  "description": "Deskripsi rinci menggunakan format Markdown (### Latar Belakang Bisnis, ### Objektif & Target, ### Batasan & Persyaratan)",
+  "rubric": {
+    "kriteria_1": 40,
+    "kriteria_2": 30,
+    "kriteria_3": 30
+  }
+}
+Pastikan total nilai pada rubric persis 100.`;
+
+    if (this.gemini) {
+      try {
+        const model = this.gemini.getGenerativeModel({
+          model: 'gemini-1.5-flash-latest',
+          generationConfig: { responseMimeType: 'application/json' },
+        });
+
+        const result = await model.generateContent(prompt);
+        const resultJson = JSON.parse(result.response.text());
+        this.logger.log(`Berhasil men-generate challenge via Gemini.`);
+        return resultJson;
+      } catch (geminiErr: any) {
+        this.logger.error('Gemini generate challenge gagal: ' + geminiErr.message);
+      }
+    }
+
+    if (this.openai) {
+      try {
+        const response = await this.openai.chat.completions.create({
+          model: 'gpt-4o',
+          messages: [{ role: 'system', content: prompt }],
+          response_format: { type: 'json_object' },
+        });
+
+        const resultJson = JSON.parse(response.choices[0].message.content || '{}');
+        this.logger.log(`Berhasil men-generate challenge via OpenAI.`);
+        return resultJson;
+      } catch (error: any) {
+        this.logger.error('OpenAI generate challenge gagal: ' + error.message);
+      }
+    }
+
+    // Deterministic fallback if API fails
+    return {
+      title: `Studi Kasus Otomatis: ${category} - ${difficulty}`,
+      summary: `Tantangan penyelesaian studi kasus otomatis untuk menguji keahlian ${difficulty} di bidang ${category}. Berdasarkan kebutuhan: "${promptStr}".`,
+      description: `### Latar Belakang Bisnis\n${companyName} sedang menghadapi tantangan terkait: ${promptStr}.\n\n### Objektif & Target\nKandidat diharapkan mampu merancang dan mendemonstrasikan solusi nyata yang efisien, skalabel, dan siap diimplementasikan.\n\n### Batasan & Persyaratan\n- Harus mengikuti arsitektur modern.\n- Performa tinggi dengan latensi minimal.\n- Kode terdokumentasi dengan baik.`,
+      rubric: {
+        code_architecture: 40,
+        problem_solving: 35,
+        system_scalability: 25,
+      }
+    };
+  }
+
   async verifyKtpAndSelfie(selfieUrl: string, ktpUrl: string): Promise<KycVerificationResult | null> {
     this.logger.log('[PROTOTYPE MODE] Menggunakan data mock sukses untuk verifikasi KTP dan Wajah...');
     

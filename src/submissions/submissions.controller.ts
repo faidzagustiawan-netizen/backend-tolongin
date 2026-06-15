@@ -101,6 +101,17 @@ export class SubmissionsController {
   }
 
   @ApiOperation({
+    summary: 'Mendapatkan daftar challenge beserta statistik submisi untuk company',
+  })
+  @ApiResponse({ status: 200, description: 'Daftar challenge dan statistik submisi.' })
+  @Roles(Role.COMPANY, Role.ADMIN)
+  @Get('challenge-stats')
+  async getChallengeStats(@Request() req: any) {
+    const companyId = req.user.profileId;
+    return this.submissionsService.getChallengeStats(companyId);
+  }
+
+  @ApiOperation({
     summary:
       'Memberikan penilaian akhir rekruter dan menerbitkan portofolio otomatis',
   })

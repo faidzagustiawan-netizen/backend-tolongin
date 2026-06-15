@@ -1,17 +1,24 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { AiService } from '../ai/ai.service';
+import { TokensService } from '../tokens/tokens.service';
 import { CreateChallengeDto } from './dto/create-challenge.dto';
 import { GenerateAiChallengeDto } from './dto/generate-ai-challenge.dto';
 import {
   ChallengeCategory,
   ChallengeDifficulty,
   ChallengeStatus,
+  ChallengeType,
   Prisma,
 } from '@prisma/client';
 
 @Injectable()
 export class ChallengesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly aiService: AiService,
+    private readonly tokensService: TokensService,
+  ) {}
 
   async create(companyId: string, createChallengeDto: CreateChallengeDto) {
     const slug = this.generateSlug(createChallengeDto.title);
@@ -43,6 +50,57 @@ export class ChallengesService {
         status: createChallengeDto.status ?? ChallengeStatus.PUBLISHED,
         createdByAi: createChallengeDto.createdByAi ?? false,
         aiPromptUsed: createChallengeDto.aiPromptUsed,
+        challengeType: ChallengeType.COMPANY,
+      },
+    });
+  }
+
+  async createPublic(userId: string, createChallengeDto: CreateChallengeDto) {
+    const PUBLIC_CHALLENGE_COST = 50;
+    
+    // Deduct tokens
+    await this.tokensService.spendTokens(
+      userId, 
+      PUBLIC_CHALLENGE_COST, 
+      `Membuat Public Challenge: ${createChallengeDto.title}`
+    );
+
+    const talentProfile = await this.prisma.talentProfile.findUnique({
+      where: { userId }
+    });
+
+    if (!talentProfile) {
+      throw new NotFoundException('Profil Talenta tidak ditemukan');
+    }
+
+    const slug = this.generateSlug(createChallengeDto.title);
+
+    const defaultRubric = {
+      completeness: 30,
+      quality: 40,
+      efficiency: 30,
+    };
+
+    return this.prisma.challenge.create({
+      data: {
+        talentId: talentProfile.id,
+        title: createChallengeDto.title,
+        slug,
+        summary: createChallengeDto.summary,
+        description: createChallengeDto.description,
+        category: createChallengeDto.category,
+        difficulty: createChallengeDto.difficulty,
+        datasetUrl: createChallengeDto.datasetUrl,
+        mockApiUrl: createChallengeDto.mockApiUrl,
+        brandGuidelineUrl: createChallengeDto.brandGuidelineUrl,
+        gradingRubric: createChallengeDto.gradingRubric ?? defaultRubric,
+        rewardDescription: createChallengeDto.rewardDescription,
+        deadlineAt: createChallengeDto.deadlineAt ? new Date(createChallengeDto.deadlineAt) : null,
+        isPrivate: createChallengeDto.isPrivate ?? false,
+        status: createChallengeDto.status ?? ChallengeStatus.PUBLISHED,
+        createdByAi: createChallengeDto.createdByAi ?? false,
+        aiPromptUsed: createChallengeDto.aiPromptUsed,
+        challengeType: ChallengeType.PUBLIC,
       },
     });
   }
@@ -84,7 +142,7 @@ export class ChallengesService {
       where,
       include: {
         company: {
-          select: { companyName: true, logoUrl: true, industry: true },
+          select: { companyName: true, logoUrl: true, industry: true, trustScore: true },
         },
       },
       orderBy: { createdAt: 'desc' },
@@ -121,30 +179,72 @@ export class ChallengesService {
       throw new NotFoundException('Profil Perusahaan tidak ditemukan');
     }
 
-    const generatedTitle = `AI Case: ${dto.category} Challenge for ${company.companyName}`;
-    const generatedSummary = `Tantangan penyelesaian studi kasus otomatis berbasis AI untuk menguji keahlian ${dto.difficulty} di bidang ${dto.category}. Berdasarkan kebutuhan: "${dto.prompt}".`;
-    const generatedDescription = `### Latar Belakang Bisnis\n${company.companyName} sedang menghadapi tantangan strategis terkait: ${dto.prompt}.\n\n### Objektif & Target\nKandidat diharapkan mampu merancang dan mendemonstrasikan solusi nyata yang efisien, skalabel, dan siap diimplementasikan dalam ekosistem industri.\n\n### Batasan & Persyaratan\n- Harus mengikuti arsitektur modern.\n- Performa tinggi dengan latensi minimal.\n- Kode/Sistem terdokumentasi dengan baik.`;
-
-    const rubric = {
-      code_architecture: 40,
-      problem_solving: 35,
-      system_scalability: 25,
-    };
+    const aiContent = await this.aiService.generateChallengeContent(
+      dto.prompt,
+      dto.category,
+      dto.difficulty,
+      company.companyName
+    );
 
     const newChallenge = await this.prisma.challenge.create({
       data: {
         companyId,
-        title: generatedTitle,
-        slug: this.generateSlug(generatedTitle),
-        summary: generatedSummary,
-        description: generatedDescription,
+        title: aiContent.title,
+        slug: this.generateSlug(aiContent.title),
+        summary: aiContent.summary,
+        description: aiContent.description,
         category: dto.category,
         difficulty: dto.difficulty,
-        datasetUrl: 'https://storage.tolongin.co/dummy/dataset-sample.json',
-        gradingRubric: rubric,
+        gradingRubric: aiContent.rubric,
         status: ChallengeStatus.DRAFT,
         createdByAi: true,
         aiPromptUsed: dto.prompt,
+        challengeType: ChallengeType.COMPANY,
+      },
+    });
+
+    return newChallenge;
+  }
+
+  async generateAiPublicChallenge(userId: string, dto: GenerateAiChallengeDto) {
+    const PUBLIC_CHALLENGE_COST = 50;
+
+    // Deduct tokens
+    await this.tokensService.spendTokens(
+      userId, 
+      PUBLIC_CHALLENGE_COST, 
+      `AI Generate Public Challenge: ${dto.category}`
+    );
+
+    const talent = await this.prisma.talentProfile.findUnique({
+      where: { userId },
+    });
+
+    if (!talent) {
+      throw new NotFoundException('Profil Talenta tidak ditemukan');
+    }
+
+    const aiContent = await this.aiService.generateChallengeContent(
+      dto.prompt,
+      dto.category,
+      dto.difficulty,
+      'Komunitas / Public'
+    );
+
+    const newChallenge = await this.prisma.challenge.create({
+      data: {
+        talentId: talent.id,
+        title: aiContent.title,
+        slug: this.generateSlug(aiContent.title),
+        summary: aiContent.summary,
+        description: aiContent.description,
+        category: dto.category,
+        difficulty: dto.difficulty,
+        gradingRubric: aiContent.rubric,
+        status: ChallengeStatus.DRAFT,
+        createdByAi: true,
+        aiPromptUsed: dto.prompt,
+        challengeType: ChallengeType.PUBLIC,
       },
     });
 
