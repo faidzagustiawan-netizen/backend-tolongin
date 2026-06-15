@@ -150,10 +150,10 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
       );
     }
 
-    let aiScore = null;
-    let aiPlagiarismScore = null;
-    let aiCorrectionSummary = null;
-    let initialStatus = SubmissionStatus.UNDER_REVIEW;
+    let aiScore: number | null = null;
+    let aiPlagiarismScore: number | null = null;
+    let aiCorrectionSummary: string | null = null;
+    let initialStatus: SubmissionStatus = SubmissionStatus.UNDER_REVIEW;
 
     const isCompanyChallenge = enrollment.challenge.challengeType === 'COMPANY';
     const companyTier = enrollment.challenge.company?.subscriptionTier;
@@ -220,7 +220,7 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
         (s) => s.status === SubmissionStatus.PENDING_AI || s.status === SubmissionStatus.UNDER_REVIEW
       );
       
-      let nearestSlaDate = null;
+      let nearestSlaDate: Date | null = null;
       if (unreviewedSubmissions.length > 0) {
         const oldest = unreviewedSubmissions.reduce((a, b) => (a.createdAt < b.createdAt ? a : b));
         const deadline = new Date(oldest.createdAt);
