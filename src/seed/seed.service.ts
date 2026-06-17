@@ -59,16 +59,16 @@ export class SeedService {
 
     // 2. Buat Akun Perusahaan (10 Perusahaan)
     const companyUsersData = [
-      { email: 'hr@goto.com', companyName: 'GoTo Group', industry: 'Tech', subscriptionTier: SubscriptionTier.KONGLOMERAT, companySize: '10,000+', logoUrl: 'https://logo.clearbit.com/gotocompany.com' },
-      { email: 'hr@traveloka.com', companyName: 'Traveloka', industry: 'Travel', subscriptionTier: SubscriptionTier.KONGLOMERAT, companySize: '5,000+', logoUrl: 'https://logo.clearbit.com/traveloka.com' },
-      { email: 'hr@efishery.com', companyName: 'eFishery', industry: 'Agritech', subscriptionTier: SubscriptionTier.STARTUP, companySize: '1,000+', logoUrl: 'https://logo.clearbit.com/efishery.com' },
-      { email: 'hr@shopee.com', companyName: 'Shopee', industry: 'E-Commerce', subscriptionTier: SubscriptionTier.KONGLOMERAT, companySize: '10,000+', logoUrl: 'https://logo.clearbit.com/shopee.com' },
-      { email: 'hr@grab.com', companyName: 'Grab', industry: 'Tech', subscriptionTier: SubscriptionTier.CUSTOM, companySize: '10,000+', logoUrl: 'https://logo.clearbit.com/grab.com' },
-      { email: 'hr@bukalapak.com', companyName: 'Bukalapak', industry: 'E-Commerce', subscriptionTier: SubscriptionTier.KONGLOMERAT, companySize: '2,000+', logoUrl: 'https://logo.clearbit.com/bukalapak.com' },
-      { email: 'hr@ruangguru.com', companyName: 'Ruangguru', industry: 'EdTech', subscriptionTier: SubscriptionTier.STARTUP, companySize: '1,000+', logoUrl: 'https://logo.clearbit.com/ruangguru.com' },
-      { email: 'hr@bca.co.id', companyName: 'BCA', industry: 'Banking', subscriptionTier: SubscriptionTier.CUSTOM, companySize: '20,000+', logoUrl: 'https://logo.clearbit.com/bca.co.id' },
-      { email: 'hr@telkomsel.com', companyName: 'Telkomsel', industry: 'Telecommunications', subscriptionTier: SubscriptionTier.KONGLOMERAT, companySize: '5,000+', logoUrl: 'https://logo.clearbit.com/telkomsel.com' },
-      { email: 'hr@tiket.com', companyName: 'Tiket.com', industry: 'Travel', subscriptionTier: SubscriptionTier.STARTUP, companySize: '1,000+', logoUrl: 'https://logo.clearbit.com/tiket.com' },
+      { email: 'hr@goto.com', companyName: 'GoTo Group', industry: 'Tech', subscriptionTier: SubscriptionTier.KONGLOMERAT, companySize: '10,000+', logoUrl: 'https://api.dicebear.com/7.x/initials/svg?seed=GoTo' },
+      { email: 'hr@traveloka.com', companyName: 'Traveloka', industry: 'Travel', subscriptionTier: SubscriptionTier.KONGLOMERAT, companySize: '5,000+', logoUrl: 'https://api.dicebear.com/7.x/initials/svg?seed=Traveloka' },
+      { email: 'hr@efishery.com', companyName: 'eFishery', industry: 'Agritech', subscriptionTier: SubscriptionTier.STARTUP, companySize: '1,000+', logoUrl: 'https://api.dicebear.com/7.x/initials/svg?seed=eFishery' },
+      { email: 'hr@shopee.com', companyName: 'Shopee', industry: 'E-Commerce', subscriptionTier: SubscriptionTier.KONGLOMERAT, companySize: '10,000+', logoUrl: 'https://api.dicebear.com/7.x/initials/svg?seed=Shopee' },
+      { email: 'hr@grab.com', companyName: 'Grab', industry: 'Tech', subscriptionTier: SubscriptionTier.CUSTOM, companySize: '10,000+', logoUrl: 'https://api.dicebear.com/7.x/initials/svg?seed=Grab' },
+      { email: 'hr@bukalapak.com', companyName: 'Bukalapak', industry: 'E-Commerce', subscriptionTier: SubscriptionTier.KONGLOMERAT, companySize: '2,000+', logoUrl: 'https://api.dicebear.com/7.x/initials/svg?seed=Bukalapak' },
+      { email: 'hr@ruangguru.com', companyName: 'Ruangguru', industry: 'EdTech', subscriptionTier: SubscriptionTier.STARTUP, companySize: '1,000+', logoUrl: 'https://api.dicebear.com/7.x/initials/svg?seed=Ruangguru' },
+      { email: 'hr@bca.co.id', companyName: 'BCA', industry: 'Banking', subscriptionTier: SubscriptionTier.CUSTOM, companySize: '20,000+', logoUrl: 'https://api.dicebear.com/7.x/initials/svg?seed=BCA' },
+      { email: 'hr@telkomsel.com', companyName: 'Telkomsel', industry: 'Telecommunications', subscriptionTier: SubscriptionTier.KONGLOMERAT, companySize: '5,000+', logoUrl: 'https://api.dicebear.com/7.x/initials/svg?seed=Telkomsel' },
+      { email: 'hr@tiket.com', companyName: 'Tiket.com', industry: 'Travel', subscriptionTier: SubscriptionTier.STARTUP, companySize: '1,000+', logoUrl: 'https://api.dicebear.com/7.x/initials/svg?seed=Tiket' },
     ];
 
     const companyProfiles: Record<string, any> = {};
