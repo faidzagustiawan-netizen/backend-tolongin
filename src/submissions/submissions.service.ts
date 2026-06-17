@@ -196,6 +196,13 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
           aiCorrectionSummary,
           aiScore,
           status: initialStatus,
+          componentResponses: dto.responses?.length > 0 ? {
+            create: dto.responses.map(r => ({
+              componentId: r.componentId,
+              textValue: r.textValue,
+              fileUrl: r.fileUrl,
+            }))
+          } : undefined,
         },
       });
 
@@ -263,6 +270,9 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
         challenge: {
           select: { title: true, difficulty: true, category: true },
         },
+        componentResponses: {
+          include: { component: true },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -275,9 +285,12 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
         challenge: {
           include: {
             company: { select: { companyName: true, logoUrl: true } },
+            components: { orderBy: { order: 'asc' } },
           },
         },
-        submissions: true,
+        submissions: {
+          include: { componentResponses: true },
+        },
       },
       orderBy: { updatedAt: 'desc' },
     });

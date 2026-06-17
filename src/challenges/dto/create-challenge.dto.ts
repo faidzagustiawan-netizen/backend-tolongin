@@ -5,12 +5,44 @@ import {
   IsString,
   IsBoolean,
   IsObject,
+  IsArray,
+  ValidateNested,
+  IsNumber,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import {
   ChallengeCategory,
   ChallengeDifficulty,
   ChallengeStatus,
+  ComponentType,
 } from '@prisma/client';
+
+export class ChallengeComponentDto {
+  @IsEnum(ComponentType)
+  type: ComponentType;
+
+  @IsString()
+  @IsNotEmpty()
+  question: string;
+
+  @IsString()
+  @IsOptional()
+  description?: string;
+
+  @IsOptional()
+  options?: any;
+
+  @IsOptional()
+  metadata?: any;
+
+  @IsNumber()
+  @IsOptional()
+  points?: number;
+
+  @IsNumber()
+  @IsOptional()
+  order?: number;
+}
 
 export class CreateChallengeDto {
   @IsString()
@@ -70,4 +102,10 @@ export class CreateChallengeDto {
   @IsString()
   @IsOptional()
   aiPromptUsed?: string;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ChallengeComponentDto)
+  @IsOptional()
+  components?: ChallengeComponentDto[];
 }

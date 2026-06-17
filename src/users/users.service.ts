@@ -139,6 +139,7 @@ export class UsersService {
           ktpNik: dto.ktpNik !== undefined ? dto.ktpNik : undefined,
           resumeUrl: dto.resumeUrl !== undefined ? dto.resumeUrl : undefined,
           avatarUrl: dto.avatarUrl !== undefined ? dto.avatarUrl : undefined,
+          biometricFeatureVector: dto.biometricFeatureVector !== undefined ? dto.biometricFeatureVector : undefined,
         },
       });
     }

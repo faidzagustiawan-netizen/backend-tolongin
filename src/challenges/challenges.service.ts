@@ -51,6 +51,17 @@ export class ChallengesService {
         createdByAi: createChallengeDto.createdByAi ?? false,
         aiPromptUsed: createChallengeDto.aiPromptUsed,
         challengeType: ChallengeType.COMPANY,
+        components: createChallengeDto.components?.length > 0 ? {
+          create: createChallengeDto.components.map(c => ({
+            type: c.type,
+            question: c.question,
+            description: c.description,
+            options: c.options || undefined,
+            metadata: c.metadata || undefined,
+            points: c.points ?? 10,
+            order: c.order ?? 0,
+          }))
+        } : undefined,
       },
     });
   }
@@ -101,6 +112,17 @@ export class ChallengesService {
         createdByAi: createChallengeDto.createdByAi ?? false,
         aiPromptUsed: createChallengeDto.aiPromptUsed,
         challengeType: ChallengeType.PUBLIC,
+        components: createChallengeDto.components?.length > 0 ? {
+          create: createChallengeDto.components.map(c => ({
+            type: c.type,
+            question: c.question,
+            description: c.description,
+            options: c.options || undefined,
+            metadata: c.metadata || undefined,
+            points: c.points ?? 10,
+            order: c.order ?? 0,
+          }))
+        } : undefined,
       },
     });
   }
@@ -156,6 +178,9 @@ export class ChallengesService {
       },
       include: {
         company: true,
+        components: {
+          orderBy: { order: 'asc' },
+        },
         discussions: {
           include: { user: { select: { email: true, role: true } } },
           orderBy: { createdAt: 'asc' },

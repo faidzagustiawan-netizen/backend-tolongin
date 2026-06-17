@@ -1,4 +1,19 @@
-import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, IsArray, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
+
+export class ComponentResponseDto {
+  @IsString()
+  @IsNotEmpty()
+  componentId: string;
+
+  @IsString()
+  @IsOptional()
+  textValue?: string;
+
+  @IsString()
+  @IsOptional()
+  fileUrl?: string;
+}
 
 export class SubmitSolutionDto {
   @IsString()
@@ -24,4 +39,10 @@ export class SubmitSolutionDto {
   @IsString()
   @IsOptional()
   notes?: string;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ComponentResponseDto)
+  @IsOptional()
+  responses?: ComponentResponseDto[];
 }
