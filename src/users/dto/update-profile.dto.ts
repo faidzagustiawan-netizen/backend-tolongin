@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsArray } from 'class-validator';
+import { IsOptional, IsString, IsArray, IsNumber } from 'class-validator';
 
 export class UpdateProfileDto {
   // Company Fields
@@ -57,6 +57,7 @@ export class UpdateProfileDto {
   figmaUrl?: string;
 
   @IsArray()
+  @IsNumber({}, { each: true })
   @IsOptional()
   biometricFeatureVector?: number[];
 
