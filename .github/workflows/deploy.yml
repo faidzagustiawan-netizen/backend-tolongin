@@ -18,19 +18,15 @@ jobs:
             # 1. Pindah ke folder project kamu di VPS
             cd ~/backend-tolongin
             
-            # 2. Load NVM agar Node dan pnpm dikenali
+            # 2. Load NVM agar Node, pnpm, dan PM2 otomatis dikenali
             export NVM_DIR="$HOME/.nvm"
             [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
             
-            # 3. Daftarkan jalur global pnpm agar PM2 dikenali
-            export PNPM_HOME="$HOME/.local/share/pnpm"
-            export PATH="$PNPM_HOME:$PATH"
-            
-            # 4. Ambil pembaruan kode terbaru dari GitHub
+            # 3. Ambil pembaruan kode terbaru dari GitHub
             git pull origin main
             
-            # 5. Install dependencies menggunakan pnpm
+            # 4. Install dependencies menggunakan pnpm
             pnpm install --frozen-lockfile
             
-            # 6. Restart aplikasi menggunakan PM2
+            # 5. Restart aplikasi menggunakan PM2
             pm2 restart tolongin
