@@ -16,17 +16,21 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
             # 1. Pindah ke folder project kamu di VPS
-            cd ~/backend-tolongin # GANTI dengan nama folder aslimu di VPS
+            cd ~/backend-tolongin
             
-            # 2. Load NVM agar pnpm dan pm2 dikenali oleh GitHub Actions
+            # 2. Load NVM agar Node dan pnpm dikenali
             export NVM_DIR="$HOME/.nvm"
             [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
             
-            # 3. Ambil pembaruan kode terbaru dari GitHub
+            # 3. Daftarkan jalur global pnpm agar PM2 dikenali
+            export PNPM_HOME="$HOME/.local/share/pnpm"
+            export PATH="$PNPM_HOME:$PATH"
+            
+            # 4. Ambil pembaruan kode terbaru dari GitHub
             git pull origin main
             
-            # 4. Install dependencies menggunakan pnpm
+            # 5. Install dependencies menggunakan pnpm
             pnpm install --frozen-lockfile
             
-            # 5. Restart aplikasi menggunakan PM2
-            pm2 restart tolongin # GANTI dengan nama aplikasimu di pm2 list
+            # 6. Restart aplikasi menggunakan PM2
+            pm2 restart tolongin
