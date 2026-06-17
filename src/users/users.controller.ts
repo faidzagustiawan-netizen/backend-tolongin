@@ -1,4 +1,4 @@
-import { Controller, Get, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, UseGuards, Patch, Body, Request } from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
@@ -7,6 +7,7 @@ import {
 } from '@nestjs/swagger';
 import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 
 @ApiTags('User & Profile Management')
 @Controller('users')
@@ -25,6 +26,23 @@ export class UsersController {
   async getProfile(@Param('id') id: string) {
     const user = await this.usersService.findById(id);
     const { passwordHash, ...safeUser } = user;
+    return safeUser;
+  }
+
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Memperbarui profil pengguna saat ini',
+  })
+  @ApiResponse({ status: 200, description: 'Profil berhasil diperbarui.' })
+  @UseGuards(JwtAuthGuard)
+  @Patch('me/profile')
+  async updateProfile(
+    @Request() req: any,
+    @Body() dto: UpdateProfileDto,
+  ) {
+    const userId = req.user.id;
+    const updatedUser = await this.usersService.updateProfile(userId, dto);
+    const { passwordHash, ...safeUser } = updatedUser;
     return safeUser;
   }
 }

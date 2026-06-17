@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 import * as bcrypt from 'bcrypt';
 import { Role } from '@prisma/client';
 
@@ -101,5 +102,47 @@ export class UsersService {
     }
 
     return user;
+  }
+  async updateProfile(userId: string, dto: UpdateProfileDto) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { talentProfile: true, companyProfile: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Pengguna tidak ditemukan');
+    }
+
+    if (user.role === Role.COMPANY && user.companyProfile) {
+      await this.prisma.companyProfile.update({
+        where: { userId },
+        data: {
+          companyName: dto.companyName !== undefined ? dto.companyName : undefined,
+          industry: dto.industry !== undefined ? dto.industry : undefined,
+          companySize: dto.companySize !== undefined ? dto.companySize : undefined,
+          websiteUrl: dto.websiteUrl !== undefined ? dto.websiteUrl : undefined,
+          description: dto.description !== undefined ? dto.description : undefined,
+          logoUrl: dto.logoUrl !== undefined ? dto.logoUrl : undefined,
+        },
+      });
+    } else if (user.role === Role.TALENT && user.talentProfile) {
+      await this.prisma.talentProfile.update({
+        where: { userId },
+        data: {
+          fullName: dto.fullName !== undefined ? dto.fullName : undefined,
+          headline: dto.headline !== undefined ? dto.headline : undefined,
+          bio: dto.bio !== undefined ? dto.bio : undefined,
+          skills: dto.skills !== undefined ? dto.skills : undefined,
+          githubUrl: dto.githubUrl !== undefined ? dto.githubUrl : undefined,
+          linkedinUrl: dto.linkedinUrl !== undefined ? dto.linkedinUrl : undefined,
+          figmaUrl: dto.figmaUrl !== undefined ? dto.figmaUrl : undefined,
+          ktpNik: dto.ktpNik !== undefined ? dto.ktpNik : undefined,
+          resumeUrl: dto.resumeUrl !== undefined ? dto.resumeUrl : undefined,
+          avatarUrl: dto.avatarUrl !== undefined ? dto.avatarUrl : undefined,
+        },
+      });
+    }
+
+    return this.findById(userId);
   }
 }
