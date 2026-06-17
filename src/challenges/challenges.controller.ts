@@ -4,6 +4,7 @@ import {
   Get,
   Param,
   Post,
+  Patch,
   Query,
   Request,
   UseGuards,
@@ -60,12 +61,14 @@ export class ChallengesController {
     @Query('difficulty') difficulty?: ChallengeDifficulty,
     @Query('search') search?: string,
     @Query('companyId') companyId?: string,
+    @Query('includeDrafts') includeDrafts?: string,
   ) {
     return this.challengesService.findAll({
       category,
       difficulty,
       search,
       companyId,
+      includeDrafts,
     });
   }
 
@@ -104,6 +107,22 @@ export class ChallengesController {
       const companyId = req.user.profileId;
       return this.challengesService.create(companyId, createChallengeDto);
     }
+  }
+
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Memperbarui challenge (khusus status DRAFT)',
+  })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.COMPANY, Role.ADMIN)
+  @Patch(':id')
+  async update(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Body() updateDto: Partial<CreateChallengeDto>,
+  ) {
+    const companyId = req.user.profileId;
+    return this.challengesService.updateChallenge(id, companyId, updateDto);
   }
 
   @ApiBearerAuth('JWT-auth')

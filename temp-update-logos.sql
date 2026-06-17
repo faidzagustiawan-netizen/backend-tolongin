@@ -1,0 +1,10 @@
+UPDATE company_profiles SET "logoUrl" = 'https://api.dicebear.com/7.x/initials/svg?seed=GoTo' WHERE "logoUrl" = 'https://logo.clearbit.com/gotocompany.com';
+UPDATE company_profiles SET "logoUrl" = 'https://api.dicebear.com/7.x/initials/svg?seed=Traveloka' WHERE "logoUrl" = 'https://logo.clearbit.com/traveloka.com';
+UPDATE company_profiles SET "logoUrl" = 'https://api.dicebear.com/7.x/initials/svg?seed=eFishery' WHERE "logoUrl" = 'https://logo.clearbit.com/efishery.com';
+UPDATE company_profiles SET "logoUrl" = 'https://api.dicebear.com/7.x/initials/svg?seed=Shopee' WHERE "logoUrl" = 'https://logo.clearbit.com/shopee.com';
+UPDATE company_profiles SET "logoUrl" = 'https://api.dicebear.com/7.x/initials/svg?seed=Grab' WHERE "logoUrl" = 'https://logo.clearbit.com/grab.com';
+UPDATE company_profiles SET "logoUrl" = 'https://api.dicebear.com/7.x/initials/svg?seed=Bukalapak' WHERE "logoUrl" = 'https://logo.clearbit.com/bukalapak.com';
+UPDATE company_profiles SET "logoUrl" = 'https://api.dicebear.com/7.x/initials/svg?seed=Ruangguru' WHERE "logoUrl" = 'https://logo.clearbit.com/ruangguru.com';
+UPDATE company_profiles SET "logoUrl" = 'https://api.dicebear.com/7.x/initials/svg?seed=BCA' WHERE "logoUrl" = 'https://logo.clearbit.com/bca.co.id';
+UPDATE company_profiles SET "logoUrl" = 'https://api.dicebear.com/7.x/initials/svg?seed=Telkomsel' WHERE "logoUrl" = 'https://logo.clearbit.com/telkomsel.com';
+UPDATE company_profiles SET "logoUrl" = 'https://api.dicebear.com/7.x/initials/svg?seed=Tiket' WHERE "logoUrl" = 'https://logo.clearbit.com/tiket.com';

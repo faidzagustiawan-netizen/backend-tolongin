@@ -126,21 +126,27 @@ export class UsersService {
         },
       });
     } else if (user.role === Role.TALENT && user.talentProfile) {
+      const updateData: any = {
+        fullName: dto.fullName !== undefined ? dto.fullName : undefined,
+        headline: dto.headline !== undefined ? dto.headline : undefined,
+        bio: dto.bio !== undefined ? dto.bio : undefined,
+        skills: dto.skills !== undefined ? dto.skills : undefined,
+        githubUrl: dto.githubUrl !== undefined ? dto.githubUrl : undefined,
+        linkedinUrl: dto.linkedinUrl !== undefined ? dto.linkedinUrl : undefined,
+        figmaUrl: dto.figmaUrl !== undefined ? dto.figmaUrl : undefined,
+        ktpNik: dto.ktpNik !== undefined ? dto.ktpNik : undefined,
+        resumeUrl: dto.resumeUrl !== undefined ? dto.resumeUrl : undefined,
+        avatarUrl: dto.avatarUrl !== undefined ? dto.avatarUrl : undefined,
+        biometricFeatureVector: dto.biometricFeatureVector !== undefined ? dto.biometricFeatureVector : undefined,
+      };
+
+      if (dto.biometricFeatureVector) {
+        updateData.faceVerificationStatus = 'VERIFIED';
+      }
+
       await this.prisma.talentProfile.update({
         where: { userId },
-        data: {
-          fullName: dto.fullName !== undefined ? dto.fullName : undefined,
-          headline: dto.headline !== undefined ? dto.headline : undefined,
-          bio: dto.bio !== undefined ? dto.bio : undefined,
-          skills: dto.skills !== undefined ? dto.skills : undefined,
-          githubUrl: dto.githubUrl !== undefined ? dto.githubUrl : undefined,
-          linkedinUrl: dto.linkedinUrl !== undefined ? dto.linkedinUrl : undefined,
-          figmaUrl: dto.figmaUrl !== undefined ? dto.figmaUrl : undefined,
-          ktpNik: dto.ktpNik !== undefined ? dto.ktpNik : undefined,
-          resumeUrl: dto.resumeUrl !== undefined ? dto.resumeUrl : undefined,
-          avatarUrl: dto.avatarUrl !== undefined ? dto.avatarUrl : undefined,
-          biometricFeatureVector: dto.biometricFeatureVector !== undefined ? dto.biometricFeatureVector : undefined,
-        },
+        data: updateData,
       });
     }
 

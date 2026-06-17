@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiService } from '../ai/ai.service';
 import { TokensService } from '../tokens/tokens.service';
@@ -21,6 +21,22 @@ export class ChallengesService {
   ) {}
 
   async create(companyId: string, createChallengeDto: CreateChallengeDto) {
+    const company = await this.prisma.companyProfile.findUnique({
+      where: { id: companyId },
+    });
+    if (!company) throw new NotFoundException('Perusahaan tidak ditemukan');
+
+    const activeCount = await this.prisma.challenge.count({
+      where: { companyId, status: { in: [ChallengeStatus.DRAFT, ChallengeStatus.PUBLISHED] } }
+    });
+
+    if (company.subscriptionTier === 'STARTUP' && activeCount >= 1) {
+      throw new ForbiddenException('Paket Murah hanya mengizinkan 1 studi kasus aktif/draf. Silakan tingkatkan langganan Anda.');
+    }
+    if (company.subscriptionTier === 'KONGLOMERAT' && activeCount >= 5) {
+      throw new ForbiddenException('Paket Pro hanya mengizinkan 5 studi kasus aktif/draf. Silakan tingkatkan langganan Anda.');
+    }
+
     const slug = this.generateSlug(createChallengeDto.title);
 
     const defaultRubric = {
@@ -132,11 +148,17 @@ export class ChallengesService {
     difficulty?: ChallengeDifficulty;
     search?: string;
     companyId?: string;
+    includeDrafts?: string;
   }) {
     const where: Prisma.ChallengeWhereInput = {
-      status: ChallengeStatus.PUBLISHED,
       isPrivate: false,
     };
+
+    if (query.includeDrafts === 'true' && query.companyId) {
+      where.status = { in: [ChallengeStatus.PUBLISHED, ChallengeStatus.DRAFT] };
+    } else {
+      where.status = ChallengeStatus.PUBLISHED;
+    }
 
     if (query.category) {
       where.category = query.category;
@@ -148,7 +170,6 @@ export class ChallengesService {
 
     if (query.companyId) {
       where.companyId = query.companyId;
-      delete where.status;
       delete where.isPrivate;
     }
 
@@ -202,6 +223,18 @@ export class ChallengesService {
 
     if (!company) {
       throw new NotFoundException('Profil Perusahaan tidak ditemukan');
+    }
+
+    if (company.subscriptionTier === 'STARTUP') {
+      throw new ForbiddenException('Fitur AI Generator dikunci pada Paket Murah. Silakan tingkatkan langganan Anda.');
+    }
+
+    const activeCount = await this.prisma.challenge.count({
+      where: { companyId, status: { in: [ChallengeStatus.DRAFT, ChallengeStatus.PUBLISHED] } }
+    });
+
+    if (company.subscriptionTier === 'KONGLOMERAT' && activeCount >= 5) {
+      throw new ForbiddenException('Paket Pro hanya mengizinkan 5 studi kasus aktif/draf. Silakan tingkatkan langganan Anda.');
     }
 
     const aiContent = await this.aiService.generateChallengeContent(
@@ -274,6 +307,42 @@ export class ChallengesService {
     });
 
     return newChallenge;
+  }
+
+  async updateChallenge(id: string, companyId: string, updateDto: Partial<CreateChallengeDto>) {
+    const challenge = await this.prisma.challenge.findFirst({
+      where: { id, companyId }
+    });
+
+    if (!challenge) {
+      throw new NotFoundException('Challenge tidak ditemukan');
+    }
+
+    if (challenge.status === ChallengeStatus.PUBLISHED && updateDto.status !== ChallengeStatus.PUBLISHED) {
+      // You can't unpublish or edit a published challenge
+      throw new ForbiddenException('Studi kasus yang sudah diterbitkan tidak dapat diubah lagi.');
+    }
+    
+    if (challenge.status === ChallengeStatus.PUBLISHED) {
+       throw new ForbiddenException('Studi kasus yang sudah diterbitkan tidak dapat diedit. Silakan buat yang baru.');
+    }
+
+    // Now update the challenge
+    return this.prisma.challenge.update({
+      where: { id },
+      data: {
+        title: updateDto.title,
+        summary: updateDto.summary,
+        description: updateDto.description,
+        category: updateDto.category,
+        difficulty: updateDto.difficulty,
+        datasetUrl: updateDto.datasetUrl,
+        mockApiUrl: updateDto.mockApiUrl,
+        brandGuidelineUrl: updateDto.brandGuidelineUrl,
+        rewardDescription: updateDto.rewardDescription,
+        status: updateDto.status,
+      }
+    });
   }
 
   private generateSlug(title: string): string {
