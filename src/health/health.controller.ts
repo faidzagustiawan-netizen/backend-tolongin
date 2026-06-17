@@ -5,6 +5,7 @@ import {
   HealthCheckService,
   MemoryHealthIndicator,
   PrismaHealthIndicator,
+  DiskHealthIndicator,
 } from '@nestjs/terminus';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -16,10 +17,11 @@ export class HealthController {
     private memory: MemoryHealthIndicator,
     private prismaHealth: PrismaHealthIndicator,
     private prismaService: PrismaService,
+    private disk: DiskHealthIndicator,
   ) {}
 
   @ApiOperation({
-    summary: 'Memeriksa kesehatan server (Database, Heap, dan RSS Memory)',
+    summary: 'Memeriksa kesehatan server menyeluruh (Database, Heap, RSS Memory, dan Disk Storage)',
   })
   @ApiResponse({
     status: 200,
@@ -36,6 +38,7 @@ export class HealthController {
       () => this.prismaHealth.pingCheck('database', this.prismaService),
       () => this.memory.checkHeap('memory_heap', 250 * 1024 * 1024),
       () => this.memory.checkRSS('memory_rss', 500 * 1024 * 1024),
+      () => this.disk.checkStorage('disk_storage', { path: process.cwd(), thresholdPercent: 0.9 }),
     ]);
   }
 }
