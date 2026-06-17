@@ -196,7 +196,7 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
           aiCorrectionSummary,
           aiScore,
           status: initialStatus,
-          componentResponses: dto.responses?.length > 0 ? {
+          componentResponses: dto.responses && dto.responses.length > 0 ? {
             create: dto.responses.map(r => ({
               componentId: r.componentId,
               textValue: r.textValue,

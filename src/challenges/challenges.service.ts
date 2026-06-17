@@ -51,7 +51,7 @@ export class ChallengesService {
         createdByAi: createChallengeDto.createdByAi ?? false,
         aiPromptUsed: createChallengeDto.aiPromptUsed,
         challengeType: ChallengeType.COMPANY,
-        components: createChallengeDto.components?.length > 0 ? {
+        components: createChallengeDto.components && createChallengeDto.components.length > 0 ? {
           create: createChallengeDto.components.map(c => ({
             type: c.type,
             question: c.question,
@@ -112,7 +112,7 @@ export class ChallengesService {
         createdByAi: createChallengeDto.createdByAi ?? false,
         aiPromptUsed: createChallengeDto.aiPromptUsed,
         challengeType: ChallengeType.PUBLIC,
-        components: createChallengeDto.components?.length > 0 ? {
+        components: createChallengeDto.components && createChallengeDto.components.length > 0 ? {
           create: createChallengeDto.components.map(c => ({
             type: c.type,
             question: c.question,
