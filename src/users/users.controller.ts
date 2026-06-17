@@ -40,7 +40,7 @@ export class UsersController {
     @Request() req: any,
     @Body() dto: UpdateProfileDto,
   ) {
-    const userId = req.user.id;
+    const userId = req.user.sub;
     const updatedUser = await this.usersService.updateProfile(userId, dto);
     const { passwordHash, ...safeUser } = updatedUser;
     return safeUser;

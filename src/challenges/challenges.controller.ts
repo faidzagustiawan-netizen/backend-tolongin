@@ -99,7 +99,7 @@ export class ChallengesController {
     @Body() createChallengeDto: CreateChallengeDto,
   ) {
     if (req.user.role === Role.TALENT) {
-      return this.challengesService.createPublic(req.user.userId, createChallengeDto);
+      return this.challengesService.createPublic(req.user.sub, createChallengeDto);
     } else {
       const companyId = req.user.profileId;
       return this.challengesService.create(companyId, createChallengeDto);
@@ -124,7 +124,7 @@ export class ChallengesController {
     @Body() dto: GenerateAiChallengeDto,
   ) {
     if (req.user.role === Role.TALENT) {
-      return this.challengesService.generateAiPublicChallenge(req.user.userId, dto);
+      return this.challengesService.generateAiPublicChallenge(req.user.sub, dto);
     } else {
       const companyId = req.user.profileId;
       return this.challengesService.generateAiChallenge(companyId, dto);

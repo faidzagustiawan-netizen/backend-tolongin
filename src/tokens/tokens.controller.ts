@@ -12,18 +12,18 @@ export class TokensController {
   @Get('balance')
   @Roles('TALENT')
   async getBalance(@Request() req: any) {
-    return this.tokensService.getBalance(req.user.id);
+    return this.tokensService.getBalance(req.user.sub);
   }
 
   @Get('history')
   @Roles('TALENT')
   async getHistory(@Request() req: any) {
-    return this.tokensService.getTransactionHistory(req.user.id);
+    return this.tokensService.getTransactionHistory(req.user.sub);
   }
 
   @Post('topup')
   @Roles('TALENT')
   async topUp(@Request() req: any, @Body() body: { amount: number }) {
-    return this.tokensService.topUp(req.user.id, body.amount);
+    return this.tokensService.topUp(req.user.sub, body.amount);
   }
 }
