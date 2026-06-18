@@ -127,11 +127,23 @@ export class SeedService {
     const optId3 = 'opt_3';
     const optId4 = 'opt_4';
 
+    const section1 = await this.prisma.challengeSection.create({
+      data: { challengeId: masterChallenge.id, title: 'Pemahaman Konseptual (Pilihan Ganda & Esai)', order: 1 }
+    });
+
+    const section2 = await this.prisma.challengeSection.create({
+      data: { challengeId: masterChallenge.id, title: 'Live Coding & Praktikal', order: 2 }
+    });
+
+    const section3 = await this.prisma.challengeSection.create({
+      data: { challengeId: masterChallenge.id, title: 'Arsitektur Sistem (File & Video)', order: 3 }
+    });
+
     const components = await Promise.all([
       // 1. Multiple Choice
       this.prisma.challengeComponent.create({
         data: {
-          challengeId: masterChallenge.id, type: ComponentType.MULTIPLE_CHOICE, order: 1, points: 10,
+          challengeId: masterChallenge.id, sectionId: section1.id, type: ComponentType.MULTIPLE_CHOICE, order: 1, points: 10,
           question: 'Manakah dari struktur data berikut yang memberikan kompleksitas waktu pencarian rata-rata O(1)?',
           options: [
             { id: optId1, text: 'Binary Search Tree', isCorrect: false },
@@ -144,14 +156,14 @@ export class SeedService {
       // 2. Essay
       this.prisma.challengeComponent.create({
         data: {
-          challengeId: masterChallenge.id, type: ComponentType.ESSAY, order: 2, points: 20,
+          challengeId: masterChallenge.id, sectionId: section1.id, type: ComponentType.ESSAY, order: 2, points: 20,
           question: 'Jelaskan pendekatan Anda dalam mengatasi masalah "Thundering Herd" pada layanan berbasis microservices yang mengandalkan Redis Cache.',
         }
       }),
       // 3. Live Coding
       this.prisma.challengeComponent.create({
         data: {
-          challengeId: masterChallenge.id, type: ComponentType.LIVE_CODING, order: 3, points: 40,
+          challengeId: masterChallenge.id, sectionId: section2.id, type: ComponentType.LIVE_CODING, order: 3, points: 40,
           question: 'Implementasikan fungsi debounce dalam Javascript tanpa menggunakan library eksternal (Lodash, dsb).',
           metadata: { language: 'javascript' }
         }
@@ -159,7 +171,7 @@ export class SeedService {
       // 4. File Upload
       this.prisma.challengeComponent.create({
         data: {
-          challengeId: masterChallenge.id, type: ComponentType.FILE_UPLOAD, order: 4, points: 15,
+          challengeId: masterChallenge.id, sectionId: section3.id, type: ComponentType.FILE_UPLOAD, order: 4, points: 15,
           question: 'Unggah berkas PDF berisi arsitektur sistem level tinggi (HLD) untuk platform E-Commerce berskala jutaan DAU.',
           description: 'Max 10MB, format .pdf'
         }
@@ -167,7 +179,7 @@ export class SeedService {
       // 5. Video Upload
       this.prisma.challengeComponent.create({
         data: {
-          challengeId: masterChallenge.id, type: ComponentType.VIDEO_UPLOAD, order: 5, points: 15,
+          challengeId: masterChallenge.id, sectionId: section3.id, type: ComponentType.VIDEO_UPLOAD, order: 5, points: 15,
           question: 'Rekam video penjelasan singkat (maks 3 menit) mengenai pilihan teknologi pada HLD yang Anda unggah sebelumnya.',
           description: 'Format .mp4, Max 25MB'
         }

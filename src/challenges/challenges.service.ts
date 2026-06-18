@@ -45,8 +45,11 @@ export class ChallengesService {
       efficiency: 30,
     };
 
+    const challengeId = crypto.randomUUID();
+
     return this.prisma.challenge.create({
       data: {
+        id: challengeId,
         companyId,
         title: createChallengeDto.title,
         slug,
@@ -67,15 +70,23 @@ export class ChallengesService {
         createdByAi: createChallengeDto.createdByAi ?? false,
         aiPromptUsed: createChallengeDto.aiPromptUsed,
         challengeType: ChallengeType.COMPANY,
-        components: createChallengeDto.components && createChallengeDto.components.length > 0 ? {
-          create: createChallengeDto.components.map(c => ({
-            type: c.type,
-            question: c.question,
-            description: c.description,
-            options: c.options || undefined,
-            metadata: c.metadata || undefined,
-            points: c.points ?? 10,
-            order: c.order ?? 0,
+        sections: createChallengeDto.sections && createChallengeDto.sections.length > 0 ? {
+          create: createChallengeDto.sections.map(s => ({
+            title: s.title,
+            description: s.description,
+            order: s.order ?? 0,
+            components: s.components && s.components.length > 0 ? {
+              create: s.components.map(c => ({
+                challengeId: challengeId,
+                type: c.type as any,
+                question: c.question,
+                description: c.description,
+                options: c.options || undefined,
+                metadata: c.metadata || undefined,
+                points: c.points ?? 10,
+                order: c.order ?? 0,
+              }))
+            } : undefined
           }))
         } : undefined,
       },
@@ -108,8 +119,11 @@ export class ChallengesService {
       efficiency: 30,
     };
 
+    const challengeId = crypto.randomUUID();
+
     return this.prisma.challenge.create({
       data: {
+        id: challengeId,
         talentId: talentProfile.id,
         title: createChallengeDto.title,
         slug,
@@ -128,15 +142,23 @@ export class ChallengesService {
         createdByAi: createChallengeDto.createdByAi ?? false,
         aiPromptUsed: createChallengeDto.aiPromptUsed,
         challengeType: ChallengeType.PUBLIC,
-        components: createChallengeDto.components && createChallengeDto.components.length > 0 ? {
-          create: createChallengeDto.components.map(c => ({
-            type: c.type,
-            question: c.question,
-            description: c.description,
-            options: c.options || undefined,
-            metadata: c.metadata || undefined,
-            points: c.points ?? 10,
-            order: c.order ?? 0,
+        sections: createChallengeDto.sections && createChallengeDto.sections.length > 0 ? {
+          create: createChallengeDto.sections.map(s => ({
+            title: s.title,
+            description: s.description,
+            order: s.order ?? 0,
+            components: s.components && s.components.length > 0 ? {
+              create: s.components.map(c => ({
+                challengeId: challengeId,
+                type: c.type as any,
+                question: c.question,
+                description: c.description,
+                options: c.options || undefined,
+                metadata: c.metadata || undefined,
+                points: c.points ?? 10,
+                order: c.order ?? 0,
+              }))
+            } : undefined
           }))
         } : undefined,
       },
@@ -200,6 +222,14 @@ export class ChallengesService {
       include: {
         company: true,
         components: {
+          orderBy: { order: 'asc' },
+        },
+        sections: {
+          include: {
+            components: {
+              orderBy: { order: 'asc' },
+            },
+          },
           orderBy: { order: 'asc' },
         },
         discussions: {
@@ -341,6 +371,26 @@ export class ChallengesService {
         brandGuidelineUrl: updateDto.brandGuidelineUrl,
         rewardDescription: updateDto.rewardDescription,
         status: updateDto.status,
+        sections: updateDto.sections && updateDto.sections.length > 0 ? {
+          deleteMany: {},
+          create: updateDto.sections.map(s => ({
+            title: s.title,
+            description: s.description,
+            order: s.order ?? 0,
+            components: s.components && s.components.length > 0 ? {
+              create: s.components.map(c => ({
+                challengeId: id,
+                type: c.type as any,
+                question: c.question,
+                description: c.description,
+                options: c.options || undefined,
+                metadata: c.metadata || undefined,
+                points: c.points ?? 10,
+                order: c.order ?? 0,
+              }))
+            } : undefined
+          }))
+        } : undefined,
       }
     });
   }

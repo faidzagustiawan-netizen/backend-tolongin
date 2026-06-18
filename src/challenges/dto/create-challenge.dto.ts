@@ -44,6 +44,26 @@ export class ChallengeComponentDto {
   order?: number;
 }
 
+export class ChallengeSectionDto {
+  @IsString()
+  @IsNotEmpty()
+  title: string;
+
+  @IsString()
+  @IsOptional()
+  description?: string;
+
+  @IsNumber()
+  @IsOptional()
+  order?: number;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ChallengeComponentDto)
+  @IsOptional()
+  components?: ChallengeComponentDto[];
+}
+
 export class CreateChallengeDto {
   @IsString()
   @IsNotEmpty({ message: 'Judul challenge tidak boleh kosong' })
@@ -105,7 +125,7 @@ export class CreateChallengeDto {
 
   @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => ChallengeComponentDto)
+  @Type(() => ChallengeSectionDto)
   @IsOptional()
-  components?: ChallengeComponentDto[];
+  sections?: ChallengeSectionDto[];
 }

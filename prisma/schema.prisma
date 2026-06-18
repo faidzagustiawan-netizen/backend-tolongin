@@ -185,8 +185,26 @@ model Challenge {
   submissions Submission[]
   discussions Discussion[]
   components  ChallengeComponent[]
+  sections    ChallengeSection[]
 
   @@map("challenges")
+}
+
+model ChallengeSection {
+  id          String        @id @default(uuid())
+  challengeId String
+  challenge   Challenge     @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  
+  title       String
+  description String?
+  order       Int           @default(0)
+
+  components  ChallengeComponent[]
+
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@map("challenge_sections")
 }
 
 enum ComponentType {
@@ -202,6 +220,9 @@ model ChallengeComponent {
   id          String        @id @default(uuid())
   challengeId String
   challenge   Challenge     @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  
+  sectionId   String?
+  section     ChallengeSection? @relation(fields: [sectionId], references: [id], onDelete: Cascade)
   
   type        ComponentType
   question    String
