@@ -35,7 +35,7 @@ export class PaymentsService {
       price = tokenAmount * 300; 
     }
 
-    const orderId = `topup-${talentId}-${Date.now()}`;
+    const orderId = `topup-${talentId.substring(0, 8)}-${Date.now()}`;
 
     // 1. Simpan PENDING transaction di DB
     const tx = await this.prisma.paymentTransaction.create({
@@ -92,7 +92,7 @@ export class PaymentsService {
   // =====================================
   async createSubscription(companyUserId: string, email: string) {
     const price = 2500000; 
-    const orderId = `sub-${companyUserId}-${Date.now()}`;
+    const orderId = `sub-${companyUserId.substring(0, 8)}-${Date.now()}`;
 
     const tx = await this.prisma.paymentTransaction.create({
       data: {
