@@ -37,6 +37,7 @@ model User {
   discussions       Discussion[]
   notifications     Notification[]
   tokenTransactions TokenTransaction[]
+  paymentTransactions PaymentTransaction[]
 
   @@map("users")
 }
@@ -450,4 +451,39 @@ model TokenTransaction {
   createdAt   DateTime  @default(now())
 
   @@map("token_transactions")
+}
+
+// ==========================================
+// 9. PAYMENT GATEWAY (XENDIT)
+// ==========================================
+
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  EXPIRED
+}
+
+enum PaymentType {
+  TOKEN_TOPUP
+  SUBSCRIPTION
+}
+
+model PaymentTransaction {
+  id              String        @id @default(uuid())
+  userId          String
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  externalId      String        @unique // Xendit external_id
+  checkoutUrl     String?       // Xendit invoice_url
+  amount          Int
+  status          PaymentStatus @default(PENDING)
+  paymentType     PaymentType
+  
+  metadata        Json?         // Untuk menyimpan data spesifik paket (misal: tokenAmount)
+
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@map("payment_transactions")
 }

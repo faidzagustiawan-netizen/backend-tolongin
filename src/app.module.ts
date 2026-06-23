@@ -17,6 +17,7 @@ import { SeedModule } from './seed/seed.module';
 import { StorageModule } from './storage/storage.module';
 import { AiModule } from './ai/ai.module';
 import { TokensModule } from './tokens/tokens.module';
+import { PaymentsModule } from './payments/payments.module';
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { TokensModule } from './tokens/tokens.module';
     StorageModule,
     AiModule,
     TokensModule,
+    PaymentsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
