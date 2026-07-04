@@ -1,6 +1,7 @@
 #!/bin/bash
 echo "Installing Python dependencies for Biometric AI..."
-pip3 install deepface easyocr opencv-python tf-keras --break-system-packages || pip3 install deepface easyocr opencv-python tf-keras
+pip3 uninstall -y opencv-python opencv-python-headless
+pip3 install deepface easyocr opencv-python-headless tf-keras --break-system-packages || pip3 install deepface easyocr opencv-python-headless tf-keras
 
 echo "Pre-downloading EasyOCR and DeepFace models..."
 python3 -c "

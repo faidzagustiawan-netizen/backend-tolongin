@@ -82,7 +82,11 @@ export class AiService {
       const path = require('path');
       const scriptPath = path.resolve(process.cwd(), 'src/ai/python/verify_biometrics.py');
       const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
-      const pythonProcess = exec(`${pythonCmd} "${scriptPath}"`, { maxBuffer: 1024 * 1024 * 50 }, (error: any, stdout: string, stderr: string) => {
+      const execOptions = { 
+        maxBuffer: 1024 * 1024 * 50,
+        env: { ...process.env, CUDA_VISIBLE_DEVICES: "-1", TF_CPP_MIN_LOG_LEVEL: "3" }
+      };
+      const pythonProcess = exec(`${pythonCmd} "${scriptPath}"`, execOptions, (error: any, stdout: string, stderr: string) => {
         if (error) {
           this.logger.error('Error executing Python verify_biometrics script: ' + error.message);
         }
@@ -153,7 +157,7 @@ Berikan penilaian akhir berupa objek JSON dengan struktur persis berikut:
     if (this.gemini) {
       try {
         const model = this.gemini.getGenerativeModel({
-          model: 'gemini-1.5-flash',
+          model: 'gemini-1.5-flash-latest',
           generationConfig: { responseMimeType: 'application/json' },
         });
 
@@ -251,7 +255,7 @@ Berikan penilaian akhir berupa objek JSON dengan struktur persis berikut:
     if (this.gemini) {
       try {
         const model = this.gemini.getGenerativeModel({
-          model: 'gemini-1.5-flash',
+          model: 'gemini-1.5-flash-latest',
           generationConfig: { responseMimeType: 'application/json' },
         });
 
@@ -341,7 +345,7 @@ Tipe komponen yang valid (type) adalah: MULTIPLE_CHOICE, ESSAY, FILE_UPLOAD, VID
     if (this.gemini) {
       try {
         const model = this.gemini.getGenerativeModel({
-          model: 'gemini-1.5-flash',
+          model: 'gemini-1.5-flash-latest',
           generationConfig: { responseMimeType: 'application/json' },
         });
 
@@ -449,7 +453,7 @@ Berikan hasil akhir dalam format JSON persis dengan struktur berikut:
     if (this.gemini) {
       try {
         const model = this.gemini!.getGenerativeModel({
-          model: 'gemini-1.5-flash',
+          model: 'gemini-1.5-flash-latest',
           generationConfig: { responseMimeType: 'application/json' },
         });
 
