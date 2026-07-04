@@ -18,6 +18,7 @@ import { StorageModule } from './storage/storage.module';
 import { AiModule } from './ai/ai.module';
 import { TokensModule } from './tokens/tokens.module';
 import { PaymentsModule } from './payments/payments.module';
+import { CompaniesModule } from './companies/companies.module';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { PaymentsModule } from './payments/payments.module';
     }),
     PrismaModule,
     UsersModule,
+    CompaniesModule,
     AuthModule,
     ChallengesModule,
     SubmissionsModule,

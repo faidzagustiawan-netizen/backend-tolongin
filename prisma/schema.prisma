@@ -136,9 +136,9 @@ enum ChallengeCategory {
 }
 
 enum ChallengeDifficulty {
-  JUNIOR
-  MEDIOR
-  SENIOR
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
 }
 
 enum ChallengeStatus {
@@ -171,6 +171,7 @@ model Challenge {
   // Rubrik Penilaian (Penyimpanan JSON untuk fleksibilitas kriteria)
   gradingRubric     Json
   rewardDescription String?
+  startsAt          DateTime?
   deadlineAt        DateTime?
   isPrivate         Boolean         @default(false)
   status            ChallengeStatus @default(DRAFT)
@@ -264,6 +265,7 @@ model ChallengeEnrollment {
   ndaSignedAt DateTime?
   startedAt   DateTime         @default(now())
   completedAt DateTime?
+  draftData   Json?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

@@ -9,6 +9,16 @@ export interface EvaluationResult {
   aiCorrectionSummary: string;
 }
 
+export interface ComponentEvaluation {
+  componentId: string;
+  score: number;
+  aiFeedback: string;
+}
+
+export interface ComponentEvaluationResult extends EvaluationResult {
+  components: ComponentEvaluation[];
+}
+
 export interface KycVerificationResult {
   isKtpValid: boolean;
   isMatch: boolean;
@@ -107,21 +117,33 @@ export class AiService {
     });
   }
 
-  async evaluateSubmission(
+  async evaluateHolistic(
     challengeTitle: string,
     challengeCategory: string,
     repositoryUrl?: string,
     notes?: string,
+    gradingRubric?: Record<string, number>,
+    candidateAnswers?: string,
   ): Promise<EvaluationResult> {
     const prompt = `Anda adalah AI Evaluator Senior untuk platform Tolongin.co. Evaluasi penyerahan solusi studi kasus berikut:
 Judul Studi Kasus: "${challengeTitle}"
 Kategori: "${challengeCategory}"
 Repositori: "${repositoryUrl || 'Tidak disediakan'}"
-Catatan / Output Kustom: "${notes || 'Tidak disediakan'}"
+Catatan Tambahan: "${notes || 'Tidak disediakan'}"
+Kompilasi Jawaban Kandidat (Essay/Pilihan Ganda/Live Coding): 
+${candidateAnswers || 'Tidak ada jawaban komponen soal yang dikirim'}
+
+Kriteria dan Bobot Penilaian (Rubrik):
+${gradingRubric ? JSON.stringify(gradingRubric, null, 2) : 'Gunakan penilaian objektif standar.'}
+
+Instruksi Penilaian:
+1. Baca dan analisis repositori serta seluruh jawaban kandidat dengan saksama.
+2. Jika ada Rubrik Penilaian, WAJIB hitung nilai akhir murni berdasarkan bobot masing-masing kriteria secara matematis (Total nilai keseluruhan maksimal 100). Jangan berikan nilai acak.
+3. Berikan rekomendasi teknis yang relevan.
 
 Berikan penilaian akhir berupa objek JSON dengan struktur persis berikut:
 {
-  "aiScore": <angka 0-100>,
+  "aiScore": <angka 0-100 (sesuai perhitungan bobot rubrik)>,
   "aiPlagiarismScore": <persentase 0-100, misal 0.5 jika sangat orisinal>,
   "aiCorrectionSummary": "<analisis singkat dan rekomendasi perbaikan struktur, keamanan, dan standar>"
 }`;
@@ -182,7 +204,114 @@ Berikan penilaian akhir berupa objek JSON dengan struktur persis berikut:
     };
   }
 
-  async generateChallengeContent(promptStr: string, category: string, difficulty: string, companyName: string): Promise<{ title: string, summary: string, description: string, rubric: Record<string, number> }> {
+  async evaluateComponents(
+    challengeTitle: string,
+    challengeCategory: string,
+    componentsData: { id: string; question: string; maxPoints: number; candidateAnswer: string }[],
+    gradingRubric?: Record<string, number>,
+  ): Promise<ComponentEvaluationResult> {
+    const prompt = `Anda adalah AI Evaluator Senior untuk platform Tolongin.co. Evaluasi penyerahan solusi studi kasus multi-tahap berikut:
+Judul Studi Kasus: "${challengeTitle}"
+Kategori: "${challengeCategory}"
+
+Berikut adalah daftar tahapan/soal (komponen) dan jawaban dari kandidat:
+${componentsData.map(c => `
+---
+ID Soal: ${c.id}
+Poin Maksimal: ${c.maxPoints}
+Soal: ${c.question}
+Jawaban Kandidat: ${c.candidateAnswer}
+`).join('\n')}
+
+Kriteria dan Bobot Penilaian Kualitas Keseluruhan (Rubrik):
+${gradingRubric ? JSON.stringify(gradingRubric, null, 2) : 'Gunakan penilaian objektif standar.'}
+
+Instruksi Penilaian Mutlak:
+1. Evaluasi setiap jawaban kandidat secara mandiri berdasarkan konteks soalnya.
+2. Berikan nilai (score) untuk setiap soal. Nilai minimal adalah 0 dan nilai maksimal TIDAK BOLEH MELEBIHI "Poin Maksimal" dari soal tersebut.
+3. Berikan umpan balik (aiFeedback) untuk setiap jawaban kandidat yang membenarkan atau mengoreksi jawaban tersebut.
+4. Nilai "aiScore" HARUS memperhitungkan tidak hanya skor komponen tetapi juga kualitas berdasarkan Rubrik (jika ada), sehingga aiScore mencerminkan total pemahaman kandidat.
+5. Total "aiScore" adalah nilai 0-100 secara keseluruhan.
+
+Berikan penilaian akhir berupa objek JSON dengan struktur persis berikut:
+{
+  "aiScore": <total akumulasi nilai dari semua soal>,
+  "aiPlagiarismScore": <persentase 0-100, misal 0.5 jika sangat orisinal>,
+  "aiCorrectionSummary": "<analisis singkat dan rekomendasi perbaikan keseluruhan>",
+  "components": [
+    {
+      "componentId": "<ID Soal (sama persis dengan ID Soal di atas)>",
+      "score": <angka nilai yang diberikan>,
+      "aiFeedback": "<umpan balik teknis khusus untuk jawaban soal ini>"
+    }
+  ]
+}`;
+
+    if (this.gemini) {
+      try {
+        const model = this.gemini.getGenerativeModel({
+          model: 'gemini-1.5-flash-latest',
+          generationConfig: { responseMimeType: 'application/json' },
+        });
+
+        const result = await model.generateContent(prompt);
+        const resultJson = JSON.parse(result.response.text());
+        this.logger.log(`Berhasil mengevaluasi studi kasus komponen "${challengeTitle}" menggunakan Google Gemini.`);
+
+        return {
+          aiScore: resultJson.aiScore || 0,
+          aiPlagiarismScore: resultJson.aiPlagiarismScore || 0.0,
+          aiCorrectionSummary: resultJson.aiCorrectionSummary || 'Evaluasi komponen selesai.',
+          components: resultJson.components || [],
+        };
+      } catch (geminiErr: any) {
+        this.logger.error('Evaluasi komponen Gemini gagal, beralih ke OpenAI: ' + geminiErr.message);
+      }
+    }
+
+    if (this.openai) {
+      try {
+        const response = await this.openai.chat.completions.create({
+          model: 'gpt-4o',
+          messages: [{ role: 'system', content: prompt }],
+          response_format: { type: 'json_object' },
+        });
+
+        const resultJson = JSON.parse(response.choices[0].message.content || '{}');
+        this.logger.log(`Berhasil mengevaluasi studi kasus komponen "${challengeTitle}" menggunakan OpenAI GPT-4o.`);
+
+        return {
+          aiScore: resultJson.aiScore || 0,
+          aiPlagiarismScore: resultJson.aiPlagiarismScore || 0.0,
+          aiCorrectionSummary: resultJson.aiCorrectionSummary || 'Evaluasi komponen selesai.',
+          components: resultJson.components || [],
+        };
+      } catch (error: any) {
+        this.logger.error('Evaluasi komponen OpenAI gagal: ' + error.message);
+      }
+    }
+
+    // Fallback deterministik sederhana
+    let totalScore = 0;
+    const fallbackComponents = componentsData.map(c => {
+      const score = Math.min(c.maxPoints, Math.floor(c.maxPoints * 0.8)); // 80% score as mock
+      totalScore += score;
+      return {
+        componentId: c.id,
+        score,
+        aiFeedback: 'Jawaban cukup baik dan relevan dengan konteks soal.'
+      };
+    });
+
+    return {
+      aiScore: totalScore,
+      aiPlagiarismScore: 0.1,
+      aiCorrectionSummary: 'Evaluasi otomatis fallback karena API tidak tersedia.',
+      components: fallbackComponents,
+    };
+  }
+
+  async generateChallengeContent(promptStr: string, category: string, difficulty: string, companyName: string): Promise<{ title: string, summary: string, description: string, rubric: Record<string, number>, startsAt?: string, deadlineAt?: string, sections: any[] }> {
     const prompt = `Anda adalah AI Technical Recruiter Senior. Buatlah rancangan studi kasus (challenge) rekrutmen IT berdasarkan kebutuhan berikut:
 Perusahaan: ${companyName}
 Kategori Pekerjaan: ${category}
@@ -198,9 +327,30 @@ Berikan respons dalam format JSON persis dengan struktur ini:
     "kriteria_1": 40,
     "kriteria_2": 30,
     "kriteria_3": 30
-  }
+  },
+  "startsAt": "YYYY-MM-DDTHH:mm:ssZ (Opsional, waktu mulai challenge)",
+  "deadlineAt": "YYYY-MM-DDTHH:mm:ssZ (Opsional, batas waktu challenge)",
+  "sections": [
+    {
+      "title": "Tahap 1: Analisis",
+      "description": "Tahap awal pemahaman masalah",
+      "components": [
+        {
+          "type": "TEXT",
+          "question": "Jelaskan arsitektur yang akan Anda gunakan.",
+          "points": 50
+        },
+        {
+          "type": "URL",
+          "question": "Kirimkan link repositori GitHub Anda.",
+          "points": 50
+        }
+      ]
+    }
+  ]
 }
-Pastikan total nilai pada rubric persis 100.`;
+Pastikan total nilai pada rubric persis 100.
+Tipe komponen yang valid (type) adalah: MULTIPLE_CHOICE, ESSAY, FILE_UPLOAD, VIDEO_UPLOAD, URL_SUBMISSION, LIVE_CODING, TEXT. (Catatan: gunakan tipe yang sesuai dengan Prisma schema, misalnya ESSAY atau URL_SUBMISSION).`;
 
     if (this.gemini) {
       try {
@@ -243,7 +393,27 @@ Pastikan total nilai pada rubric persis 100.`;
         code_architecture: 40,
         problem_solving: 35,
         system_scalability: 25,
-      }
+      },
+      startsAt: new Date().toISOString(),
+      deadlineAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      sections: [
+        {
+          title: 'Bagian Utama',
+          description: 'Selesaikan tantangan ini dengan baik.',
+          components: [
+            {
+              type: 'URL_SUBMISSION',
+              question: 'Kirimkan tautan repositori GitHub Anda yang berisi solusi teknis.',
+              points: 50
+            },
+            {
+              type: 'ESSAY',
+              question: 'Jelaskan cara Anda merancang skema database untuk proyek ini.',
+              points: 50
+            }
+          ]
+        }
+      ]
     };
   }
 

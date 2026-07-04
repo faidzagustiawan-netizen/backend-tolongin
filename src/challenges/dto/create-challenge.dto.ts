@@ -105,6 +105,10 @@ export class CreateChallengeDto {
 
   @IsString()
   @IsOptional()
+  startsAt?: string;
+
+  @IsString()
+  @IsOptional()
   deadlineAt?: string;
 
   @IsBoolean()

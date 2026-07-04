@@ -22,6 +22,7 @@ import { GenerateAiChallengeDto } from './dto/generate-ai-challenge.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 import { ChallengeCategory, ChallengeDifficulty, ChallengeType, Role } from '@prisma/client';
 
 @ApiTags('Challenge Directory & AI Generator')
@@ -81,8 +82,9 @@ export class ChallengesController {
   })
   @ApiResponse({ status: 404, description: 'Challenge tidak ditemukan.' })
   @Get(':slugOrId')
-  async findOne(@Param('slugOrId') slugOrId: string) {
-    return this.challengesService.findOne(slugOrId);
+  @UseGuards(OptionalJwtAuthGuard)
+  async findOne(@Param('slugOrId') slugOrId: string, @Request() req: any) {
+    return this.challengesService.findOne(slugOrId, req.user);
   }
 
   @ApiBearerAuth('JWT-auth')

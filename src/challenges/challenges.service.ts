@@ -61,7 +61,10 @@ export class ChallengesService {
         mockApiUrl: createChallengeDto.mockApiUrl,
         brandGuidelineUrl: createChallengeDto.brandGuidelineUrl,
         gradingRubric: createChallengeDto.gradingRubric ?? defaultRubric,
-        rewardDescription: createChallengeDto.rewardDescription,
+        rewardDescription: this.generateSystemRewardDescription(createChallengeDto.difficulty),
+        startsAt: createChallengeDto.startsAt
+          ? new Date(createChallengeDto.startsAt)
+          : null,
         deadlineAt: createChallengeDto.deadlineAt
           ? new Date(createChallengeDto.deadlineAt)
           : null,
@@ -135,7 +138,7 @@ export class ChallengesService {
         mockApiUrl: createChallengeDto.mockApiUrl,
         brandGuidelineUrl: createChallengeDto.brandGuidelineUrl,
         gradingRubric: createChallengeDto.gradingRubric ?? defaultRubric,
-        rewardDescription: createChallengeDto.rewardDescription,
+        rewardDescription: this.generateSystemRewardDescription(createChallengeDto.difficulty),
         deadlineAt: createChallengeDto.deadlineAt ? new Date(createChallengeDto.deadlineAt) : null,
         isPrivate: createChallengeDto.isPrivate ?? false,
         status: createChallengeDto.status ?? ChallengeStatus.PUBLISHED,
@@ -209,12 +212,15 @@ export class ChallengesService {
         company: {
           select: { companyName: true, logoUrl: true, industry: true, trustScore: true },
         },
+        creator: {
+          select: { fullName: true, avatarUrl: true },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });
   }
 
-  async findOne(slugOrId: string) {
+  async findOne(slugOrId: string, userReq?: any) {
     const challenge = await this.prisma.challenge.findFirst({
       where: {
         OR: [{ id: slugOrId }, { slug: slugOrId }],
@@ -241,6 +247,31 @@ export class ChallengesService {
 
     if (!challenge) {
       throw new NotFoundException('Challenge tidak ditemukan');
+    }
+
+    let isOwner = false;
+    if (userReq && userReq.role === 'COMPANY' && userReq.profileId === challenge.companyId) {
+      isOwner = true;
+    }
+
+    if (!isOwner) {
+      const redactComponent = (comp: any) => ({
+        ...comp,
+        question: '[TERKUNCI - HARAP DAFTAR]',
+        options: null,
+        metadata: null,
+        points: comp.points
+      });
+
+      if (challenge.components) {
+        challenge.components = challenge.components.map(redactComponent) as any;
+      }
+      if (challenge.sections) {
+        challenge.sections = challenge.sections.map(sec => ({
+          ...sec,
+          components: sec.components.map(redactComponent)
+        })) as any;
+      }
     }
 
     return challenge;
@@ -284,10 +315,28 @@ export class ChallengesService {
         category: dto.category,
         difficulty: dto.difficulty,
         gradingRubric: aiContent.rubric,
+        rewardDescription: this.generateSystemRewardDescription(dto.difficulty),
+        startsAt: aiContent.startsAt ? new Date(aiContent.startsAt) : null,
+        deadlineAt: aiContent.deadlineAt ? new Date(aiContent.deadlineAt) : null,
         status: ChallengeStatus.DRAFT,
         createdByAi: true,
         aiPromptUsed: dto.prompt,
         challengeType: ChallengeType.COMPANY,
+        sections: aiContent.sections && aiContent.sections.length > 0 ? {
+          create: aiContent.sections.map((s: any, sIdx: number) => ({
+            title: s.title,
+            description: s.description,
+            order: sIdx,
+            components: s.components && s.components.length > 0 ? {
+              create: s.components.map((c: any, cIdx: number) => ({
+                type: c.type || 'TEXT',
+                question: c.question,
+                points: c.points ?? 10,
+                order: cIdx,
+              }))
+            } : undefined
+          }))
+        } : undefined,
       },
     });
 
@@ -329,10 +378,28 @@ export class ChallengesService {
         category: dto.category,
         difficulty: dto.difficulty,
         gradingRubric: aiContent.rubric,
+        rewardDescription: this.generateSystemRewardDescription(dto.difficulty),
+        startsAt: aiContent.startsAt ? new Date(aiContent.startsAt) : null,
+        deadlineAt: aiContent.deadlineAt ? new Date(aiContent.deadlineAt) : null,
         status: ChallengeStatus.DRAFT,
         createdByAi: true,
         aiPromptUsed: dto.prompt,
         challengeType: ChallengeType.PUBLIC,
+        sections: aiContent.sections && aiContent.sections.length > 0 ? {
+          create: aiContent.sections.map((s: any, sIdx: number) => ({
+            title: s.title,
+            description: s.description,
+            order: sIdx,
+            components: s.components && s.components.length > 0 ? {
+              create: s.components.map((c: any, cIdx: number) => ({
+                type: c.type || 'TEXT',
+                question: c.question,
+                points: c.points ?? 10,
+                order: cIdx,
+              }))
+            } : undefined
+          }))
+        } : undefined,
       },
     });
 
@@ -369,7 +436,9 @@ export class ChallengesService {
         datasetUrl: updateDto.datasetUrl,
         mockApiUrl: updateDto.mockApiUrl,
         brandGuidelineUrl: updateDto.brandGuidelineUrl,
-        rewardDescription: updateDto.rewardDescription,
+        gradingRubric: updateDto.gradingRubric !== undefined ? updateDto.gradingRubric : undefined,
+        rewardDescription: updateDto.difficulty ? this.generateSystemRewardDescription(updateDto.difficulty) : undefined,
+        startsAt: updateDto.startsAt ? new Date(updateDto.startsAt) : undefined,
         status: updateDto.status,
         sections: updateDto.sections && updateDto.sections.length > 0 ? {
           deleteMany: {},
@@ -402,5 +471,23 @@ export class ChallengesService {
       .replace(/(^-|-$)/g, '');
     const randomSuffix = Math.floor(1000 + Math.random() * 9000);
     return `${baseSlug}-${randomSuffix}`;
+  }
+
+  private generateSystemRewardDescription(difficulty: ChallengeDifficulty): string {
+    let maxToken = 10;
+    let maxXP = 100;
+
+    if (difficulty === ChallengeDifficulty.INTERMEDIATE) {
+      maxToken = 30;
+      maxXP = 200;
+    } else if (difficulty === ChallengeDifficulty.ADVANCED) {
+      maxToken = 75;
+      maxXP = 400;
+    }
+
+    // Hitung bonus perfect score untuk token (max token + 50%)
+    const perfectToken = maxToken + Math.floor(maxToken * 0.5);
+    
+    return `Sistem Reward: Hingga ${perfectToken} Token & ${maxXP} XP`;
   }
 }

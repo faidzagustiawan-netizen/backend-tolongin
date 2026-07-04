@@ -11,11 +11,13 @@ import { AiService } from '../ai/ai.service';
 import { TokensService } from '../tokens/tokens.service';
 import { EnrollDto } from './dto/enroll.dto';
 import { SubmitSolutionDto } from './dto/submit-solution.dto';
+import { SaveDraftDto } from './dto/save-draft.dto';
 import { GradeSubmissionDto } from './dto/grade-submission.dto';
 import {
   EnrollmentStatus,
   SubmissionStatus,
   HiringStatus,
+  ChallengeDifficulty,
 } from '@prisma/client';
 
 @Injectable()
@@ -78,11 +80,25 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
           data: { trustScore: { decrement: 5 } },
         });
 
-        // Berikan token ke talent
-        await tx.talentProfile.update({
-          where: { id: sub.talentId },
-          data: { tokenBalance: { increment: 50 }, xp: { increment: 150 } },
-        });
+          // Hitung token & xp dinamis
+          const finalScore = 75; // Asumsi nilai kelulusan auto-pass (default 75)
+          const rewards = this.calculateRewards(
+            sub.challenge.difficulty,
+            finalScore
+          );
+
+          // Berikan token ke talent
+          await tx.talentProfile.update({
+            where: { id: sub.talentId },
+            data: { xp: { increment: rewards.xp } },
+          });
+
+          // Panggil tokenService (bukan di dalam tx untuk menghindari block)
+          this.tokensService.earnTokens(
+            sub.talent.userId,
+            rewards.tokens,
+            `Reward: Lulus Otomatis - ${sub.challenge.title}`
+          ).catch(err => console.error('Gagal memberi token auto-pass', err));
 
         // Tambah ke portfolio
         await tx.portfolio.upsert({
@@ -134,10 +150,39 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  async saveDraft(talentId: string, enrollmentId: string, dto: SaveDraftDto) {
+    const enrollment = await this.prisma.challengeEnrollment.findUnique({
+      where: { id: enrollmentId },
+    });
+
+    if (!enrollment) {
+      throw new NotFoundException('Enrollment tidak ditemukan');
+    }
+
+    if (enrollment.talentId !== talentId) {
+      throw new BadRequestException('Bukan pemilik enrollment ini');
+    }
+
+    return this.prisma.challengeEnrollment.update({
+      where: { id: enrollmentId },
+      data: {
+        draftData: dto.draftData,
+      },
+    });
+  }
+
   async submitSolution(talentId: string, dto: SubmitSolutionDto) {
     const enrollment = await this.prisma.challengeEnrollment.findUnique({
       where: { id: dto.enrollmentId },
-      include: { challenge: { include: { company: true } } },
+      include: { 
+        challenge: { 
+          include: { 
+            company: true,
+            components: true,
+            sections: { include: { components: true } }
+          } 
+        } 
+      },
     });
 
     if (!enrollment || enrollment.talentId !== talentId) {
@@ -157,20 +202,85 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
 
     const isCompanyChallenge = enrollment.challenge.challengeType === 'COMPANY';
     const companyTier = enrollment.challenge.company?.subscriptionTier;
-    const shouldRunAi = !isCompanyChallenge || (isCompanyChallenge && companyTier !== 'STARTUP');
+    // AI HANYA BERJALAN JIKA: Dibuat oleh perusahaan DAN perusahaan BUKAN paket gratis (STARTUP)
+    const shouldRunAi = isCompanyChallenge && companyTier !== 'STARTUP';
+
+    let candidateAnswers = '';
+    let componentEvaluations: { componentId: string, score: number, aiFeedback: string }[] = [];
+    const allComponents = new Map();
+    if (enrollment.challenge.components) {
+      enrollment.challenge.components.forEach((c: any) => allComponents.set(c.id, c));
+    }
+    if (enrollment.challenge.sections) {
+      enrollment.challenge.sections.forEach((s: any) => {
+        if (s.components) {
+          s.components.forEach((c: any) => allComponents.set(c.id, c));
+        }
+      });
+    }
+
+    const hasComponents = allComponents.size > 0;
 
     if (shouldRunAi) {
-      const evaluation = await this.aiService.evaluateSubmission(
-        enrollment.challenge.title,
-        enrollment.challenge.category,
-        dto.repositoryUrl,
-        dto.notes,
-      );
-      aiScore = evaluation.aiScore;
-      aiPlagiarismScore = evaluation.aiPlagiarismScore;
-      aiCorrectionSummary = evaluation.aiCorrectionSummary;
-      initialStatus = SubmissionStatus.PENDING_AI; // Although we already awaited it, keep status flow if needed or just UNDER_REVIEW
-      initialStatus = SubmissionStatus.UNDER_REVIEW; // Set to UNDER_REVIEW since we run it synchronously here
+      let rubric: Record<string, number> | undefined;
+      if (enrollment.challenge.gradingRubric && typeof enrollment.challenge.gradingRubric === 'object') {
+        const tempRubric = enrollment.challenge.gradingRubric as Record<string, any>;
+        rubric = {};
+        for (const key in tempRubric) {
+           if (typeof tempRubric[key] === 'number') {
+              rubric[key] = tempRubric[key];
+           }
+        }
+      }
+
+      if (hasComponents && dto.responses && dto.responses.length > 0) {
+        // Mode 1: Component-Based Evaluation
+        const componentsData = dto.responses.map(r => {
+           const comp = allComponents.get(r.componentId);
+           return {
+             id: r.componentId,
+             question: comp ? comp.question : 'Soal tidak ditemukan',
+             maxPoints: comp ? comp.points : 0,
+             candidateAnswer: r.textValue || r.fileUrl || 'Tidak diserahkan'
+           };
+        });
+
+        const evaluation = await this.aiService.evaluateComponents(
+           enrollment.challenge.title,
+           enrollment.challenge.category,
+           componentsData,
+           rubric
+        );
+        
+        aiScore = evaluation.aiScore;
+        aiPlagiarismScore = evaluation.aiPlagiarismScore;
+        aiCorrectionSummary = evaluation.aiCorrectionSummary;
+        componentEvaluations = evaluation.components || [];
+        initialStatus = SubmissionStatus.UNDER_REVIEW;
+      } else {
+        // Mode 2: Holistic Evaluation
+        if (dto.responses && dto.responses.length > 0) {
+           const parts = dto.responses.map((r, i) => {
+             const comp = allComponents.get(r.componentId);
+             const questionText = comp ? comp.question : 'Soal tidak ditemukan';
+             return `Soal ${i + 1}: ${questionText}\nJawaban: ${r.textValue || r.fileUrl || 'Tidak diserahkan'}\n`;
+           });
+           candidateAnswers = parts.join('\n');
+        }
+
+        const evaluation = await this.aiService.evaluateHolistic(
+          enrollment.challenge.title,
+          enrollment.challenge.category,
+          dto.repositoryUrl,
+          dto.notes,
+          rubric,
+          candidateAnswers
+        );
+        aiScore = evaluation.aiScore;
+        aiPlagiarismScore = evaluation.aiPlagiarismScore;
+        aiCorrectionSummary = evaluation.aiCorrectionSummary;
+        initialStatus = SubmissionStatus.UNDER_REVIEW; 
+      }
     }
 
     return this.prisma.$transaction(async (tx) => {
@@ -197,11 +307,16 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
           aiScore,
           status: initialStatus,
           componentResponses: dto.responses && dto.responses.length > 0 ? {
-            create: dto.responses.map(r => ({
-              componentId: r.componentId,
-              textValue: r.textValue,
-              fileUrl: r.fileUrl,
-            }))
+            create: dto.responses.map(r => {
+              const evalResult = componentEvaluations.find(e => e.componentId === r.componentId);
+              return {
+                componentId: r.componentId,
+                textValue: r.textValue,
+                fileUrl: r.fileUrl,
+                score: evalResult ? evalResult.score : null,
+                aiFeedback: evalResult ? evalResult.aiFeedback : null,
+              };
+            })
           } : undefined,
         },
       });
@@ -332,10 +447,12 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
       });
 
       if (dto.status === SubmissionStatus.PASSED) {
-        const xpGain = 150;
+        const finalScore = dto.finalScore || 60;
+        const rewards = this.calculateRewards(submission.challenge.difficulty, finalScore);
+        
         await tx.talentProfile.update({
           where: { id: submission.talentId },
-          data: { xp: { increment: xpGain } },
+          data: { xp: { increment: rewards.xp } },
         });
 
         await tx.portfolio.upsert({
@@ -357,12 +474,13 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
     });
 
     if (dto.status === SubmissionStatus.PASSED) {
-       // Grant tokens outside the transaction to avoid tying it up, or call tokensService.earnTokens which creates its own transaction.
-       // Since the submission transaction succeeded, we can safely grant tokens.
+       const finalScore = dto.finalScore || 60;
+       const rewards = this.calculateRewards(submission.challenge.difficulty, finalScore);
+
        try {
          await this.tokensService.earnTokens(
            submission.talent.userId,
-           50,
+           rewards.tokens,
            `Reward: Menyelesaikan ${submission.challenge.title}`
          );
        } catch (err) {
@@ -371,5 +489,43 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
     }
 
     return result;
+  }
+
+  /**
+   * Menghitung potensi Token dan XP berdasarkan tingkat kesulitan dan nilai.
+   * @param difficulty BEGINNER | INTERMEDIATE | ADVANCED
+   * @param finalScore 0 - 100
+   */
+  public calculateRewards(difficulty: ChallengeDifficulty, finalScore: number): { xp: number; tokens: number } {
+    let baseXP = 100;
+    let baseToken = 10;
+
+    switch (difficulty) {
+      case ChallengeDifficulty.BEGINNER:
+        baseXP = 100;
+        baseToken = 10;
+        break;
+      case ChallengeDifficulty.INTERMEDIATE:
+        baseXP = 200;
+        baseToken = 30;
+        break;
+      case ChallengeDifficulty.ADVANCED:
+        baseXP = 400;
+        baseToken = 75;
+        break;
+    }
+
+    // XP didapatkan sebanding dengan nilai (maksimal = Base XP jika nilai 100)
+    // Minimal nilai kelulusan adalah 0 (jika memang PASSED)
+    const normalizedScore = Math.min(Math.max(finalScore, 0), 100);
+    const xp = Math.floor(baseXP * (normalizedScore / 100));
+
+    // Token didapatkan FULL jika Passed. Diberikan bonus +50% jika Perfect Score (>= 90).
+    let tokens = baseToken;
+    if (normalizedScore >= 90) {
+      tokens += Math.floor(baseToken * 0.5); // +50% bonus
+    }
+
+    return { xp, tokens };
   }
 }

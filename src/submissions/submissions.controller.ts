@@ -20,6 +20,7 @@ import { SubmissionsService } from './submissions.service';
 import { EnrollDto } from './dto/enroll.dto';
 import { SubmitSolutionDto } from './dto/submit-solution.dto';
 import { GradeSubmissionDto } from './dto/grade-submission.dto';
+import { SaveDraftDto } from './dto/save-draft.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -75,6 +76,24 @@ export class SubmissionsController {
   async submitSolution(@Request() req: any, @Body() dto: SubmitSolutionDto) {
     const talentId = req.user.profileId;
     return this.submissionsService.submitSolution(talentId, dto);
+  }
+
+  @ApiOperation({
+    summary: 'Menyimpan progres draf sementara (Auto-Save)',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Draf berhasil disimpan ke server.',
+  })
+  @Roles(Role.TALENT)
+  @Put('draft/:enrollmentId')
+  async saveDraft(
+    @Request() req: any,
+    @Param('enrollmentId') enrollmentId: string,
+    @Body() dto: SaveDraftDto,
+  ) {
+    const talentId = req.user.profileId;
+    return this.submissionsService.saveDraft(talentId, enrollmentId, dto);
   }
 
   @ApiOperation({
