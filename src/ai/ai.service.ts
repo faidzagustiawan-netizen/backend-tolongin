@@ -81,7 +81,8 @@ export class AiService {
       const exec = require('child_process').exec;
       const path = require('path');
       const scriptPath = path.resolve(process.cwd(), 'src/ai/python/verify_biometrics.py');
-      const pythonProcess = exec(`python "${scriptPath}"`, { maxBuffer: 1024 * 1024 * 50 }, (error: any, stdout: string, stderr: string) => {
+      const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+      const pythonProcess = exec(`${pythonCmd} "${scriptPath}"`, { maxBuffer: 1024 * 1024 * 50 }, (error: any, stdout: string, stderr: string) => {
         if (error) {
           this.logger.error('Error executing Python verify_biometrics script: ' + error.message);
         }
