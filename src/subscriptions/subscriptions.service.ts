@@ -33,6 +33,7 @@ export class SubscriptionsService {
         userId: company.userId,
         title: 'Peningkatan Paket Langganan Berhasil',
         content: `Selamat! Akun perusahaan Anda telah ditingkatkan ke paket ${dto.tier}. Masa berlaku hingga ${expiresAt.toLocaleDateString('id-ID')}. Akses fitur Q&A, AI Generator & Assessment premium kini aktif.`,
+        linkUrl: '/company/billing',
       },
     });
 

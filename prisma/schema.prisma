@@ -62,6 +62,10 @@ model TalentProfile {
   biometricDataHash      String? @unique // Untuk verifikasi wajah anti-joki & memastikan 1 wajah 1 akun
   biometricFeatureVector Json?   // Vektor fitur biometrik 64-dimensi untuk deteksi real-time anti-joki
 
+  // Leaderboard & Demographics
+  location     String?
+  roleCategory String?
+
 
   // Gamification & Economy
   xp           Int @default(0)

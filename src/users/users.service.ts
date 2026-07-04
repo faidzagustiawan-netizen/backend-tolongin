@@ -138,6 +138,8 @@ export class UsersService {
         resumeUrl: dto.resumeUrl !== undefined ? dto.resumeUrl : undefined,
         avatarUrl: dto.avatarUrl !== undefined ? dto.avatarUrl : undefined,
         biometricFeatureVector: dto.biometricFeatureVector !== undefined ? dto.biometricFeatureVector : undefined,
+        location: dto.location !== undefined ? dto.location : undefined,
+        roleCategory: dto.roleCategory !== undefined ? dto.roleCategory : undefined,
       };
 
       if (dto.biometricFeatureVector) {

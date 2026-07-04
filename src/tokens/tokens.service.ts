@@ -74,6 +74,15 @@ export class TokensService {
         },
       });
 
+      await tx.notification.create({
+        data: {
+          userId,
+          title: 'Token Digunakan',
+          content: `Anda telah menggunakan -${amount} Token. Keterangan: ${description}`,
+          linkUrl: '/profile',
+        }
+      });
+
       return { success: true };
     });
   }
@@ -95,6 +104,15 @@ export class TokensService {
           type: TokenType.EARN,
           description,
         },
+      });
+
+      await tx.notification.create({
+        data: {
+          userId,
+          title: 'Token Diterima',
+          content: `Anda menerima +${amount} Token! Keterangan: ${description}`,
+          linkUrl: '/profile',
+        }
       });
 
       return { success: true };

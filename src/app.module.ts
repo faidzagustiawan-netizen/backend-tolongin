@@ -19,6 +19,11 @@ import { AiModule } from './ai/ai.module';
 import { TokensModule } from './tokens/tokens.module';
 import { PaymentsModule } from './payments/payments.module';
 import { CompaniesModule } from './companies/companies.module';
+import { ScheduleModule } from '@nestjs/schedule';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
+import { MailModule } from './mail/mail.module';
+import { AdminModule } from './admin/admin.module';
 
 @Module({
   imports: [
@@ -26,6 +31,11 @@ import { CompaniesModule } from './companies/companies.module';
       isGlobal: true,
       envFilePath: '.env',
     }),
+    ThrottlerModule.forRoot([{
+      ttl: 60000,
+      limit: 100,
+    }]),
+    ScheduleModule.forRoot(),
     PrismaModule,
     UsersModule,
     CompaniesModule,
@@ -43,8 +53,16 @@ import { CompaniesModule } from './companies/companies.module';
     AiModule,
     TokensModule,
     PaymentsModule,
+    MailModule,
+    AdminModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    }
+  ],
 })
 export class AppModule {}

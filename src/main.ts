@@ -2,13 +2,29 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, RequestMethod } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { json, urlencoded } from 'express';
+import helmet from 'helmet';
+import * as Sentry from '@sentry/node';
+import { nodeProfilingIntegration } from '@sentry/profiling-node';
 import { AppModule } from './app.module';
 import { GlobalExceptionFilter } from './common/filters/http-exception.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
+import { SentryInterceptor } from './common/interceptors/sentry.interceptor';
 
 async function bootstrap() {
+  // Initialize Sentry
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN || '',
+    integrations: [
+      nodeProfilingIntegration(),
+    ],
+    tracesSampleRate: 1.0,
+    profilesSampleRate: 1.0,
+    environment: process.env.NODE_ENV || 'development',
+  });
+
   const app = await NestFactory.create(AppModule);
 
+  app.use(helmet());
   app.enableCors();
   app.setGlobalPrefix('api/v1', {
     exclude: [{ path: 'health', method: RequestMethod.GET }],
@@ -27,6 +43,7 @@ async function bootstrap() {
 
   app.useGlobalFilters(new GlobalExceptionFilter());
   app.useGlobalInterceptors(new LoggingInterceptor());
+  app.useGlobalInterceptors(new SentryInterceptor());
 
   const config = new DocumentBuilder()
     .setTitle('Tolongin.co API')

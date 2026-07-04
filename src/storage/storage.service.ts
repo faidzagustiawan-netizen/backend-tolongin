@@ -52,4 +52,26 @@ export class StorageService {
       throw new InternalServerErrorException('Gagal membuat presigned URL untuk Cloudflare R2: ' + error.message);
     }
   }
+
+  async uploadFileDirect(file: Express.Multer.File) {
+    try {
+      const timestamp = Date.now();
+      const sanitizedName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
+      const uniqueKey = `uploads/${timestamp}-${sanitizedName}`;
+
+      const command = new PutObjectCommand({
+        Bucket: this.bucketName,
+        Key: uniqueKey,
+        ContentType: file.mimetype,
+        Body: file.buffer,
+      });
+
+      await this.s3Client.send(command);
+      const fileUrl = `${this.publicUrl}/${uniqueKey}`;
+
+      return { fileUrl, key: uniqueKey };
+    } catch (error: any) {
+      throw new InternalServerErrorException('Gagal mengunggah file ke Cloudflare R2: ' + error.message);
+    }
+  }
 }

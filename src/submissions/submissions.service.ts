@@ -9,6 +9,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { AiService } from '../ai/ai.service';
 import { TokensService } from '../tokens/tokens.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { EnrollDto } from './dto/enroll.dto';
 import { SubmitSolutionDto } from './dto/submit-solution.dto';
 import { SaveDraftDto } from './dto/save-draft.dto';
@@ -28,6 +29,7 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
     private readonly prisma: PrismaService,
     private readonly aiService: AiService,
     private readonly tokensService: TokensService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   onModuleInit() {
@@ -112,6 +114,29 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
             showcaseSummary: `Berhasil menyelesaikan studi kasus otomatis (Auto-Passed) dari challenge ${sub.challenge.title}.`,
           },
         });
+
+        // Notifikasi untuk Talent
+        await tx.notification.create({
+          data: {
+            userId: sub.talent.userId,
+            title: 'Submisi Lulus Otomatis',
+            content: `Submisi Anda pada "${sub.challenge.title}" dinyatakan LULUS otomatis oleh sistem karena melebihi batas waktu evaluasi perusahaan.`,
+            linkUrl: `/workspace/${sub.enrollmentId}`,
+          }
+        });
+
+        // Notifikasi untuk Company
+        const companyProfile = await tx.companyProfile.findUnique({ where: { id: companyId } });
+        if (companyProfile) {
+          await tx.notification.create({
+            data: {
+              userId: companyProfile.userId,
+              title: 'Peringatan: Pelanggaran SLA',
+              content: `Peringatan! Trust Score Anda dikurangi 5 poin karena gagal mengevaluasi submisi pada "${sub.challenge.title}" dalam batas waktu 7 hari.`,
+              linkUrl: '/workspace',
+            }
+          });
+        }
       });
       console.log(`[Cron] Submisi ${sub.id} di-auto-pass. Trust score company diturunkan.`);
     }
@@ -140,7 +165,7 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
       throw new BadRequestException('Anda sudah terdaftar di challenge ini');
     }
 
-    return this.prisma.challengeEnrollment.create({
+    const enrollment = await this.prisma.challengeEnrollment.create({
       data: {
         talentId,
         challengeId: enrollDto.challengeId,
@@ -148,6 +173,37 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
         ndaSignedAt: new Date(),
       },
     });
+
+    const talentProfile = await this.prisma.talentProfile.findUnique({ where: { id: talentId } });
+    if (talentProfile) {
+      await this.notificationsService.sendNotification(
+        talentProfile.userId,
+        'Studi Kasus Dimulai',
+        `Anda telah memulai studi kasus "${challenge.title}". Tenggat waktu pengerjaan Anda telah berjalan.`,
+        `/workspace/${enrollment.id}`
+      );
+    }
+
+    // Notify the creator of the challenge
+    let creatorUserId: string | null = null;
+    if (challenge.companyId) {
+      const company = await this.prisma.companyProfile.findUnique({ where: { id: challenge.companyId } });
+      if (company) creatorUserId = company.userId;
+    } else if (challenge.talentId) {
+      const creatorTalent = await this.prisma.talentProfile.findUnique({ where: { id: challenge.talentId } });
+      if (creatorTalent) creatorUserId = creatorTalent.userId;
+    }
+
+    if (creatorUserId) {
+      await this.notificationsService.sendNotification(
+        creatorUserId,
+        'Pendaftar Baru',
+        `Seorang talenta baru saja mendaftar untuk mengerjakan studi kasus "${challenge.title}".`,
+        `/challenges/${challenge.slug}`
+      );
+    }
+
+    return enrollment;
   }
 
   async saveDraft(talentId: string, enrollmentId: string, dto: SaveDraftDto) {
@@ -221,66 +277,12 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
 
     const hasComponents = allComponents.size > 0;
 
+    // AI tidak lagi dieksekusi secara sinkronus di sini karena akan memperlambat respon untuk talenta
+    // dan menghabiskan token saat submit.
+    // Jika perusahaan berhak menggunakan AI (bukan STARTUP), status diset ke PENDING_AI
+    // yang mana akan diproses nanti oleh background job atau trigger manual.
     if (shouldRunAi) {
-      let rubric: Record<string, number> | undefined;
-      if (enrollment.challenge.gradingRubric && typeof enrollment.challenge.gradingRubric === 'object') {
-        const tempRubric = enrollment.challenge.gradingRubric as Record<string, any>;
-        rubric = {};
-        for (const key in tempRubric) {
-           if (typeof tempRubric[key] === 'number') {
-              rubric[key] = tempRubric[key];
-           }
-        }
-      }
-
-      if (hasComponents && dto.responses && dto.responses.length > 0) {
-        // Mode 1: Component-Based Evaluation
-        const componentsData = dto.responses.map(r => {
-           const comp = allComponents.get(r.componentId);
-           return {
-             id: r.componentId,
-             question: comp ? comp.question : 'Soal tidak ditemukan',
-             maxPoints: comp ? comp.points : 0,
-             candidateAnswer: r.textValue || r.fileUrl || 'Tidak diserahkan'
-           };
-        });
-
-        const evaluation = await this.aiService.evaluateComponents(
-           enrollment.challenge.title,
-           enrollment.challenge.category,
-           componentsData,
-           rubric
-        );
-        
-        aiScore = evaluation.aiScore;
-        aiPlagiarismScore = evaluation.aiPlagiarismScore;
-        aiCorrectionSummary = evaluation.aiCorrectionSummary;
-        componentEvaluations = evaluation.components || [];
-        initialStatus = SubmissionStatus.UNDER_REVIEW;
-      } else {
-        // Mode 2: Holistic Evaluation
-        if (dto.responses && dto.responses.length > 0) {
-           const parts = dto.responses.map((r, i) => {
-             const comp = allComponents.get(r.componentId);
-             const questionText = comp ? comp.question : 'Soal tidak ditemukan';
-             return `Soal ${i + 1}: ${questionText}\nJawaban: ${r.textValue || r.fileUrl || 'Tidak diserahkan'}\n`;
-           });
-           candidateAnswers = parts.join('\n');
-        }
-
-        const evaluation = await this.aiService.evaluateHolistic(
-          enrollment.challenge.title,
-          enrollment.challenge.category,
-          dto.repositoryUrl,
-          dto.notes,
-          rubric,
-          candidateAnswers
-        );
-        aiScore = evaluation.aiScore;
-        aiPlagiarismScore = evaluation.aiPlagiarismScore;
-        aiCorrectionSummary = evaluation.aiCorrectionSummary;
-        initialStatus = SubmissionStatus.UNDER_REVIEW; 
-      }
+      initialStatus = SubmissionStatus.PENDING_AI;
     }
 
     return this.prisma.$transaction(async (tx) => {
@@ -320,6 +322,39 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
           } : undefined,
         },
       });
+
+      const talentProfile = await tx.talentProfile.findUnique({ where: { id: talentId } });
+      if (talentProfile) {
+        await tx.notification.create({
+          data: {
+            userId: talentProfile.userId,
+            title: 'Solusi Berhasil Dikumpulkan',
+            content: shouldRunAi ? `Solusi Anda untuk tantangan "${enrollment.challenge.title}" telah dikumpulkan dan dievaluasi oleh AI. Skor AI: ${aiScore}.` : `Solusi Anda untuk tantangan "${enrollment.challenge.title}" berhasil dikumpulkan dan sedang menunggu ulasan.`,
+            linkUrl: `/workspace/${dto.enrollmentId}`,
+          }
+        });
+      }
+
+      // Notify the creator of the challenge
+      let creatorUserId: string | null = null;
+      if (enrollment.challenge.companyId) {
+        const company = await tx.companyProfile.findUnique({ where: { id: enrollment.challenge.companyId } });
+        if (company) creatorUserId = company.userId;
+      } else if (enrollment.challenge.talentId) {
+        const creatorTalent = await tx.talentProfile.findUnique({ where: { id: enrollment.challenge.talentId } });
+        if (creatorTalent) creatorUserId = creatorTalent.userId;
+      }
+
+      if (creatorUserId) {
+        await tx.notification.create({
+          data: {
+            userId: creatorUserId,
+            title: 'Submisi Baru Masuk',
+            content: `Seseorang telah mengumpulkan solusi untuk studi kasus "${enrollment.challenge.title}". Segera lakukan peninjauan!`,
+            linkUrl: enrollment.challenge.companyId ? `/company/submissions` : `/challenges/${enrollment.challenge.slug}`,
+          }
+        });
+      }
 
       return submission;
     });
@@ -469,6 +504,15 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
           },
         });
       }
+
+      await tx.notification.create({
+        data: {
+          userId: submission.talent.userId,
+          title: 'Hasil Evaluasi Studi Kasus',
+          content: `Solusi Anda untuk studi kasus "${submission.challenge.title}" telah dinilai oleh perusahaan. Status: ${dto.status}. Nilai Akhir: ${dto.finalScore || 0}/100.`,
+          linkUrl: `/workspace/${submission.enrollmentId}`,
+        }
+      });
 
       return updatedSubmission;
     });

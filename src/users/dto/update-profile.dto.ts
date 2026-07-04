@@ -46,6 +46,14 @@ export class UpdateProfileDto {
 
   @IsString()
   @IsOptional()
+  location?: string;
+
+  @IsString()
+  @IsOptional()
+  roleCategory?: string;
+
+  @IsString()
+  @IsOptional()
   githubUrl?: string;
 
   @IsString()

@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, ForbiddenException, BadRequestException 
 import { PrismaService } from '../prisma/prisma.service';
 import { AiService } from '../ai/ai.service';
 import { TokensService } from '../tokens/tokens.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CreateChallengeDto } from './dto/create-challenge.dto';
 import { GenerateAiChallengeDto } from './dto/generate-ai-challenge.dto';
 import {
@@ -18,6 +19,7 @@ export class ChallengesService {
     private readonly prisma: PrismaService,
     private readonly aiService: AiService,
     private readonly tokensService: TokensService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async create(companyId: string, createChallengeDto: CreateChallengeDto) {
@@ -47,7 +49,7 @@ export class ChallengesService {
 
     const challengeId = crypto.randomUUID();
 
-    return this.prisma.challenge.create({
+    const newChallenge = await this.prisma.challenge.create({
       data: {
         id: challengeId,
         companyId,
@@ -94,6 +96,17 @@ export class ChallengesService {
         } : undefined,
       },
     });
+
+    await this.prisma.notification.create({
+      data: {
+        userId: company.userId,
+        title: 'Studi Kasus Diterbitkan',
+        content: `Studi Kasus "${newChallenge.title}" berhasil ${createChallengeDto.status === ChallengeStatus.DRAFT ? 'disimpan sebagai draft' : 'diterbitkan'}.`,
+        linkUrl: `/challenges/${newChallenge.slug}`,
+      }
+    });
+
+    return newChallenge;
   }
 
   async createPublic(userId: string, createChallengeDto: CreateChallengeDto) {
@@ -124,7 +137,7 @@ export class ChallengesService {
 
     const challengeId = crypto.randomUUID();
 
-    return this.prisma.challenge.create({
+    const newChallenge = await this.prisma.challenge.create({
       data: {
         id: challengeId,
         talentId: talentProfile.id,
@@ -166,6 +179,17 @@ export class ChallengesService {
         } : undefined,
       },
     });
+
+    await this.prisma.notification.create({
+      data: {
+        userId: talentProfile.userId,
+        title: 'Public Challenge Diterbitkan',
+        content: `Public Challenge "${newChallenge.title}" berhasil ${createChallengeDto.status === ChallengeStatus.DRAFT ? 'disimpan sebagai draft' : 'diterbitkan'}.`,
+        linkUrl: `/challenges/${newChallenge.slug}`,
+      }
+    });
+
+    return newChallenge;
   }
 
   async findAll(query: {
@@ -340,6 +364,15 @@ export class ChallengesService {
       },
     });
 
+    await this.prisma.notification.create({
+      data: {
+        userId: company.userId,
+        title: 'Draft AI Selesai',
+        content: `Sistem AI telah selesai membuat draf studi kasus "${newChallenge.title}". Silakan periksa dan terbitkan.`,
+        linkUrl: `/workspace/edit/${newChallenge.id}`,
+      }
+    });
+
     return newChallenge;
   }
 
@@ -401,6 +434,15 @@ export class ChallengesService {
           }))
         } : undefined,
       },
+    });
+
+    await this.prisma.notification.create({
+      data: {
+        userId: talent.userId,
+        title: 'Draft AI Selesai',
+        content: `Sistem AI telah selesai membuat draf Public Challenge "${newChallenge.title}". Silakan periksa dan terbitkan.`,
+        linkUrl: `/workspace/edit/${newChallenge.id}`,
+      }
     });
 
     return newChallenge;

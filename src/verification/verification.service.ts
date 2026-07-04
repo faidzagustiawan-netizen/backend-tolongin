@@ -14,49 +14,7 @@ export class VerificationService {
     private readonly aiService: AiService,
   ) {}
 
-  /**
-   * Ekstraksi Vektor Fitur Biometrik 64-Dimensi dari Distribusi Frekuensi Byte Gambar
-   * Algoritma fallback murni JS yang deterministik untuk mendeteksi perbedaan struktur foto dan pencahayaan
-   */
-  private extractFeatureVector(base64Image: string): number[] {
-    try {
-      const cleanBase64 = base64Image.replace(/^data:image\/\w+;base64,/, '');
-      const buffer = Buffer.from(cleanBase64, 'base64');
-      
-      const vector = new Array(64).fill(0);
-      if (buffer.length === 0) return vector;
 
-      for (let i = 0; i < buffer.length; i++) {
-        const bin = Math.floor((buffer[i] / 256) * 64);
-        vector[bin]++;
-      }
-
-      const magnitude = Math.sqrt(vector.reduce((sum, val) => sum + val * val, 0));
-      if (magnitude === 0) return vector;
-
-      return vector.map((val) => parseFloat((val / magnitude).toFixed(4)));
-    } catch (e) {
-      console.error('Error extracting feature vector:', e);
-      return new Array(64).fill(0);
-    }
-  }
-
-  /**
-   * Hitung kemiripan kosinus (Cosine Similarity) antara dua vektor 64-dimensi
-   */
-  private calculateCosineSimilarity(vecA: number[], vecB: number[]): number {
-    if (vecA.length !== vecB.length) return 0;
-    let dotProduct = 0;
-    let normA = 0;
-    let normB = 0;
-    for (let i = 0; i < vecA.length; i++) {
-      dotProduct += vecA[i] * vecB[i];
-      normA += vecA[i] * vecA[i];
-      normB += vecB[i] * vecB[i];
-    }
-    if (normA === 0 || normB === 0) return 0;
-    return parseFloat((dotProduct / (Math.sqrt(normA) * Math.sqrt(normB))).toFixed(2));
-  }
 
   async verifyTalentFace(talentId: string, dto: VerifyFaceDto) {
     const profile = await this.prisma.talentProfile.findUnique({
@@ -120,15 +78,12 @@ export class VerificationService {
       );
     }
 
-    const selfieVectorForStorage = this.extractFeatureVector(dto.selfiePhotoUrl);
-
     const updatedProfile = await this.prisma.talentProfile.update({
       where: { id: talentId },
       data: {
         faceVerificationStatus: VerificationStatus.VERIFIED,
         ktpNik: visionResult.ktpNik,
         biometricDataHash: biometricHash,
-        biometricFeatureVector: selfieVectorForStorage,
         avatarUrl: dto.selfiePhotoUrl,
       } as any,
     });
@@ -138,6 +93,7 @@ export class VerificationService {
         userId: profile.userId,
         title: 'Verifikasi Identitas AI Berhasil',
         content: `Selamat! Verifikasi KTP & Wajah Anda telah terverifikasi dengan tingkat kecocokan ${finalConfidence}%. Catatan: ${verificationDetail}`,
+        linkUrl: '/profile',
       },
     });
 
@@ -155,27 +111,24 @@ export class VerificationService {
       where: { id: talentId },
     });
 
-    if (!profile || profile.faceVerificationStatus !== 'VERIFIED' || !profile.biometricFeatureVector) {
+    if (!profile || profile.faceVerificationStatus !== 'VERIFIED' || !profile.avatarUrl) {
       throw new BadRequestException('Profil Anda belum terverifikasi KTP. Harap lakukan verifikasi KTP/Selfie di halaman Profil terlebih dahulu!');
     }
 
-    const liveVector = this.extractFeatureVector(dto.livePhotoUrl);
-    const registeredVector = profile.biometricFeatureVector as number[];
-    const similarity = this.calculateCosineSimilarity(liveVector, registeredVector);
-    const confidencePercentage = Math.round(similarity * 100);
+    const matchResult = await this.aiService.verifyFaceMatch(dto.livePhotoUrl, profile.avatarUrl);
 
-    if (similarity < 0.75) {
+    if (!matchResult.isMatch) {
       return {
         verified: false,
-        matchScore: confidencePercentage,
-        message: `Peringatan Anomali Anti-Joki: Wajah yang terdeteksi di kamera tidak cocok dengan KTP/KYC terdaftar (Kemiripan ${confidencePercentage}%). Akses pengumpulan diblokir!`,
+        matchScore: matchResult.confidenceScore,
+        message: `Peringatan Anomali Anti-Joki: Wajah yang terdeteksi di kamera tidak cocok dengan KTP/KYC terdaftar (Kemiripan ${matchResult.confidenceScore}%). Akses pengumpulan diblokir!`,
       };
     }
 
     return {
       verified: true,
-      matchScore: confidencePercentage,
-      message: `✓ Wajah Terverifikasi ${confidencePercentage}% Sesuai dengan KTP/KYC Terdaftar`,
+      matchScore: matchResult.confidenceScore,
+      message: `✓ Wajah Terverifikasi ${matchResult.confidenceScore}% Sesuai dengan KTP/KYC Terdaftar`,
     };
   }
 
@@ -201,6 +154,7 @@ export class VerificationService {
         userId: profile.userId,
         title: 'Verifikasi Legalitas KYB Berhasil',
         content: `Perusahaan ${dto.legalEntityName ?? profile.companyName} dengan nomor registrasi ${dto.businessRegistrationNumber} telah resmi terverifikasi.`,
+        linkUrl: '/profile',
       },
     });
 

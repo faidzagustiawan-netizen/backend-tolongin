@@ -76,7 +76,7 @@ export class AiService {
     };
   }
 
-  private async verifyWithPythonEngine(selfieUrl: string, ktpUrl: string): Promise<KycVerificationResult> {
+  private async verifyWithPythonEngine(selfieUrl: string, ktpUrl: string, mode: string = 'full'): Promise<KycVerificationResult> {
     return new Promise((resolve) => {
       const exec = require('child_process').exec;
       const path = require('path');
@@ -112,7 +112,7 @@ export class AiService {
         }
       });
 
-      pythonProcess.stdin.write(JSON.stringify({ selfiePhotoUrl: selfieUrl, idCardPhotoUrl: ktpUrl }));
+      pythonProcess.stdin.write(JSON.stringify({ selfiePhotoUrl: selfieUrl, idCardPhotoUrl: ktpUrl, mode }));
       pythonProcess.stdin.end();
     });
   }
@@ -152,7 +152,7 @@ Berikan penilaian akhir berupa objek JSON dengan struktur persis berikut:
     if (this.gemini) {
       try {
         const model = this.gemini.getGenerativeModel({
-          model: 'gemini-1.5-flash-latest',
+          model: 'gemini-1.5-flash',
           generationConfig: { responseMimeType: 'application/json' },
         });
 
@@ -250,7 +250,7 @@ Berikan penilaian akhir berupa objek JSON dengan struktur persis berikut:
     if (this.gemini) {
       try {
         const model = this.gemini.getGenerativeModel({
-          model: 'gemini-1.5-flash-latest',
+          model: 'gemini-1.5-flash',
           generationConfig: { responseMimeType: 'application/json' },
         });
 
@@ -291,24 +291,9 @@ Berikan penilaian akhir berupa objek JSON dengan struktur persis berikut:
       }
     }
 
-    // Fallback deterministik sederhana
-    let totalScore = 0;
-    const fallbackComponents = componentsData.map(c => {
-      const score = Math.min(c.maxPoints, Math.floor(c.maxPoints * 0.8)); // 80% score as mock
-      totalScore += score;
-      return {
-        componentId: c.id,
-        score,
-        aiFeedback: 'Jawaban cukup baik dan relevan dengan konteks soal.'
-      };
-    });
-
-    return {
-      aiScore: totalScore,
-      aiPlagiarismScore: 0.1,
-      aiCorrectionSummary: 'Evaluasi otomatis fallback karena API tidak tersedia.',
-      components: fallbackComponents,
-    };
+    // Fallback dihapus. Kita harus memaksa evaluasi AI benar-benar berjalan, atau kembalikan error agar masuk antrean review manual.
+    this.logger.error('Evaluasi otomatis fallback dibatalkan karena merupakan data mock. Mengembalikan error agar direview manual.');
+    throw new Error('AI_EVALUATION_FAILED');
   }
 
   async generateChallengeContent(promptStr: string, category: string, difficulty: string, companyName: string): Promise<{ title: string, summary: string, description: string, rubric: Record<string, number>, startsAt?: string, deadlineAt?: string, sections: any[] }> {
@@ -355,7 +340,7 @@ Tipe komponen yang valid (type) adalah: MULTIPLE_CHOICE, ESSAY, FILE_UPLOAD, VID
     if (this.gemini) {
       try {
         const model = this.gemini.getGenerativeModel({
-          model: 'gemini-1.5-flash-latest',
+          model: 'gemini-1.5-flash',
           generationConfig: { responseMimeType: 'application/json' },
         });
 
@@ -417,34 +402,27 @@ Tipe komponen yang valid (type) adalah: MULTIPLE_CHOICE, ESSAY, FILE_UPLOAD, VID
     };
   }
 
-  async verifyKtpAndSelfie(selfieUrl: string, ktpUrl: string): Promise<KycVerificationResult | null> {
-    this.logger.log('[PROTOTYPE MODE] Menggunakan data mock sukses untuk verifikasi KTP dan Wajah...');
-    
-    // Simulate processing delay to make the UI look realistic
-    await new Promise(resolve => setTimeout(resolve, 2000));
-
-    // Fallback verifikasi mock deterministik yang selalu sukses
+  async verifyFaceMatch(photo1Url: string, photo2Url: string): Promise<{ isMatch: boolean, confidenceScore: number, reason: string }> {
+    this.logger.log('Mencocokkan wajah secara lokal menggunakan DeepFace ML...');
+    const pythonRes = await this.verifyWithPythonEngine(photo1Url, photo2Url, 'match_only');
     return {
-      isKtpValid: true,
-      isMatch: true,
-      confidenceScore: 99,
-      ktpNik: '317123' + Math.floor(Math.random() * 10000000000).toString().padStart(10, '0'), // Random 16 digit NIK
-      ktpName: 'Talenta Prototipe (Terverifikasi)',
-      reason: 'Validasi Identitas KTP & Biometrik Wajah sukses terverifikasi (Simulasi Prototipe).',
-      biometricHash: require('crypto').createHash('sha256').update(selfieUrl + Date.now().toString()).digest('hex')
+      isMatch: pythonRes.isMatch,
+      confidenceScore: pythonRes.confidenceScore,
+      reason: pythonRes.reason
     };
+  }
 
-    // --- Kode di bawah dinonaktifkan sementara untuk mode Prototipe ---
+  async verifyKtpAndSelfie(selfieUrl: string, ktpUrl: string): Promise<KycVerificationResult | null> {
     // 1. Prioritas Utama: Verifikasi menggunakan DeepFace & EasyOCR (Python Engine)
-    /* try {
-      this.logger.log('Menjalankan verifikasi identitas menggunakan DeepFace & EasyOCR (Python Engine)...');
-      const pythonRes = await this.verifyWithPythonEngine(selfieUrl, ktpUrl);
+    try {
+      this.logger.log('Menjalankan verifikasi identitas menggunakan DeepFace ML & EasyOCR (Python Engine)...');
+      const pythonRes = await this.verifyWithPythonEngine(selfieUrl, ktpUrl, 'full');
       if (pythonRes && !pythonRes.reason.includes('Fatal Python Error') && !pythonRes.reason.includes('Python gagal memproses')) {
         return pythonRes;
       }
     } catch (err: any) {
       this.logger.warn('Python verification engine mengalami galat eksekusi, beralih ke Gemini / OpenAI...');
-    } */
+    }
 
     const prompt = `Anda adalah Petugas KYC Verifikasi Identitas Resmi untuk platform rekrutmen Tolongin.co di Indonesia.
 Diberikan dua gambar:
@@ -470,7 +448,7 @@ Berikan hasil akhir dalam format JSON persis dengan struktur berikut:
     if (this.gemini) {
       try {
         const model = this.gemini!.getGenerativeModel({
-          model: 'gemini-1.5-flash-latest',
+          model: 'gemini-1.5-flash',
           generationConfig: { responseMimeType: 'application/json' },
         });
 
