@@ -33,7 +33,7 @@ def compare_faces_opencv(s_path, k_path):
             img2_path=k_path, 
             model_name="Facenet", 
             enforce_detection=False,
-            detector_backend="opencv"
+            detector_backend="skip"
         )
         is_match = bool(result.get("verified", False))
         distance = float(result.get("distance", 1.0))
