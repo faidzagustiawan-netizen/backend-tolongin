@@ -32,7 +32,7 @@ def compare_faces_opencv(s_path, k_path):
             img1_path=s_path, 
             img2_path=k_path, 
             model_name="VGG-Face", 
-            enforce_detection=True,
+            enforce_detection=False,
             detector_backend="opencv"
         )
         is_match = bool(result.get("verified", False))
