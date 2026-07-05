@@ -36,7 +36,7 @@ def main():
             "reason": ""
         }
 
-        clean_ktp = re.sub(r'^data:image/\w+;base64,', '', ktp_b64)
+        clean_ktp = ktp_b64.split(",")[-1].strip()
         clean_ktp += "=" * ((4 - len(clean_ktp) % 4) % 4)
 
         with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as k_file:
@@ -44,6 +44,10 @@ def main():
             k_path = k_file.name
 
         try:
+            img_k = cv2.imread(k_path)
+            if img_k is None:
+                raise ValueError(f"OpenCV gagal membaca file KTP. Base64 info: len={len(ktp_b64)}, start={ktp_b64[:30]}")
+
             resize_image_if_needed(k_path, max_dim=1200) # Slightly larger for OCR
 
             import easyocr  # type: ignore

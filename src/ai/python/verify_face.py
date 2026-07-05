@@ -74,8 +74,8 @@ def main():
         bio_hash = extract_hash_from_base64(selfie_b64)
         result["biometricHash"] = bio_hash
 
-        clean_selfie = re.sub(r'^data:image/\w+;base64,', '', selfie_b64)
-        clean_ktp = re.sub(r'^data:image/\w+;base64,', '', ktp_b64)
+        clean_selfie = selfie_b64.split(",")[-1].strip()
+        clean_ktp = ktp_b64.split(",")[-1].strip()
 
         clean_selfie += "=" * ((4 - len(clean_selfie) % 4) % 4)
         clean_ktp += "=" * ((4 - len(clean_ktp) % 4) % 4)
@@ -89,6 +89,13 @@ def main():
             k_path = k_file.name
 
         try:
+            img_s = cv2.imread(s_path)
+            if img_s is None:
+                raise ValueError(f"OpenCV gagal membaca file Selfie. Base64 info: len={len(selfie_b64)}, start={selfie_b64[:30]}")
+            img_k = cv2.imread(k_path)
+            if img_k is None:
+                raise ValueError(f"OpenCV gagal membaca file KTP. Base64 info: len={len(ktp_b64)}, start={ktp_b64[:30]}")
+
             resize_image_if_needed(s_path)
             resize_image_if_needed(k_path)
 
