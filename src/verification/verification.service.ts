@@ -7,6 +7,7 @@ import { AiService } from '../ai/ai.service';
 import { VerificationStatus } from '@prisma/client';
 import { NotificationsService } from '../notifications/notifications.service';
 import * as crypto from 'crypto';
+import { EncryptionUtil } from '../utils/encryption.util';
 
 @Injectable()
 export class VerificationService {
@@ -99,13 +100,19 @@ export class VerificationService {
         );
       }
 
+      // Enkripsi data sensitif (Wajah & KTP) agar tidak bisa dibaca langsung dari database
+      const encryptedFace = EncryptionUtil.encrypt(dto.selfiePhotoUrl);
+      const encryptedKtp = EncryptionUtil.encrypt(dto.idCardPhotoUrl);
+
       await this.prisma.talentProfile.update({
         where: { id: talentId },
         data: {
           faceVerificationStatus: VerificationStatus.VERIFIED,
           ktpNik: visionResult.ktpNik,
           biometricDataHash: biometricHash,
-          avatarUrl: dto.selfiePhotoUrl,
+          encryptedPrivateFace: encryptedFace,
+          encryptedKtpData: encryptedKtp,
+          // avatarUrl tidak lagi otomatis diubah di sini, biarkan public
         } as any,
       });
 
@@ -136,11 +143,14 @@ export class VerificationService {
       where: { id: talentId },
     });
 
-    if (!profile || profile.faceVerificationStatus !== 'VERIFIED' || !profile.avatarUrl) {
+    if (!profile || profile.faceVerificationStatus !== 'VERIFIED' || !profile.encryptedPrivateFace) {
       throw new BadRequestException('Profil Anda belum terverifikasi KTP. Harap lakukan verifikasi KTP/Selfie di halaman Profil terlebih dahulu!');
     }
 
-    const matchResult = await this.aiService.verifyFaceMatch(dto.livePhotoUrl, profile.avatarUrl);
+    // Dekripsi foto wajah asli (Private)
+    const decryptedFace = EncryptionUtil.decrypt(profile.encryptedPrivateFace);
+
+    const matchResult = await this.aiService.verifyFaceMatch(dto.livePhotoUrl, decryptedFace);
 
     if (!matchResult.isMatch) {
       return {

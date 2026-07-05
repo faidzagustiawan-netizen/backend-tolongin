@@ -66,6 +66,11 @@ model TalentProfile {
   location     String?
   roleCategory String?
 
+  // Privacy & Encryption
+  encryptedPrivateFace String? // Gambar selfie terenkripsi AES-256 untuk liveness
+  encryptedKtpData     String? // Gambar KTP terenkripsi AES-256 untuk audit
+
+
 
   // Gamification & Economy
   xp           Int @default(0)
