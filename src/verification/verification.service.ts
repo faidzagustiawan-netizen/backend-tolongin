@@ -28,6 +28,12 @@ export class VerificationService {
       throw new NotFoundException('Profil talenta tidak ditemukan');
     }
 
+    // Set status to PENDING immediately
+    await this.prisma.talentProfile.update({
+      where: { id: talentId },
+      data: { faceVerificationStatus: 'PENDING' } as any,
+    });
+
     // Jalankan asinkron di latar belakang (fire and forget)
     this.verifyTalentFaceBackground(talentId, profile, dto).catch(err => {
       console.error('Error background face verification:', err);
@@ -111,6 +117,11 @@ export class VerificationService {
       );
 
     } catch (error: any) {
+      await this.prisma.talentProfile.update({
+        where: { id: talentId },
+        data: { faceVerificationStatus: 'FAILED' } as any,
+      });
+
       await this.notificationsService.sendNotification(
         profile.userId,
         'Verifikasi Identitas AI Gagal ❌',

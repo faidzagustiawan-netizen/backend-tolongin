@@ -44,7 +44,13 @@ def compare_faces_opencv(s_path, k_path):
             return True, max(85, confidence), "Wajah terverifikasi cocok menggunakan DeepFace ML."
         else:
             return False, confidence, "Wajah tidak cocok berdasarkan analisis biometrik."
+    except ValueError as ve:
+        if "Face could not be detected" in str(ve) or "Exception while processing" in str(ve):
+            return False, 0, "Wajah tidak terdeteksi dengan jelas pada foto selfie atau KTP. Pastikan pencahayaan cukup dan wajah terlihat utuh tanpa terpotong."
+        return False, 0, f"Gagal mengekstrak fitur wajah: {str(ve)}"
     except Exception as e:
+        if "Face could not be detected" in str(e) or "Exception while processing" in str(e):
+            return False, 0, "Wajah tidak terdeteksi dengan jelas pada foto selfie atau KTP. Pastikan pencahayaan cukup dan wajah terlihat utuh tanpa terpotong."
         return False, 0, f"Gagal mengekstrak fitur wajah: {str(e)}"
 
 def main():
