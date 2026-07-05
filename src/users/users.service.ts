@@ -123,6 +123,8 @@ export class UsersService {
           websiteUrl: dto.websiteUrl !== undefined ? dto.websiteUrl : undefined,
           description: dto.description !== undefined ? dto.description : undefined,
           logoUrl: dto.logoUrl !== undefined ? dto.logoUrl : undefined,
+          location: dto.location !== undefined ? dto.location : undefined,
+          linkedinUrl: dto.linkedinUrl !== undefined ? dto.linkedinUrl : undefined,
         },
       });
     } else if (user.role === Role.TALENT && user.talentProfile) {

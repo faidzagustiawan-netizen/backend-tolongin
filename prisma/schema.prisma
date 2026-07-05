@@ -109,6 +109,8 @@ model CompanyProfile {
   websiteUrl  String?
   industry    String
   companySize String?
+  location    String?
+  linkedinUrl String?
 
   // Validasi KYB (Know Your Business) & Subscription
   kybStatus             VerificationStatus @default(UNVERIFIED)
