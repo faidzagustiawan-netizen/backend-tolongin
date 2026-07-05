@@ -40,10 +40,14 @@ def compare_faces_opencv(s_path, k_path):
         
         confidence = max(0, min(100, round((1.0 - distance) * 100)))
         
+        # Override is_match because we use detector_backend="skip" (unaligned faces have higher distance)
+        if not is_match and confidence >= 45:
+            is_match = True
+
         if is_match:
             return True, max(85, confidence), "Wajah terverifikasi cocok menggunakan DeepFace ML."
         else:
-            return False, confidence, "Wajah tidak cocok berdasarkan analisis biometrik."
+            return False, confidence, f"Wajah tidak cocok berdasarkan analisis biometrik (Skor Kecocokan: {confidence}%)."
     except ValueError as ve:
         if "Face could not be detected" in str(ve):
             return False, 0, "Wajah tidak terdeteksi dengan jelas pada foto selfie atau KTP. Pastikan pencahayaan cukup dan wajah terlihat utuh tanpa terpotong."
