@@ -131,24 +131,20 @@ export class SubmissionsController {
   }
 
   @ApiOperation({
-    summary:
-      'Memberikan penilaian akhir rekruter dan menerbitkan portofolio otomatis',
-  })
-  @ApiResponse({
-    status: 200,
+    summary: 'Menilai dan memberikan skor pada submisi (Oleh Pembuat Challenge)',
     description:
       'Penilaian akhir tersimpan, XP ditambahkan, dan portofolio terverifikasi diterbitkan.',
   })
-  @Roles(Role.COMPANY, Role.ADMIN)
+  @Roles(Role.COMPANY, Role.ADMIN, Role.TALENT)
   @Put('grade/:id')
   async gradeSubmission(
     @Request() req: any,
     @Param('id') submissionId: string,
     @Body() dto: GradeSubmissionDto,
   ) {
-    const companyId = req.user.profileId;
+    const profileId = req.user.profileId;
     return this.submissionsService.gradeSubmission(
-      companyId,
+      profileId,
       submissionId,
       dto,
     );

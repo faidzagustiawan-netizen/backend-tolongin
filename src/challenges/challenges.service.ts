@@ -448,9 +448,15 @@ export class ChallengesService {
     return newChallenge;
   }
 
-  async updateChallenge(id: string, companyId: string, updateDto: Partial<CreateChallengeDto>) {
+  async updateChallenge(id: string, profileId: string, updateDto: Partial<CreateChallengeDto>) {
     const challenge = await this.prisma.challenge.findFirst({
-      where: { id, companyId }
+      where: { 
+        id, 
+        OR: [
+          { companyId: profileId },
+          { talentId: profileId }
+        ]
+      }
     });
 
     if (!challenge) {

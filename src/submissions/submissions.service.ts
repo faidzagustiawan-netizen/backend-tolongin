@@ -447,7 +447,7 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
   }
 
   async gradeSubmission(
-    companyId: string,
+    profileId: string,
     submissionId: string,
     dto: GradeSubmissionDto,
   ) {
@@ -460,8 +460,15 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
       },
     });
 
-    if (!submission || (submission.challenge.companyId && submission.challenge.companyId !== companyId)) {
-      throw new ForbiddenException('Akses ditolak: Solusi tidak valid');
+    if (!submission) {
+      throw new ForbiddenException('Submisi tidak ditemukan');
+    }
+
+    const isCompanyOwner = submission.challenge.companyId === profileId;
+    const isTalentOwner = submission.challenge.talentId === profileId;
+
+    if (!isCompanyOwner && !isTalentOwner) {
+      throw new ForbiddenException('Akses ditolak: Hanya pembuat Challenge yang dapat menilai submisi');
     }
 
     const result = await this.prisma.$transaction(async (tx) => {

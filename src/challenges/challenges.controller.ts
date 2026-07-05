@@ -116,15 +116,15 @@ export class ChallengesController {
     summary: 'Memperbarui challenge (khusus status DRAFT)',
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.COMPANY, Role.ADMIN)
+  @Roles(Role.COMPANY, Role.ADMIN, Role.TALENT)
   @Patch(':id')
   async update(
     @Request() req: any,
     @Param('id') id: string,
     @Body() updateDto: Partial<CreateChallengeDto>,
   ) {
-    const companyId = req.user.profileId;
-    return this.challengesService.updateChallenge(id, companyId, updateDto);
+    const profileId = req.user.profileId;
+    return this.challengesService.updateChallenge(id, profileId, updateDto);
   }
 
   @ApiBearerAuth('JWT-auth')
