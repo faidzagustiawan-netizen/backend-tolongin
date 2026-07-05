@@ -39,4 +39,11 @@ export class CreateUserDto {
   @IsEnum(SubscriptionTier)
   @IsOptional()
   subscriptionTier?: SubscriptionTier;
+
+  @IsString()
+  @IsOptional()
+  inviteCode?: string;
+
+  @IsOptional()
+  isJoinTeam?: boolean;
 }
