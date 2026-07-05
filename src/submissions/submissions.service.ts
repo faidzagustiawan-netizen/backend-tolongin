@@ -14,11 +14,13 @@ import { EnrollDto } from './dto/enroll.dto';
 import { SubmitSolutionDto } from './dto/submit-solution.dto';
 import { SaveDraftDto } from './dto/save-draft.dto';
 import { GradeSubmissionDto } from './dto/grade-submission.dto';
+import { CompaniesService } from '../companies/companies.service';
 import {
   EnrollmentStatus,
   SubmissionStatus,
   HiringStatus,
   ChallengeDifficulty,
+  Role,
 } from '@prisma/client';
 
 @Injectable()
@@ -30,6 +32,7 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
     private readonly aiService: AiService,
     private readonly tokensService: TokensService,
     private readonly notificationsService: NotificationsService,
+    private readonly companiesService: CompaniesService,
   ) {}
 
   onModuleInit() {
@@ -450,6 +453,8 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
     profileId: string,
     submissionId: string,
     dto: GradeSubmissionDto,
+    userId?: string,
+    role?: string
   ) {
     const submission = await this.prisma.submission.findUnique({
       where: { id: submissionId },
@@ -537,6 +542,17 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
        } catch (err) {
          console.error('Failed to grant tokens', err);
        }
+    }
+
+    if (role === Role.COMPANY && userId && submission.challenge.companyId) {
+      await this.companiesService.logAction(
+        submission.challenge.companyId,
+        userId,
+        'GRADE_SUBMISSION',
+        'SUBMISSION',
+        submissionId,
+        { finalScore: dto.finalScore, talentId: submission.talentId }
+      );
     }
 
     return result;

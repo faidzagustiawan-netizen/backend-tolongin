@@ -32,11 +32,13 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  talentProfile     TalentProfile?
-  companyProfile    CompanyProfile?
-  discussions       Discussion[]
-  notifications     Notification[]
-  tokenTransactions TokenTransaction[]
+  talentProfile       TalentProfile?
+  companyProfile      CompanyProfile?
+  teamMemberships     CompanyMember[]
+  activityLogs        CompanyActivityLog[]
+  discussions         Discussion[]
+  notifications       Notification[]
+  tokenTransactions   TokenTransaction[]
   paymentTransactions PaymentTransaction[]
 
   @@map("users")
@@ -117,15 +119,47 @@ model CompanyProfile {
   subscriptionTier      SubscriptionTier   @default(STARTUP)
   subscriptionExpiresAt DateTime?
 
-  // Accountability
+  // Accountability & Team
   trustScore Int @default(100)
+  inviteCode String? @unique
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  challenges Challenge[]
+  challenges   Challenge[]
+  teamMembers  CompanyMember[]
+  activityLogs CompanyActivityLog[]
 
   @@map("company_profiles")
+}
+
+model CompanyMember {
+  id        String   @id @default(uuid())
+  companyId String
+  userId    String   @unique
+  role      String   @default("MEMBER") // OWNER, ADMIN, RECRUITER
+  joinedAt  DateTime @default(now())
+
+  company CompanyProfile @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user    User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("company_members")
+}
+
+model CompanyActivityLog {
+  id         String   @id @default(uuid())
+  companyId  String
+  userId     String
+  action     String
+  entityType String
+  entityId   String
+  details    Json?
+  createdAt  DateTime @default(now())
+
+  company CompanyProfile @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user    User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("company_activity_logs")
 }
 
 // ==========================================

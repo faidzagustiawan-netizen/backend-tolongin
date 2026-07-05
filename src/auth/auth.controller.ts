@@ -20,6 +20,19 @@ export class AuthController {
     return this.authService.register(createUserDto);
   }
 
+  @ApiOperation({ summary: 'Mendaftar sebagai anggota tim perusahaan' })
+  @ApiResponse({
+    status: 201,
+    description: 'Akun tim berhasil didaftarkan dan JWT diterbitkan.',
+  })
+  @Post('register-team')
+  async registerTeam(
+    @Body() createUserDto: CreateUserDto,
+    @Body('inviteCode') inviteCode: string
+  ) {
+    return this.authService.registerTeam(createUserDto, inviteCode);
+  }
+
   @ApiOperation({ summary: 'Login pengguna via Email dan Password' })
   @ApiResponse({ status: 200, description: 'Login berhasil, JWT diterbitkan.' })
   @ApiResponse({

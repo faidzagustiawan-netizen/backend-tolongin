@@ -107,7 +107,7 @@ export class ChallengesController {
       return this.challengesService.createPublic(req.user.sub, createChallengeDto);
     } else {
       const companyId = req.user.profileId;
-      return this.challengesService.create(companyId, createChallengeDto);
+      return this.challengesService.create(companyId, createChallengeDto, req.user.sub);
     }
   }
 
@@ -124,7 +124,7 @@ export class ChallengesController {
     @Body() updateDto: Partial<CreateChallengeDto>,
   ) {
     const profileId = req.user.profileId;
-    return this.challengesService.updateChallenge(id, profileId, updateDto);
+    return this.challengesService.updateChallenge(id, profileId, updateDto, req.user.sub, req.user.role);
   }
 
   @ApiBearerAuth('JWT-auth')

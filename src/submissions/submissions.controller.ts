@@ -147,6 +147,8 @@ export class SubmissionsController {
       profileId,
       submissionId,
       dto,
+      req.user.sub,
+      req.user.role
     );
   }
 }

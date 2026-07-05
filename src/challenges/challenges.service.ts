@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AiService } from '../ai/ai.service';
 import { TokensService } from '../tokens/tokens.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { CompaniesService } from '../companies/companies.service';
 import { CreateChallengeDto } from './dto/create-challenge.dto';
 import { GenerateAiChallengeDto } from './dto/generate-ai-challenge.dto';
 import {
@@ -11,7 +12,9 @@ import {
   ChallengeStatus,
   ChallengeType,
   Prisma,
+  Role,
 } from '@prisma/client';
+import crypto from 'crypto';
 
 @Injectable()
 export class ChallengesService {
@@ -20,9 +23,10 @@ export class ChallengesService {
     private readonly aiService: AiService,
     private readonly tokensService: TokensService,
     private readonly notificationsService: NotificationsService,
+    private readonly companiesService: CompaniesService,
   ) {}
 
-  async create(companyId: string, createChallengeDto: CreateChallengeDto) {
+  async create(companyId: string, createChallengeDto: CreateChallengeDto, userId: string) {
     const company = await this.prisma.companyProfile.findUnique({
       where: { id: companyId },
     });
@@ -448,7 +452,7 @@ export class ChallengesService {
     return newChallenge;
   }
 
-  async updateChallenge(id: string, profileId: string, updateDto: Partial<CreateChallengeDto>) {
+  async updateChallenge(id: string, profileId: string, updateDto: Partial<CreateChallengeDto>, userId?: string, role?: string) {
     const challenge = await this.prisma.challenge.findFirst({
       where: { 
         id, 
@@ -473,7 +477,7 @@ export class ChallengesService {
     }
 
     // Now update the challenge
-    return this.prisma.challenge.update({
+    const updated = await this.prisma.challenge.update({
       where: { id },
       data: {
         title: updateDto.title,
@@ -510,6 +514,20 @@ export class ChallengesService {
         } : undefined,
       }
     });
+
+    if (role === Role.COMPANY && userId && challenge.companyId) {
+      const changedKeys = Object.keys(updateDto);
+      await this.companiesService.logAction(
+        challenge.companyId,
+        userId,
+        'UPDATE_CHALLENGE',
+        'CHALLENGE',
+        challenge.id,
+        { changedFields: changedKeys }
+      );
+    }
+
+    return updated;
   }
 
   private generateSlug(title: string): string {

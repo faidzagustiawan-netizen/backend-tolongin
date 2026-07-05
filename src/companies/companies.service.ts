@@ -72,4 +72,48 @@ export class CompaniesService {
       },
     };
   }
+
+  // --- Team Management & Audit Trail ---
+
+  async generateInviteCode(companyId: string) {
+    const inviteCode = Math.random().toString(36).substring(2, 10).toUpperCase();
+    return this.prisma.companyProfile.update({
+      where: { id: companyId },
+      data: { inviteCode }
+    });
+  }
+
+  async getTeamMembers(companyId: string) {
+    return this.prisma.companyMember.findMany({
+      where: { companyId },
+      include: {
+        user: { select: { id: true, email: true, role: true } }
+      },
+      orderBy: { joinedAt: 'asc' }
+    });
+  }
+
+  async getActivityLogs(companyId: string) {
+    return this.prisma.companyActivityLog.findMany({
+      where: { companyId },
+      include: {
+        user: { select: { id: true, email: true } }
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 100 // limit for performance
+    });
+  }
+
+  async logAction(companyId: string, userId: string, action: string, entityType: string, entityId: string, details?: any) {
+    return this.prisma.companyActivityLog.create({
+      data: {
+        companyId,
+        userId,
+        action,
+        entityType,
+        entityId,
+        details: details ? JSON.parse(JSON.stringify(details)) : null
+      }
+    });
+  }
 }

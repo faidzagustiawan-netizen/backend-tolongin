@@ -72,12 +72,68 @@ export class UsersService {
     });
   }
 
+  async createTeamMember(createUserDto: CreateUserDto, inviteCode: string) {
+    const { email, password, fullName } = createUserDto;
+
+    const existingUser = await this.prisma.user.findUnique({ where: { email } });
+    if (existingUser) {
+      throw new ConflictException('Email sudah terdaftar');
+    }
+
+    const company = await this.prisma.companyProfile.findUnique({
+      where: { inviteCode }
+    });
+
+    if (!company) {
+      throw new NotFoundException('Kode undangan tidak valid atau perusahaan tidak ditemukan');
+    }
+
+    const saltRounds = 10;
+    const passwordHash = await bcrypt.hash(password, saltRounds);
+
+    return this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: {
+          email,
+          passwordHash,
+          role: Role.COMPANY,
+        },
+      });
+
+      await tx.companyMember.create({
+        data: {
+          userId: user.id,
+          companyId: company.id,
+          role: 'ADMIN',
+        }
+      });
+
+      return tx.user.findUnique({
+        where: { id: user.id },
+        include: {
+          talentProfile: true,
+          companyProfile: true,
+          teamMemberships: {
+            include: {
+              company: true,
+            }
+          },
+        },
+      });
+    });
+  }
+
   async findByEmail(email: string) {
     return this.prisma.user.findUnique({
       where: { email },
       include: {
         talentProfile: true,
         companyProfile: true,
+        teamMemberships: {
+          include: {
+            company: true,
+          }
+        },
       },
     });
   }
@@ -94,6 +150,11 @@ export class UsersService {
           },
         },
         companyProfile: true,
+        teamMemberships: {
+          include: {
+            company: true,
+          }
+        }
       },
     });
 
