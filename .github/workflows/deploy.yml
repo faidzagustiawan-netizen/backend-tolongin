@@ -27,6 +27,9 @@ jobs:
             
             # 4. Install dependencies menggunakan pnpm
             pnpm install --frozen-lockfile
+
+            # 5. Jalankan pnpm run build untuk membangun aplikasi
+            pnpm run build
             
-            # 5. Restart aplikasi menggunakan PM2
+            # 6. Restart aplikasi menggunakan PM2
             pm2 restart tolongin
