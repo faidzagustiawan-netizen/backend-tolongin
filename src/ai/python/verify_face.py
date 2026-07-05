@@ -31,7 +31,7 @@ def compare_faces_opencv(s_path, k_path):
         result = DeepFace.verify(
             img1_path=s_path, 
             img2_path=k_path, 
-            model_name="VGG-Face", 
+            model_name="Facenet", 
             enforce_detection=False,
             detector_backend="opencv"
         )
@@ -45,11 +45,11 @@ def compare_faces_opencv(s_path, k_path):
         else:
             return False, confidence, "Wajah tidak cocok berdasarkan analisis biometrik."
     except ValueError as ve:
-        if "Face could not be detected" in str(ve) or "Exception while processing" in str(ve):
+        if "Face could not be detected" in str(ve):
             return False, 0, "Wajah tidak terdeteksi dengan jelas pada foto selfie atau KTP. Pastikan pencahayaan cukup dan wajah terlihat utuh tanpa terpotong."
         return False, 0, f"Gagal mengekstrak fitur wajah: {str(ve)}"
     except Exception as e:
-        if "Face could not be detected" in str(e) or "Exception while processing" in str(e):
+        if "Face could not be detected" in str(e):
             return False, 0, "Wajah tidak terdeteksi dengan jelas pada foto selfie atau KTP. Pastikan pencahayaan cukup dan wajah terlihat utuh tanpa terpotong."
         return False, 0, f"Gagal mengekstrak fitur wajah: {str(e)}"
 
@@ -76,6 +76,9 @@ def main():
 
         clean_selfie = re.sub(r'^data:image/\w+;base64,', '', selfie_b64)
         clean_ktp = re.sub(r'^data:image/\w+;base64,', '', ktp_b64)
+
+        clean_selfie += "=" * ((4 - len(clean_selfie) % 4) % 4)
+        clean_ktp += "=" * ((4 - len(clean_ktp) % 4) % 4)
 
         with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as s_file:
             s_file.write(base64.b64decode(clean_selfie))

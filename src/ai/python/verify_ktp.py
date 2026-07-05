@@ -37,6 +37,7 @@ def main():
         }
 
         clean_ktp = re.sub(r'^data:image/\w+;base64,', '', ktp_b64)
+        clean_ktp += "=" * ((4 - len(clean_ktp) % 4) % 4)
 
         with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as k_file:
             k_file.write(base64.b64decode(clean_ktp))
