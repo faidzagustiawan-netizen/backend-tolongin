@@ -8,6 +8,7 @@ import base64
 
 os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
 
 def extract_hash_from_base64(b64_str):
     clean = re.sub(r'^data:image/\w+;base64,', '', b64_str)
