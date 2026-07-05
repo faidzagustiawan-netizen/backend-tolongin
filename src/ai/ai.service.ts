@@ -77,49 +77,73 @@ export class AiService {
   }
 
   private async verifyWithPythonEngine(selfieUrl: string, ktpUrl: string, mode: string = 'full'): Promise<KycVerificationResult> {
-    return new Promise((resolve) => {
-      const exec = require('child_process').exec;
-      const path = require('path');
-      const scriptPath = path.resolve(process.cwd(), 'src/ai/python/verify_biometrics.py');
-      const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
-      const execOptions = { 
-        maxBuffer: 1024 * 1024 * 50,
-        env: { ...process.env, CUDA_VISIBLE_DEVICES: "-1", TF_CPP_MIN_LOG_LEVEL: "3" }
-      };
-      const pythonProcess = exec(`${pythonCmd} "${scriptPath}"`, execOptions, (error: any, stdout: string, stderr: string) => {
-        if (error) {
-          this.logger.error('Error executing Python verify_biometrics script: ' + error.message);
-        }
-        try {
-          const jsonMatch = stdout.match(/===JSON_START===\s*([\s\S]*?)\s*===JSON_END===/);
-          const rawJson = jsonMatch && jsonMatch[1] ? jsonMatch[1] : stdout.trim();
-          const result = JSON.parse(rawJson);
-          resolve({
-            isKtpValid: result.isKtpValid ?? false,
-            isMatch: result.isMatch ?? false,
-            confidenceScore: result.confidenceScore ?? 0,
-            ktpNik: result.ktpNik ?? null,
-            ktpName: result.ktpName ?? null,
-            reason: result.reason ?? 'Gagal memverifikasi dokumen.',
-            biometricHash: result.biometricHash ?? null,
-          });
-        } catch (e: any) {
-          this.logger.error('Failed to parse Python stdout: ' + e.message);
-          resolve({
-            isKtpValid: false,
-            isMatch: false,
-            confidenceScore: 0,
-            ktpNik: null,
-            ktpName: null,
-            reason: 'Sistem deteksi biometrik Python gagal memproses gambar (pastikan modul easyocr dan deepface terinstal dan foto jelas).',
-            biometricHash: null,
-          });
-        }
+    const exec = require('child_process').exec;
+    const path = require('path');
+    const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+    
+    const runScript = (scriptName: string, payload: any): Promise<any> => {
+      return new Promise((resolve, reject) => {
+        const scriptPath = path.resolve(process.cwd(), `src/ai/python/${scriptName}`);
+        const execOptions = { 
+          maxBuffer: 1024 * 1024 * 50,
+          env: { ...process.env, CUDA_VISIBLE_DEVICES: "-1", TF_CPP_MIN_LOG_LEVEL: "3" }
+        };
+        const pythonProcess = exec(`${pythonCmd} "${scriptPath}"`, execOptions, (error: any, stdout: string, stderr: string) => {
+          if (error) this.logger.error(`Error executing ${scriptName}: ${error.message}`);
+          try {
+            const jsonMatch = stdout.match(/===JSON_START===\s*([\s\S]*?)\s*===JSON_END===/);
+            const rawJson = jsonMatch && jsonMatch[1] ? jsonMatch[1] : stdout.trim();
+            resolve(JSON.parse(rawJson));
+          } catch (e: any) {
+            reject(new Error(`Failed to parse ${scriptName} stdout: ${e.message}`));
+          }
+        });
+        pythonProcess.stdin.write(JSON.stringify(payload));
+        pythonProcess.stdin.end();
       });
+    };
 
-      pythonProcess.stdin.write(JSON.stringify({ selfiePhotoUrl: selfieUrl, idCardPhotoUrl: ktpUrl, mode }));
-      pythonProcess.stdin.end();
-    });
+    try {
+      this.logger.log('Starting Phase 1: Biometric Face Match (TensorFlow)');
+      const faceResult = await runScript('verify_face.py', { selfiePhotoUrl: selfieUrl, idCardPhotoUrl: ktpUrl });
+      
+      if (!faceResult.isMatch) {
+        return {
+          isKtpValid: false, isMatch: false, confidenceScore: faceResult.confidenceScore || 0,
+          ktpNik: null, ktpName: null, reason: faceResult.reason || 'Wajah tidak cocok.',
+          biometricHash: faceResult.biometricHash,
+        };
+      }
+
+      if (mode !== 'full') {
+         return {
+          isKtpValid: true, isMatch: true, confidenceScore: faceResult.confidenceScore,
+          ktpNik: 'MATCH_ONLY_MODE', ktpName: 'MATCH_ONLY_MODE', reason: faceResult.reason,
+          biometricHash: faceResult.biometricHash,
+        };
+      }
+
+      this.logger.log('Starting Phase 2: KTP OCR (PyTorch)');
+      const ktpResult = await runScript('verify_ktp.py', { idCardPhotoUrl: ktpUrl });
+
+      return {
+        isKtpValid: ktpResult.isKtpValid,
+        isMatch: true,
+        confidenceScore: faceResult.confidenceScore,
+        ktpNik: ktpResult.ktpNik,
+        ktpName: ktpResult.ktpName,
+        reason: ktpResult.isKtpValid ? 'Validasi Identitas KTP & Biometrik Wajah sukses terverifikasi.' : ktpResult.reason,
+        biometricHash: faceResult.biometricHash,
+      };
+
+    } catch (e: any) {
+      this.logger.error('Python Engine Error: ' + e.message);
+      return {
+        isKtpValid: false, isMatch: false, confidenceScore: 0,
+        ktpNik: null, ktpName: null, reason: 'Sistem deteksi biometrik Python gagal memproses gambar.',
+        biometricHash: null,
+      };
+    }
   }
 
   async evaluateHolistic(

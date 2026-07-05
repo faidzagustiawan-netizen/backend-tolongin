@@ -14,7 +14,12 @@ import { Injectable, Logger } from '@nestjs/common';
 @Injectable()
 @WebSocketGateway({
   cors: {
-    origin: '*',
+    origin: [
+      'https://tolongin.co',
+      'https://frontend-tolongin.vercel.app',
+      'http://localhost:3000'
+    ],
+    credentials: true,
   },
 })
 export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisconnect {
@@ -35,7 +40,7 @@ export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisco
       }
       
       const payload = this.jwtService.verify(token, {
-        secret: process.env.JWT_SECRET || 'secret',
+        secret: process.env.JWT_SECRET,
       });
       
       const userId = payload.sub;

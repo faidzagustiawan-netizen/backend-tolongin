@@ -134,17 +134,11 @@ export class UsersService {
         githubUrl: dto.githubUrl !== undefined ? dto.githubUrl : undefined,
         linkedinUrl: dto.linkedinUrl !== undefined ? dto.linkedinUrl : undefined,
         figmaUrl: dto.figmaUrl !== undefined ? dto.figmaUrl : undefined,
-        ktpNik: dto.ktpNik !== undefined ? dto.ktpNik : undefined,
         resumeUrl: dto.resumeUrl !== undefined ? dto.resumeUrl : undefined,
         avatarUrl: dto.avatarUrl !== undefined ? dto.avatarUrl : undefined,
-        biometricFeatureVector: dto.biometricFeatureVector !== undefined ? dto.biometricFeatureVector : undefined,
         location: dto.location !== undefined ? dto.location : undefined,
         roleCategory: dto.roleCategory !== undefined ? dto.roleCategory : undefined,
       };
-
-      if (dto.biometricFeatureVector) {
-        updateData.faceVerificationStatus = 'VERIFIED';
-      }
 
       await this.prisma.talentProfile.update({
         where: { userId },

@@ -1,6 +1,7 @@
 import {
   IsEmail,
   IsEnum,
+  IsIn,
   IsNotEmpty,
   IsOptional,
   IsString,
@@ -17,7 +18,7 @@ export class CreateUserDto {
   @MinLength(6, { message: 'Password minimal 6 karakter' })
   password: string;
 
-  @IsEnum(Role, { message: 'Role harus TALENT, COMPANY, atau ADMIN' })
+  @IsIn(['TALENT', 'COMPANY'], { message: 'Role harus TALENT atau COMPANY' })
   @IsOptional()
   role?: Role;
 

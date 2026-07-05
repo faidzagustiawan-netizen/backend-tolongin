@@ -17,7 +17,7 @@ export class OptionalJwtAuthGuard implements CanActivate {
     if (token) {
       try {
         const payload = await this.jwtService.verifyAsync(token, {
-          secret: process.env.JWT_SECRET || 'supersecretjwtkey_for_tolongin_platform_2026',
+          secret: process.env.JWT_SECRET,
         });
         request['user'] = payload;
       } catch {

@@ -25,13 +25,20 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   app.use(helmet());
-  app.enableCors();
+  app.enableCors({
+    origin: [
+      'https://tolongin.co',
+      'https://frontend-tolongin.vercel.app',
+      'http://localhost:3000'
+    ],
+    credentials: true,
+  });
   app.setGlobalPrefix('api/v1', {
     exclude: [{ path: 'health', method: RequestMethod.GET }],
   });
 
-  app.use(json({ limit: '50mb' }));
-  app.use(urlencoded({ limit: '50mb', extended: true }));
+  app.use(json({ limit: '5mb' }));
+  app.use(urlencoded({ limit: '5mb', extended: true }));
 
   app.useGlobalPipes(
     new ValidationPipe({
@@ -45,29 +52,31 @@ async function bootstrap() {
   app.useGlobalInterceptors(new LoggingInterceptor());
   app.useGlobalInterceptors(new SentryInterceptor());
 
-  const config = new DocumentBuilder()
-    .setTitle('Tolongin.co API')
-    .setDescription(
-      'Dokumentasi resmi API platform rekrutmen Tolongin.co (Real-Performance Hiring & AI Assessment)',
-    )
-    .setVersion('1.0.0')
-    .addBearerAuth(
-      {
-        type: 'http',
-        scheme: 'bearer',
-        bearerFormat: 'JWT',
-        name: 'JWT',
-        description: 'Masukkan token JWT (Bearer Token)',
-        in: 'header',
-      },
-      'JWT-auth',
-    )
-    .build();
+  if (process.env.NODE_ENV !== 'production') {
+    const config = new DocumentBuilder()
+      .setTitle('Tolongin.co API')
+      .setDescription(
+        'Dokumentasi resmi API platform rekrutmen Tolongin.co (Real-Performance Hiring & AI Assessment)',
+      )
+      .setVersion('1.0.0')
+      .addBearerAuth(
+        {
+          type: 'http',
+          scheme: 'bearer',
+          bearerFormat: 'JWT',
+          name: 'JWT',
+          description: 'Masukkan token JWT (Bearer Token)',
+          in: 'header',
+        },
+        'JWT-auth',
+      )
+      .build();
 
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api/docs', app, document, {
-    customSiteTitle: 'Tolongin.co API Documentation',
-  });
+    const document = SwaggerModule.createDocument(app, config);
+    SwaggerModule.setup('api/docs', app, document, {
+      customSiteTitle: 'Tolongin.co API Documentation',
+    });
+  }
 
   const port = process.env.PORT ?? 3001;
   await app.listen(port);

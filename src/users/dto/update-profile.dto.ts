@@ -64,15 +64,6 @@ export class UpdateProfileDto {
   @IsOptional()
   figmaUrl?: string;
 
-  @IsArray()
-  @IsNumber({}, { each: true })
-  @IsOptional()
-  biometricFeatureVector?: number[];
-
-  @IsString()
-  @IsOptional()
-  ktpNik?: string;
-
   @IsString()
   @IsOptional()
   resumeUrl?: string;
