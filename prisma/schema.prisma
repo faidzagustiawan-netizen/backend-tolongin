@@ -72,12 +72,12 @@ model TalentProfile {
   encryptedPrivateFace String? // Gambar selfie terenkripsi AES-256 untuk liveness
   encryptedKtpData     String? // Gambar KTP terenkripsi AES-256 untuk audit
 
-
-
   // Gamification & Economy
   xp           Int @default(0)
   level        Int @default(1)
   tokenBalance Int @default(0)
+
+  showcasedSubmissionIds String[] @default([])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

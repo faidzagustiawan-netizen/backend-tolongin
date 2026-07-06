@@ -67,6 +67,45 @@ export class SeedService {
           trustScore: faker.number.int({ min: 80, max: 100 })
         }
       });
+      
+      // Create extra team members & logs
+      for (let j = 0; j < 3; j++) {
+        const memEmail = `member${j+1}_${email}`;
+        const memUser = await this.prisma.user.create({
+          data: { email: memEmail, passwordHash: defaultPassword, role: Role.COMPANY, isVerified: true }
+        });
+        await this.prisma.companyMember.create({
+          data: { userId: memUser.id, companyId: profile.id, role: 'MEMBER' }
+        });
+        await this.prisma.companyActivityLog.create({
+          data: { 
+            companyId: profile.id, 
+            userId: memUser.id, 
+            action: 'MEMBER_JOINED', 
+            entityType: 'USER', 
+            entityId: memUser.id, 
+            details: { email: memEmail } 
+          }
+        });
+      }
+
+      // Activity Log for Profile creation
+      await this.prisma.companyActivityLog.create({
+        data: { 
+          companyId: profile.id, 
+          userId: user.id, 
+          action: 'PROFILE_UPDATED', 
+          entityType: 'COMPANY_PROFILE', 
+          entityId: profile.id, 
+          details: { updatedFields: ['companyName', 'industry', 'subscriptionTier'] } 
+        }
+      });
+
+      // Notification
+      await this.prisma.notification.create({
+        data: { userId: user.id, title: 'Selamat Datang', content: 'Selamat datang di platform Tolongin!' }
+      });
+
       companies.push(profile);
     }
 
@@ -90,6 +129,12 @@ export class SeedService {
           tokenBalance: faker.number.int({ min: 100, max: 1000 })
         }
       });
+      
+      // Notification
+      await this.prisma.notification.create({
+        data: { userId: user.id, title: 'Selamat Datang', content: 'Profil talenta Anda berhasil dibuat!' }
+      });
+
       talents.push({ user, profile });
     }
 
@@ -262,7 +307,7 @@ export class SeedService {
             }
           }
 
-          await this.prisma.submission.create({
+          const submission = await this.prisma.submission.create({
             data: {
               enrollmentId: enrollment.id,
               talentId: talent.profile.id,
@@ -279,6 +324,14 @@ export class SeedService {
               }
             }
           });
+
+          // Add to showcased submissions if passed
+          if (isPassed && faker.datatype.boolean()) {
+            await this.prisma.talentProfile.update({
+              where: { id: talent.profile.id },
+              data: { showcasedSubmissionIds: { push: submission.id } }
+            });
+          }
         }
       }
     }

@@ -87,7 +87,15 @@ export class CompaniesService {
     return this.prisma.companyMember.findMany({
       where: { companyId },
       include: {
-        user: { select: { id: true, email: true, role: true } }
+        user: { 
+          select: { 
+            id: true, 
+            email: true, 
+            role: true,
+            companyProfile: { select: { companyName: true, logoUrl: true } },
+            talentProfile: { select: { fullName: true, avatarUrl: true } }
+          } 
+        }
       },
       orderBy: { joinedAt: 'asc' }
     });
@@ -97,7 +105,14 @@ export class CompaniesService {
     return this.prisma.companyActivityLog.findMany({
       where: { companyId },
       include: {
-        user: { select: { id: true, email: true } }
+        user: { 
+          select: { 
+            id: true, 
+            email: true,
+            companyProfile: { select: { companyName: true, logoUrl: true } },
+            talentProfile: { select: { fullName: true, avatarUrl: true } }
+          } 
+        }
       },
       orderBy: { createdAt: 'desc' },
       take: 100 // limit for performance

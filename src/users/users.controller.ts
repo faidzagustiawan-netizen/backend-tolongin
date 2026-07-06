@@ -23,9 +23,19 @@ export class UsersController {
   @ApiResponse({ status: 404, description: 'Pengguna tidak ditemukan.' })
   @UseGuards(JwtAuthGuard)
   @Get(':id')
-  async getProfile(@Param('id') id: string) {
+  async getProfile(@Param('id') id: string, @Request() req: any) {
     const user = await this.usersService.findById(id);
     const { passwordHash, ...safeUser } = user;
+    
+    // Jika bukan pemilik profil, hapus data biometrik/KTP privat
+    if (req.user.sub !== id && safeUser.talentProfile) {
+      const tp = safeUser.talentProfile as any;
+      delete tp.encryptedPrivateFace;
+      delete tp.encryptedKtpData;
+      delete tp.biometricDataHash;
+      delete tp.biometricFeatureVector;
+    }
+
     return safeUser;
   }
 

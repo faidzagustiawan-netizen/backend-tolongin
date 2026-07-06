@@ -110,6 +110,15 @@ export class ChallengesService {
       }
     });
 
+    await this.companiesService.logAction(
+      companyId,
+      userId,
+      'CHALLENGE_CREATED',
+      'CHALLENGE',
+      newChallenge.id,
+      { title: newChallenge.title, status: newChallenge.status }
+    );
+
     return newChallenge;
   }
 

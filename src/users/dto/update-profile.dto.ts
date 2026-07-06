@@ -71,4 +71,18 @@ export class UpdateProfileDto {
   @IsString()
   @IsOptional()
   avatarUrl?: string;
+
+  @IsString()
+  @IsOptional()
+  encryptedPrivateFace?: string;
+
+  @IsArray()
+  @IsNumber({}, { each: true })
+  @IsOptional()
+  biometricFeatureVector?: number[];
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  showcasedSubmissionIds?: string[];
 }

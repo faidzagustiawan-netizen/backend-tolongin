@@ -108,6 +108,17 @@ export class UsersService {
         }
       });
 
+      await tx.companyActivityLog.create({
+        data: {
+          companyId: company.id,
+          userId: user.id,
+          action: 'MEMBER_JOINED',
+          entityType: 'USER',
+          entityId: user.id,
+          details: { email: user.email }
+        }
+      });
+
       return tx.user.findUnique({
         where: { id: user.id },
         include: {
@@ -127,7 +138,13 @@ export class UsersService {
     return this.prisma.user.findUnique({
       where: { email },
       include: {
-        talentProfile: true,
+        talentProfile: {
+          include: {
+            submissions: {
+              include: { challenge: true },
+            }
+          }
+        },
         companyProfile: true,
         teamMemberships: {
           include: {
@@ -147,6 +164,9 @@ export class UsersService {
             earnedBadges: {
               include: { badge: true },
             },
+            submissions: {
+              include: { challenge: true },
+            }
           },
         },
         companyProfile: true,
@@ -188,6 +208,17 @@ export class UsersService {
           linkedinUrl: dto.linkedinUrl !== undefined ? dto.linkedinUrl : undefined,
         },
       });
+
+      await this.prisma.companyActivityLog.create({
+        data: {
+          companyId: user.companyProfile.id,
+          userId,
+          action: 'PROFILE_UPDATED',
+          entityType: 'COMPANY_PROFILE',
+          entityId: user.companyProfile.id,
+          details: { updatedFields: Object.keys(dto) }
+        }
+      });
     } else if (user.role === Role.TALENT && user.talentProfile) {
       const updateData: any = {
         fullName: dto.fullName !== undefined ? dto.fullName : undefined,
@@ -201,6 +232,9 @@ export class UsersService {
         avatarUrl: dto.avatarUrl !== undefined ? dto.avatarUrl : undefined,
         location: dto.location !== undefined ? dto.location : undefined,
         roleCategory: dto.roleCategory !== undefined ? dto.roleCategory : undefined,
+        encryptedPrivateFace: dto.encryptedPrivateFace !== undefined ? dto.encryptedPrivateFace : undefined,
+        biometricFeatureVector: dto.biometricFeatureVector !== undefined ? JSON.stringify(dto.biometricFeatureVector) : undefined,
+        showcasedSubmissionIds: dto.showcasedSubmissionIds !== undefined ? dto.showcasedSubmissionIds : undefined,
       };
 
       await this.prisma.talentProfile.update({
