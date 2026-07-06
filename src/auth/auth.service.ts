@@ -17,6 +17,11 @@ export class AuthService {
     return this.generateToken(user);
   }
 
+  async registerTeam(createUserDto: CreateUserDto, inviteCode: string) {
+    const user = await this.usersService.createTeamMember(createUserDto, inviteCode);
+    return this.generateToken(user);
+  }
+
   async login(loginDto: LoginDto) {
     const { email, password } = loginDto;
     const user = await this.usersService.findByEmail(email);
@@ -39,7 +44,7 @@ export class AuthService {
       sub: user.id,
       email: user.email,
       role: user.role,
-      profileId: user.talentProfile?.id || user.companyProfile?.id,
+      profileId: user.talentProfile?.id || user.companyProfile?.id || user.teamMemberships?.[0]?.companyId,
     };
 
     return {
@@ -48,7 +53,7 @@ export class AuthService {
         id: user.id,
         email: user.email,
         role: user.role,
-        profile: user.talentProfile || user.companyProfile,
+        profile: user.talentProfile || user.companyProfile || (user.teamMemberships?.length > 0 ? { ...user.teamMemberships[0].company, isTeamMember: true } : null),
       },
     };
   }

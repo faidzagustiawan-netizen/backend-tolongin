@@ -32,11 +32,13 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  talentProfile     TalentProfile?
-  companyProfile    CompanyProfile?
-  discussions       Discussion[]
-  notifications     Notification[]
-  tokenTransactions TokenTransaction[]
+  talentProfile       TalentProfile?
+  companyProfile      CompanyProfile?
+  teamMemberships     CompanyMember[]
+  activityLogs        CompanyActivityLog[]
+  discussions         Discussion[]
+  notifications       Notification[]
+  tokenTransactions   TokenTransaction[]
   paymentTransactions PaymentTransaction[]
 
   @@map("users")
@@ -62,11 +64,20 @@ model TalentProfile {
   biometricDataHash      String? @unique // Untuk verifikasi wajah anti-joki & memastikan 1 wajah 1 akun
   biometricFeatureVector Json?   // Vektor fitur biometrik 64-dimensi untuk deteksi real-time anti-joki
 
+  // Leaderboard & Demographics
+  location     String?
+  roleCategory String?
+
+  // Privacy & Encryption
+  encryptedPrivateFace String? // Gambar selfie terenkripsi AES-256 untuk liveness
+  encryptedKtpData     String? // Gambar KTP terenkripsi AES-256 untuk audit
 
   // Gamification & Economy
   xp           Int @default(0)
   level        Int @default(1)
   tokenBalance Int @default(0)
+
+  showcasedSubmissionIds String[] @default([])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -100,21 +111,55 @@ model CompanyProfile {
   websiteUrl  String?
   industry    String
   companySize String?
+  location    String?
+  linkedinUrl String?
 
   // Validasi KYB (Know Your Business) & Subscription
   kybStatus             VerificationStatus @default(UNVERIFIED)
   subscriptionTier      SubscriptionTier   @default(STARTUP)
   subscriptionExpiresAt DateTime?
 
-  // Accountability
+  // Accountability & Team
   trustScore Int @default(100)
+  inviteCode String? @unique
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  challenges Challenge[]
+  challenges   Challenge[]
+  teamMembers  CompanyMember[]
+  activityLogs CompanyActivityLog[]
 
   @@map("company_profiles")
+}
+
+model CompanyMember {
+  id        String   @id @default(uuid())
+  companyId String
+  userId    String   @unique
+  role      String   @default("MEMBER") // OWNER, ADMIN, RECRUITER
+  joinedAt  DateTime @default(now())
+
+  company CompanyProfile @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user    User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("company_members")
+}
+
+model CompanyActivityLog {
+  id         String   @id @default(uuid())
+  companyId  String
+  userId     String
+  action     String
+  entityType String
+  entityId   String
+  details    Json?
+  createdAt  DateTime @default(now())
+
+  company CompanyProfile @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user    User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("company_activity_logs")
 }
 
 // ==========================================
@@ -136,9 +181,9 @@ enum ChallengeCategory {
 }
 
 enum ChallengeDifficulty {
-  JUNIOR
-  MEDIOR
-  SENIOR
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
 }
 
 enum ChallengeStatus {
@@ -171,6 +216,7 @@ model Challenge {
   // Rubrik Penilaian (Penyimpanan JSON untuk fleksibilitas kriteria)
   gradingRubric     Json
   rewardDescription String?
+  startsAt          DateTime?
   deadlineAt        DateTime?
   isPrivate         Boolean         @default(false)
   status            ChallengeStatus @default(DRAFT)
@@ -264,6 +310,7 @@ model ChallengeEnrollment {
   ndaSignedAt DateTime?
   startedAt   DateTime         @default(now())
   completedAt DateTime?
+  draftData   Json?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

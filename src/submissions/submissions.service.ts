@@ -9,13 +9,18 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { AiService } from '../ai/ai.service';
 import { TokensService } from '../tokens/tokens.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { EnrollDto } from './dto/enroll.dto';
 import { SubmitSolutionDto } from './dto/submit-solution.dto';
+import { SaveDraftDto } from './dto/save-draft.dto';
 import { GradeSubmissionDto } from './dto/grade-submission.dto';
+import { CompaniesService } from '../companies/companies.service';
 import {
   EnrollmentStatus,
   SubmissionStatus,
   HiringStatus,
+  ChallengeDifficulty,
+  Role,
 } from '@prisma/client';
 
 @Injectable()
@@ -26,6 +31,8 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
     private readonly prisma: PrismaService,
     private readonly aiService: AiService,
     private readonly tokensService: TokensService,
+    private readonly notificationsService: NotificationsService,
+    private readonly companiesService: CompaniesService,
   ) {}
 
   onModuleInit() {
@@ -78,11 +85,25 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
           data: { trustScore: { decrement: 5 } },
         });
 
-        // Berikan token ke talent
-        await tx.talentProfile.update({
-          where: { id: sub.talentId },
-          data: { tokenBalance: { increment: 50 }, xp: { increment: 150 } },
-        });
+          // Hitung token & xp dinamis
+          const finalScore = 75; // Asumsi nilai kelulusan auto-pass (default 75)
+          const rewards = this.calculateRewards(
+            sub.challenge.difficulty,
+            finalScore
+          );
+
+          // Berikan token ke talent
+          await tx.talentProfile.update({
+            where: { id: sub.talentId },
+            data: { xp: { increment: rewards.xp } },
+          });
+
+          // Panggil tokenService (bukan di dalam tx untuk menghindari block)
+          this.tokensService.earnTokens(
+            sub.talent.userId,
+            rewards.tokens,
+            `Reward: Lulus Otomatis - ${sub.challenge.title}`
+          ).catch(err => console.error('Gagal memberi token auto-pass', err));
 
         // Tambah ke portfolio
         await tx.portfolio.upsert({
@@ -96,6 +117,29 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
             showcaseSummary: `Berhasil menyelesaikan studi kasus otomatis (Auto-Passed) dari challenge ${sub.challenge.title}.`,
           },
         });
+
+        // Notifikasi untuk Talent
+        await tx.notification.create({
+          data: {
+            userId: sub.talent.userId,
+            title: 'Submisi Lulus Otomatis',
+            content: `Submisi Anda pada "${sub.challenge.title}" dinyatakan LULUS otomatis oleh sistem karena melebihi batas waktu evaluasi perusahaan.`,
+            linkUrl: `/workspace/${sub.enrollmentId}`,
+          }
+        });
+
+        // Notifikasi untuk Company
+        const companyProfile = await tx.companyProfile.findUnique({ where: { id: companyId } });
+        if (companyProfile) {
+          await tx.notification.create({
+            data: {
+              userId: companyProfile.userId,
+              title: 'Peringatan: Pelanggaran SLA',
+              content: `Peringatan! Trust Score Anda dikurangi 5 poin karena gagal mengevaluasi submisi pada "${sub.challenge.title}" dalam batas waktu 7 hari.`,
+              linkUrl: '/workspace',
+            }
+          });
+        }
       });
       console.log(`[Cron] Submisi ${sub.id} di-auto-pass. Trust score company diturunkan.`);
     }
@@ -124,7 +168,7 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
       throw new BadRequestException('Anda sudah terdaftar di challenge ini');
     }
 
-    return this.prisma.challengeEnrollment.create({
+    const enrollment = await this.prisma.challengeEnrollment.create({
       data: {
         talentId,
         challengeId: enrollDto.challengeId,
@@ -132,12 +176,72 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
         ndaSignedAt: new Date(),
       },
     });
+
+    const talentProfile = await this.prisma.talentProfile.findUnique({ where: { id: talentId } });
+    if (talentProfile) {
+      await this.notificationsService.sendNotification(
+        talentProfile.userId,
+        'Studi Kasus Dimulai',
+        `Anda telah memulai studi kasus "${challenge.title}". Tenggat waktu pengerjaan Anda telah berjalan.`,
+        `/workspace/${enrollment.id}`
+      );
+    }
+
+    // Notify the creator of the challenge
+    let creatorUserId: string | null = null;
+    if (challenge.companyId) {
+      const company = await this.prisma.companyProfile.findUnique({ where: { id: challenge.companyId } });
+      if (company) creatorUserId = company.userId;
+    } else if (challenge.talentId) {
+      const creatorTalent = await this.prisma.talentProfile.findUnique({ where: { id: challenge.talentId } });
+      if (creatorTalent) creatorUserId = creatorTalent.userId;
+    }
+
+    if (creatorUserId) {
+      await this.notificationsService.sendNotification(
+        creatorUserId,
+        'Pendaftar Baru',
+        `Seorang talenta baru saja mendaftar untuk mengerjakan studi kasus "${challenge.title}".`,
+        `/challenges/${challenge.slug}`
+      );
+    }
+
+    return enrollment;
+  }
+
+  async saveDraft(talentId: string, enrollmentId: string, dto: SaveDraftDto) {
+    const enrollment = await this.prisma.challengeEnrollment.findUnique({
+      where: { id: enrollmentId },
+    });
+
+    if (!enrollment) {
+      throw new NotFoundException('Enrollment tidak ditemukan');
+    }
+
+    if (enrollment.talentId !== talentId) {
+      throw new BadRequestException('Bukan pemilik enrollment ini');
+    }
+
+    return this.prisma.challengeEnrollment.update({
+      where: { id: enrollmentId },
+      data: {
+        draftData: dto.draftData,
+      },
+    });
   }
 
   async submitSolution(talentId: string, dto: SubmitSolutionDto) {
     const enrollment = await this.prisma.challengeEnrollment.findUnique({
       where: { id: dto.enrollmentId },
-      include: { challenge: { include: { company: true } } },
+      include: { 
+        challenge: { 
+          include: { 
+            company: true,
+            components: true,
+            sections: { include: { components: true } }
+          } 
+        } 
+      },
     });
 
     if (!enrollment || enrollment.talentId !== talentId) {
@@ -157,20 +261,31 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
 
     const isCompanyChallenge = enrollment.challenge.challengeType === 'COMPANY';
     const companyTier = enrollment.challenge.company?.subscriptionTier;
-    const shouldRunAi = !isCompanyChallenge || (isCompanyChallenge && companyTier !== 'STARTUP');
+    // AI HANYA BERJALAN JIKA: Dibuat oleh perusahaan DAN perusahaan BUKAN paket gratis (STARTUP)
+    const shouldRunAi = isCompanyChallenge && companyTier !== 'STARTUP';
 
+    let candidateAnswers = '';
+    let componentEvaluations: { componentId: string, score: number, aiFeedback: string }[] = [];
+    const allComponents = new Map();
+    if (enrollment.challenge.components) {
+      enrollment.challenge.components.forEach((c: any) => allComponents.set(c.id, c));
+    }
+    if (enrollment.challenge.sections) {
+      enrollment.challenge.sections.forEach((s: any) => {
+        if (s.components) {
+          s.components.forEach((c: any) => allComponents.set(c.id, c));
+        }
+      });
+    }
+
+    const hasComponents = allComponents.size > 0;
+
+    // AI tidak lagi dieksekusi secara sinkronus di sini karena akan memperlambat respon untuk talenta
+    // dan menghabiskan token saat submit.
+    // Jika perusahaan berhak menggunakan AI (bukan STARTUP), status diset ke PENDING_AI
+    // yang mana akan diproses nanti oleh background job atau trigger manual.
     if (shouldRunAi) {
-      const evaluation = await this.aiService.evaluateSubmission(
-        enrollment.challenge.title,
-        enrollment.challenge.category,
-        dto.repositoryUrl,
-        dto.notes,
-      );
-      aiScore = evaluation.aiScore;
-      aiPlagiarismScore = evaluation.aiPlagiarismScore;
-      aiCorrectionSummary = evaluation.aiCorrectionSummary;
-      initialStatus = SubmissionStatus.PENDING_AI; // Although we already awaited it, keep status flow if needed or just UNDER_REVIEW
-      initialStatus = SubmissionStatus.UNDER_REVIEW; // Set to UNDER_REVIEW since we run it synchronously here
+      initialStatus = SubmissionStatus.PENDING_AI;
     }
 
     return this.prisma.$transaction(async (tx) => {
@@ -197,14 +312,52 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
           aiScore,
           status: initialStatus,
           componentResponses: dto.responses && dto.responses.length > 0 ? {
-            create: dto.responses.map(r => ({
-              componentId: r.componentId,
-              textValue: r.textValue,
-              fileUrl: r.fileUrl,
-            }))
+            create: dto.responses.map(r => {
+              const evalResult = componentEvaluations.find(e => e.componentId === r.componentId);
+              return {
+                componentId: r.componentId,
+                textValue: r.textValue,
+                fileUrl: r.fileUrl,
+                score: evalResult ? evalResult.score : null,
+                aiFeedback: evalResult ? evalResult.aiFeedback : null,
+              };
+            })
           } : undefined,
         },
       });
+
+      const talentProfile = await tx.talentProfile.findUnique({ where: { id: talentId } });
+      if (talentProfile) {
+        await tx.notification.create({
+          data: {
+            userId: talentProfile.userId,
+            title: 'Solusi Berhasil Dikumpulkan',
+            content: shouldRunAi ? `Solusi Anda untuk tantangan "${enrollment.challenge.title}" telah dikumpulkan dan dievaluasi oleh AI. Skor AI: ${aiScore}.` : `Solusi Anda untuk tantangan "${enrollment.challenge.title}" berhasil dikumpulkan dan sedang menunggu ulasan.`,
+            linkUrl: `/workspace/${dto.enrollmentId}`,
+          }
+        });
+      }
+
+      // Notify the creator of the challenge
+      let creatorUserId: string | null = null;
+      if (enrollment.challenge.companyId) {
+        const company = await tx.companyProfile.findUnique({ where: { id: enrollment.challenge.companyId } });
+        if (company) creatorUserId = company.userId;
+      } else if (enrollment.challenge.talentId) {
+        const creatorTalent = await tx.talentProfile.findUnique({ where: { id: enrollment.challenge.talentId } });
+        if (creatorTalent) creatorUserId = creatorTalent.userId;
+      }
+
+      if (creatorUserId) {
+        await tx.notification.create({
+          data: {
+            userId: creatorUserId,
+            title: 'Submisi Baru Masuk',
+            content: `Seseorang telah mengumpulkan solusi untuk studi kasus "${enrollment.challenge.title}". Segera lakukan peninjauan!`,
+            linkUrl: enrollment.challenge.companyId ? `/company/submissions` : `/challenges/${enrollment.challenge.slug}`,
+          }
+        });
+      }
 
       return submission;
     });
@@ -297,9 +450,11 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
   }
 
   async gradeSubmission(
-    companyId: string,
+    profileId: string,
     submissionId: string,
     dto: GradeSubmissionDto,
+    userId?: string,
+    role?: string
   ) {
     const submission = await this.prisma.submission.findUnique({
       where: { id: submissionId },
@@ -310,8 +465,15 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
       },
     });
 
-    if (!submission || (submission.challenge.companyId && submission.challenge.companyId !== companyId)) {
-      throw new ForbiddenException('Akses ditolak: Solusi tidak valid');
+    if (!submission) {
+      throw new ForbiddenException('Submisi tidak ditemukan');
+    }
+
+    const isCompanyOwner = submission.challenge.companyId === profileId;
+    const isTalentOwner = submission.challenge.talentId === profileId;
+
+    if (!isCompanyOwner && !isTalentOwner) {
+      throw new ForbiddenException('Akses ditolak: Hanya pembuat Challenge yang dapat menilai submisi');
     }
 
     const result = await this.prisma.$transaction(async (tx) => {
@@ -332,10 +494,12 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
       });
 
       if (dto.status === SubmissionStatus.PASSED) {
-        const xpGain = 150;
+        const finalScore = dto.finalScore || 60;
+        const rewards = this.calculateRewards(submission.challenge.difficulty, finalScore);
+        
         await tx.talentProfile.update({
           where: { id: submission.talentId },
-          data: { xp: { increment: xpGain } },
+          data: { xp: { increment: rewards.xp } },
         });
 
         await tx.portfolio.upsert({
@@ -353,16 +517,26 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
         });
       }
 
+      await tx.notification.create({
+        data: {
+          userId: submission.talent.userId,
+          title: 'Hasil Evaluasi Studi Kasus',
+          content: `Solusi Anda untuk studi kasus "${submission.challenge.title}" telah dinilai oleh perusahaan. Status: ${dto.status}. Nilai Akhir: ${dto.finalScore || 0}/100.`,
+          linkUrl: `/workspace/${submission.enrollmentId}`,
+        }
+      });
+
       return updatedSubmission;
     });
 
     if (dto.status === SubmissionStatus.PASSED) {
-       // Grant tokens outside the transaction to avoid tying it up, or call tokensService.earnTokens which creates its own transaction.
-       // Since the submission transaction succeeded, we can safely grant tokens.
+       const finalScore = dto.finalScore || 60;
+       const rewards = this.calculateRewards(submission.challenge.difficulty, finalScore);
+
        try {
          await this.tokensService.earnTokens(
            submission.talent.userId,
-           50,
+           rewards.tokens,
            `Reward: Menyelesaikan ${submission.challenge.title}`
          );
        } catch (err) {
@@ -370,6 +544,55 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
        }
     }
 
+    if (role === Role.COMPANY && userId && submission.challenge.companyId) {
+      await this.companiesService.logAction(
+        submission.challenge.companyId,
+        userId,
+        'GRADE_SUBMISSION',
+        'SUBMISSION',
+        submissionId,
+        { finalScore: dto.finalScore, talentId: submission.talentId }
+      );
+    }
+
     return result;
+  }
+
+  /**
+   * Menghitung potensi Token dan XP berdasarkan tingkat kesulitan dan nilai.
+   * @param difficulty BEGINNER | INTERMEDIATE | ADVANCED
+   * @param finalScore 0 - 100
+   */
+  public calculateRewards(difficulty: ChallengeDifficulty, finalScore: number): { xp: number; tokens: number } {
+    let baseXP = 100;
+    let baseToken = 10;
+
+    switch (difficulty) {
+      case ChallengeDifficulty.BEGINNER:
+        baseXP = 100;
+        baseToken = 10;
+        break;
+      case ChallengeDifficulty.INTERMEDIATE:
+        baseXP = 200;
+        baseToken = 30;
+        break;
+      case ChallengeDifficulty.ADVANCED:
+        baseXP = 400;
+        baseToken = 75;
+        break;
+    }
+
+    // XP didapatkan sebanding dengan nilai (maksimal = Base XP jika nilai 100)
+    // Minimal nilai kelulusan adalah 0 (jika memang PASSED)
+    const normalizedScore = Math.min(Math.max(finalScore, 0), 100);
+    const xp = Math.floor(baseXP * (normalizedScore / 100));
+
+    // Token didapatkan FULL jika Passed. Diberikan bonus +50% jika Perfect Score (>= 90).
+    let tokens = baseToken;
+    if (normalizedScore >= 90) {
+      tokens += Math.floor(baseToken * 0.5); // +50% bonus
+    }
+
+    return { xp, tokens };
   }
 }

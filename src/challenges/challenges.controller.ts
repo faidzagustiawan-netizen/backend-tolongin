@@ -22,6 +22,7 @@ import { GenerateAiChallengeDto } from './dto/generate-ai-challenge.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 import { ChallengeCategory, ChallengeDifficulty, ChallengeType, Role } from '@prisma/client';
 
 @ApiTags('Challenge Directory & AI Generator')
@@ -81,8 +82,9 @@ export class ChallengesController {
   })
   @ApiResponse({ status: 404, description: 'Challenge tidak ditemukan.' })
   @Get(':slugOrId')
-  async findOne(@Param('slugOrId') slugOrId: string) {
-    return this.challengesService.findOne(slugOrId);
+  @UseGuards(OptionalJwtAuthGuard)
+  async findOne(@Param('slugOrId') slugOrId: string, @Request() req: any) {
+    return this.challengesService.findOne(slugOrId, req.user);
   }
 
   @ApiBearerAuth('JWT-auth')
@@ -105,7 +107,7 @@ export class ChallengesController {
       return this.challengesService.createPublic(req.user.sub, createChallengeDto);
     } else {
       const companyId = req.user.profileId;
-      return this.challengesService.create(companyId, createChallengeDto);
+      return this.challengesService.create(companyId, createChallengeDto, req.user.sub);
     }
   }
 
@@ -114,15 +116,15 @@ export class ChallengesController {
     summary: 'Memperbarui challenge (khusus status DRAFT)',
   })
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.COMPANY, Role.ADMIN)
+  @Roles(Role.COMPANY, Role.ADMIN, Role.TALENT)
   @Patch(':id')
   async update(
     @Request() req: any,
     @Param('id') id: string,
     @Body() updateDto: Partial<CreateChallengeDto>,
   ) {
-    const companyId = req.user.profileId;
-    return this.challengesService.updateChallenge(id, companyId, updateDto);
+    const profileId = req.user.profileId;
+    return this.challengesService.updateChallenge(id, profileId, updateDto, req.user.sub, req.user.role);
   }
 
   @ApiBearerAuth('JWT-auth')

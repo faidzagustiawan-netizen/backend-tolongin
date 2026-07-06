@@ -70,6 +70,8 @@ export class PortfoliosService {
         xp: true,
         level: true,
         skills: true,
+        location: true,
+        roleCategory: true,
         faceVerificationStatus: true,
         earnedBadges: {
           include: { badge: true },

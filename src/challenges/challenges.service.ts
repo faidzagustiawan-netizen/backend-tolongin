@@ -2,6 +2,8 @@ import { Injectable, NotFoundException, ForbiddenException, BadRequestException 
 import { PrismaService } from '../prisma/prisma.service';
 import { AiService } from '../ai/ai.service';
 import { TokensService } from '../tokens/tokens.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { CompaniesService } from '../companies/companies.service';
 import { CreateChallengeDto } from './dto/create-challenge.dto';
 import { GenerateAiChallengeDto } from './dto/generate-ai-challenge.dto';
 import {
@@ -10,7 +12,9 @@ import {
   ChallengeStatus,
   ChallengeType,
   Prisma,
+  Role,
 } from '@prisma/client';
+import crypto from 'crypto';
 
 @Injectable()
 export class ChallengesService {
@@ -18,9 +22,11 @@ export class ChallengesService {
     private readonly prisma: PrismaService,
     private readonly aiService: AiService,
     private readonly tokensService: TokensService,
+    private readonly notificationsService: NotificationsService,
+    private readonly companiesService: CompaniesService,
   ) {}
 
-  async create(companyId: string, createChallengeDto: CreateChallengeDto) {
+  async create(companyId: string, createChallengeDto: CreateChallengeDto, userId: string) {
     const company = await this.prisma.companyProfile.findUnique({
       where: { id: companyId },
     });
@@ -47,7 +53,7 @@ export class ChallengesService {
 
     const challengeId = crypto.randomUUID();
 
-    return this.prisma.challenge.create({
+    const newChallenge = await this.prisma.challenge.create({
       data: {
         id: challengeId,
         companyId,
@@ -61,7 +67,10 @@ export class ChallengesService {
         mockApiUrl: createChallengeDto.mockApiUrl,
         brandGuidelineUrl: createChallengeDto.brandGuidelineUrl,
         gradingRubric: createChallengeDto.gradingRubric ?? defaultRubric,
-        rewardDescription: createChallengeDto.rewardDescription,
+        rewardDescription: this.generateSystemRewardDescription(createChallengeDto.difficulty),
+        startsAt: createChallengeDto.startsAt
+          ? new Date(createChallengeDto.startsAt)
+          : null,
         deadlineAt: createChallengeDto.deadlineAt
           ? new Date(createChallengeDto.deadlineAt)
           : null,
@@ -91,6 +100,26 @@ export class ChallengesService {
         } : undefined,
       },
     });
+
+    await this.prisma.notification.create({
+      data: {
+        userId: company.userId,
+        title: 'Studi Kasus Diterbitkan',
+        content: `Studi Kasus "${newChallenge.title}" berhasil ${createChallengeDto.status === ChallengeStatus.DRAFT ? 'disimpan sebagai draft' : 'diterbitkan'}.`,
+        linkUrl: `/challenges/${newChallenge.slug}`,
+      }
+    });
+
+    await this.companiesService.logAction(
+      companyId,
+      userId,
+      'CHALLENGE_CREATED',
+      'CHALLENGE',
+      newChallenge.id,
+      { title: newChallenge.title, status: newChallenge.status }
+    );
+
+    return newChallenge;
   }
 
   async createPublic(userId: string, createChallengeDto: CreateChallengeDto) {
@@ -121,7 +150,7 @@ export class ChallengesService {
 
     const challengeId = crypto.randomUUID();
 
-    return this.prisma.challenge.create({
+    const newChallenge = await this.prisma.challenge.create({
       data: {
         id: challengeId,
         talentId: talentProfile.id,
@@ -135,7 +164,7 @@ export class ChallengesService {
         mockApiUrl: createChallengeDto.mockApiUrl,
         brandGuidelineUrl: createChallengeDto.brandGuidelineUrl,
         gradingRubric: createChallengeDto.gradingRubric ?? defaultRubric,
-        rewardDescription: createChallengeDto.rewardDescription,
+        rewardDescription: this.generateSystemRewardDescription(createChallengeDto.difficulty),
         deadlineAt: createChallengeDto.deadlineAt ? new Date(createChallengeDto.deadlineAt) : null,
         isPrivate: createChallengeDto.isPrivate ?? false,
         status: createChallengeDto.status ?? ChallengeStatus.PUBLISHED,
@@ -163,6 +192,17 @@ export class ChallengesService {
         } : undefined,
       },
     });
+
+    await this.prisma.notification.create({
+      data: {
+        userId: talentProfile.userId,
+        title: 'Public Challenge Diterbitkan',
+        content: `Public Challenge "${newChallenge.title}" berhasil ${createChallengeDto.status === ChallengeStatus.DRAFT ? 'disimpan sebagai draft' : 'diterbitkan'}.`,
+        linkUrl: `/challenges/${newChallenge.slug}`,
+      }
+    });
+
+    return newChallenge;
   }
 
   async findAll(query: {
@@ -209,12 +249,15 @@ export class ChallengesService {
         company: {
           select: { companyName: true, logoUrl: true, industry: true, trustScore: true },
         },
+        creator: {
+          select: { fullName: true, avatarUrl: true },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });
   }
 
-  async findOne(slugOrId: string) {
+  async findOne(slugOrId: string, userReq?: any) {
     const challenge = await this.prisma.challenge.findFirst({
       where: {
         OR: [{ id: slugOrId }, { slug: slugOrId }],
@@ -241,6 +284,31 @@ export class ChallengesService {
 
     if (!challenge) {
       throw new NotFoundException('Challenge tidak ditemukan');
+    }
+
+    let isOwner = false;
+    if (userReq && userReq.role === 'COMPANY' && userReq.profileId === challenge.companyId) {
+      isOwner = true;
+    }
+
+    if (!isOwner) {
+      const redactComponent = (comp: any) => ({
+        ...comp,
+        question: '[TERKUNCI - HARAP DAFTAR]',
+        options: null,
+        metadata: null,
+        points: comp.points
+      });
+
+      if (challenge.components) {
+        challenge.components = challenge.components.map(redactComponent) as any;
+      }
+      if (challenge.sections) {
+        challenge.sections = challenge.sections.map(sec => ({
+          ...sec,
+          components: sec.components.map(redactComponent)
+        })) as any;
+      }
     }
 
     return challenge;
@@ -284,11 +352,38 @@ export class ChallengesService {
         category: dto.category,
         difficulty: dto.difficulty,
         gradingRubric: aiContent.rubric,
+        rewardDescription: this.generateSystemRewardDescription(dto.difficulty),
+        startsAt: aiContent.startsAt ? new Date(aiContent.startsAt) : null,
+        deadlineAt: aiContent.deadlineAt ? new Date(aiContent.deadlineAt) : null,
         status: ChallengeStatus.DRAFT,
         createdByAi: true,
         aiPromptUsed: dto.prompt,
         challengeType: ChallengeType.COMPANY,
+        sections: aiContent.sections && aiContent.sections.length > 0 ? {
+          create: aiContent.sections.map((s: any, sIdx: number) => ({
+            title: s.title,
+            description: s.description,
+            order: sIdx,
+            components: s.components && s.components.length > 0 ? {
+              create: s.components.map((c: any, cIdx: number) => ({
+                type: c.type || 'TEXT',
+                question: c.question,
+                points: c.points ?? 10,
+                order: cIdx,
+              }))
+            } : undefined
+          }))
+        } : undefined,
       },
+    });
+
+    await this.prisma.notification.create({
+      data: {
+        userId: company.userId,
+        title: 'Draft AI Selesai',
+        content: `Sistem AI telah selesai membuat draf studi kasus "${newChallenge.title}". Silakan periksa dan terbitkan.`,
+        linkUrl: `/workspace/edit/${newChallenge.id}`,
+      }
     });
 
     return newChallenge;
@@ -329,19 +424,52 @@ export class ChallengesService {
         category: dto.category,
         difficulty: dto.difficulty,
         gradingRubric: aiContent.rubric,
+        rewardDescription: this.generateSystemRewardDescription(dto.difficulty),
+        startsAt: aiContent.startsAt ? new Date(aiContent.startsAt) : null,
+        deadlineAt: aiContent.deadlineAt ? new Date(aiContent.deadlineAt) : null,
         status: ChallengeStatus.DRAFT,
         createdByAi: true,
         aiPromptUsed: dto.prompt,
         challengeType: ChallengeType.PUBLIC,
+        sections: aiContent.sections && aiContent.sections.length > 0 ? {
+          create: aiContent.sections.map((s: any, sIdx: number) => ({
+            title: s.title,
+            description: s.description,
+            order: sIdx,
+            components: s.components && s.components.length > 0 ? {
+              create: s.components.map((c: any, cIdx: number) => ({
+                type: c.type || 'TEXT',
+                question: c.question,
+                points: c.points ?? 10,
+                order: cIdx,
+              }))
+            } : undefined
+          }))
+        } : undefined,
       },
+    });
+
+    await this.prisma.notification.create({
+      data: {
+        userId: talent.userId,
+        title: 'Draft AI Selesai',
+        content: `Sistem AI telah selesai membuat draf Public Challenge "${newChallenge.title}". Silakan periksa dan terbitkan.`,
+        linkUrl: `/workspace/edit/${newChallenge.id}`,
+      }
     });
 
     return newChallenge;
   }
 
-  async updateChallenge(id: string, companyId: string, updateDto: Partial<CreateChallengeDto>) {
+  async updateChallenge(id: string, profileId: string, updateDto: Partial<CreateChallengeDto>, userId?: string, role?: string) {
     const challenge = await this.prisma.challenge.findFirst({
-      where: { id, companyId }
+      where: { 
+        id, 
+        OR: [
+          { companyId: profileId },
+          { talentId: profileId }
+        ]
+      }
     });
 
     if (!challenge) {
@@ -358,7 +486,7 @@ export class ChallengesService {
     }
 
     // Now update the challenge
-    return this.prisma.challenge.update({
+    const updated = await this.prisma.challenge.update({
       where: { id },
       data: {
         title: updateDto.title,
@@ -369,7 +497,9 @@ export class ChallengesService {
         datasetUrl: updateDto.datasetUrl,
         mockApiUrl: updateDto.mockApiUrl,
         brandGuidelineUrl: updateDto.brandGuidelineUrl,
-        rewardDescription: updateDto.rewardDescription,
+        gradingRubric: updateDto.gradingRubric !== undefined ? updateDto.gradingRubric : undefined,
+        rewardDescription: updateDto.difficulty ? this.generateSystemRewardDescription(updateDto.difficulty) : undefined,
+        startsAt: updateDto.startsAt ? new Date(updateDto.startsAt) : undefined,
         status: updateDto.status,
         sections: updateDto.sections && updateDto.sections.length > 0 ? {
           deleteMany: {},
@@ -393,6 +523,20 @@ export class ChallengesService {
         } : undefined,
       }
     });
+
+    if (role === Role.COMPANY && userId && challenge.companyId) {
+      const changedKeys = Object.keys(updateDto);
+      await this.companiesService.logAction(
+        challenge.companyId,
+        userId,
+        'UPDATE_CHALLENGE',
+        'CHALLENGE',
+        challenge.id,
+        { changedFields: changedKeys }
+      );
+    }
+
+    return updated;
   }
 
   private generateSlug(title: string): string {
@@ -402,5 +546,23 @@ export class ChallengesService {
       .replace(/(^-|-$)/g, '');
     const randomSuffix = Math.floor(1000 + Math.random() * 9000);
     return `${baseSlug}-${randomSuffix}`;
+  }
+
+  private generateSystemRewardDescription(difficulty: ChallengeDifficulty): string {
+    let maxToken = 10;
+    let maxXP = 100;
+
+    if (difficulty === ChallengeDifficulty.INTERMEDIATE) {
+      maxToken = 30;
+      maxXP = 200;
+    } else if (difficulty === ChallengeDifficulty.ADVANCED) {
+      maxToken = 75;
+      maxXP = 400;
+    }
+
+    // Hitung bonus perfect score untuk token (max token + 50%)
+    const perfectToken = maxToken + Math.floor(maxToken * 0.5);
+    
+    return `Sistem Reward: Hingga ${perfectToken} Token & ${maxXP} XP`;
   }
 }

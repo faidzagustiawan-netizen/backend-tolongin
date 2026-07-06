@@ -46,6 +46,14 @@ export class UpdateProfileDto {
 
   @IsString()
   @IsOptional()
+  location?: string;
+
+  @IsString()
+  @IsOptional()
+  roleCategory?: string;
+
+  @IsString()
+  @IsOptional()
   githubUrl?: string;
 
   @IsString()
@@ -56,15 +64,6 @@ export class UpdateProfileDto {
   @IsOptional()
   figmaUrl?: string;
 
-  @IsArray()
-  @IsNumber({}, { each: true })
-  @IsOptional()
-  biometricFeatureVector?: number[];
-
-  @IsString()
-  @IsOptional()
-  ktpNik?: string;
-
   @IsString()
   @IsOptional()
   resumeUrl?: string;
@@ -72,4 +71,18 @@ export class UpdateProfileDto {
   @IsString()
   @IsOptional()
   avatarUrl?: string;
+
+  @IsString()
+  @IsOptional()
+  encryptedPrivateFace?: string;
+
+  @IsArray()
+  @IsNumber({}, { each: true })
+  @IsOptional()
+  biometricFeatureVector?: number[];
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  showcasedSubmissionIds?: string[];
 }

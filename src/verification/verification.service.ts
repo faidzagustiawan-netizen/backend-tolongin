@@ -5,58 +5,19 @@ import { VerifyKybDto } from './dto/verify-kyb.dto';
 import { VerifyExecutionDto } from './dto/verify-execution.dto';
 import { AiService } from '../ai/ai.service';
 import { VerificationStatus } from '@prisma/client';
+import { NotificationsService } from '../notifications/notifications.service';
 import * as crypto from 'crypto';
+import { EncryptionUtil } from '../utils/encryption.util';
 
 @Injectable()
 export class VerificationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly aiService: AiService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
-  /**
-   * Ekstraksi Vektor Fitur Biometrik 64-Dimensi dari Distribusi Frekuensi Byte Gambar
-   * Algoritma fallback murni JS yang deterministik untuk mendeteksi perbedaan struktur foto dan pencahayaan
-   */
-  private extractFeatureVector(base64Image: string): number[] {
-    try {
-      const cleanBase64 = base64Image.replace(/^data:image\/\w+;base64,/, '');
-      const buffer = Buffer.from(cleanBase64, 'base64');
-      
-      const vector = new Array(64).fill(0);
-      if (buffer.length === 0) return vector;
 
-      for (let i = 0; i < buffer.length; i++) {
-        const bin = Math.floor((buffer[i] / 256) * 64);
-        vector[bin]++;
-      }
-
-      const magnitude = Math.sqrt(vector.reduce((sum, val) => sum + val * val, 0));
-      if (magnitude === 0) return vector;
-
-      return vector.map((val) => parseFloat((val / magnitude).toFixed(4)));
-    } catch (e) {
-      console.error('Error extracting feature vector:', e);
-      return new Array(64).fill(0);
-    }
-  }
-
-  /**
-   * Hitung kemiripan kosinus (Cosine Similarity) antara dua vektor 64-dimensi
-   */
-  private calculateCosineSimilarity(vecA: number[], vecB: number[]): number {
-    if (vecA.length !== vecB.length) return 0;
-    let dotProduct = 0;
-    let normA = 0;
-    let normB = 0;
-    for (let i = 0; i < vecA.length; i++) {
-      dotProduct += vecA[i] * vecB[i];
-      normA += vecA[i] * vecA[i];
-      normB += vecB[i] * vecB[i];
-    }
-    if (normA === 0 || normB === 0) return 0;
-    return parseFloat((dotProduct / (Math.sqrt(normA) * Math.sqrt(normB))).toFixed(2));
-  }
 
   async verifyTalentFace(talentId: string, dto: VerifyFaceDto) {
     const profile = await this.prisma.talentProfile.findUnique({
@@ -68,86 +29,113 @@ export class VerificationService {
       throw new NotFoundException('Profil talenta tidak ditemukan');
     }
 
-    // 1. Coba lakukan verifikasi tingkat lanjut menggunakan DeepFace / EasyOCR / OpenAI Vision
-    const visionResult = await this.aiService.verifyKtpAndSelfie(dto.selfiePhotoUrl, dto.idCardPhotoUrl);
-
-    let finalConfidence = 0;
-    let verificationDetail = '';
-
-    if (visionResult) {
-      if (!visionResult.isKtpValid) {
-        throw new BadRequestException(
-          `Verifikasi Ditolak: ${visionResult.reason || 'Dokumen yang diunggah bukan KTP resmi Indonesia yang sah.'}`,
-        );
-      }
-
-      if (!visionResult.isMatch) {
-        throw new BadRequestException(
-          `Verifikasi Ditolak: ${visionResult.reason || 'Wajah pada selfie tidak cocok dengan foto di KTP Anda.'}`,
-        );
-      }
-
-      finalConfidence = visionResult.confidenceScore || 95;
-      verificationDetail = visionResult.reason;
-
-      // Pengecekan 1 Wajah 1 Identitas 1 Akun (Anti Double Account - Prisma Validated)
-      if (visionResult.ktpNik) {
-        const existingNik = await this.prisma.talentProfile.findFirst({
-          where: { ktpNik: visionResult.ktpNik, id: { not: talentId } } as any,
-        });
-        if (existingNik) {
-          throw new BadRequestException(
-            `Verifikasi Ditolak: KTP dengan NIK ${visionResult.ktpNik} sudah terdaftar pada akun lain. Aturan ketat: 1 identitas hanya untuk 1 akun!`,
-          );
-        }
-      }
-    } else {
-      throw new BadRequestException(
-        'Sistem AI Verifikasi Liveness & KTP sedang mengalami antrean tinggi atau galat. Silakan coba beberapa saat lagi.',
-      );
-    }
-
-    // Hitung hash biometrik murni dari konten gambar wajah tanpa menyertakan talentId agar keunikan wajah konsisten
-    const cleanSelfie = dto.selfiePhotoUrl.replace(/^data:image\/\w+;base64,/, '');
-    const biometricHash = visionResult.biometricHash || crypto.createHash('sha256').update(cleanSelfie).digest('hex');
-
-    const existingFace = await this.prisma.talentProfile.findFirst({
-      where: { biometricDataHash: biometricHash, id: { not: talentId } },
-    });
-    if (existingFace) {
-      throw new BadRequestException(
-        'Verifikasi Ditolak: Wajah (data biometrik) ini sudah terdaftar pada akun lain. Aturan ketat: 1 wajah hanya untuk 1 akun!',
-      );
-    }
-
-    const selfieVectorForStorage = this.extractFeatureVector(dto.selfiePhotoUrl);
-
-    const updatedProfile = await this.prisma.talentProfile.update({
+    // Set status to PENDING immediately
+    await this.prisma.talentProfile.update({
       where: { id: talentId },
-      data: {
-        faceVerificationStatus: VerificationStatus.VERIFIED,
-        ktpNik: visionResult.ktpNik,
-        biometricDataHash: biometricHash,
-        biometricFeatureVector: selfieVectorForStorage,
-        avatarUrl: dto.selfiePhotoUrl,
-      } as any,
+      data: { faceVerificationStatus: 'PENDING' } as any,
     });
 
-    await this.prisma.notification.create({
-      data: {
-        userId: profile.userId,
-        title: 'Verifikasi Identitas AI Berhasil',
-        content: `Selamat! Verifikasi KTP & Wajah Anda telah terverifikasi dengan tingkat kecocokan ${finalConfidence}%. Catatan: ${verificationDetail}`,
-      },
+    // Jalankan asinkron di latar belakang (fire and forget)
+    this.verifyTalentFaceBackground(talentId, profile, dto).catch(err => {
+      console.error('Error background face verification:', err);
     });
 
     return {
-      status: VerificationStatus.VERIFIED,
-      confidenceScore: finalConfidence,
-      message: `Verifikasi KTP & Wajah berhasil: ${verificationDetail}`,
-      biometricHash,
-      avatarUrl: dto.selfiePhotoUrl,
+      status: 'PROCESSING',
+      message: 'Verifikasi KTP & Wajah sedang diproses di latar belakang. Anda akan menerima notifikasi segera.',
     };
+  }
+
+  private async verifyTalentFaceBackground(talentId: string, profile: any, dto: VerifyFaceDto) {
+    try {
+      // 1. Coba lakukan verifikasi tingkat lanjut menggunakan DeepFace / EasyOCR / OpenAI Vision
+      const visionResult = await this.aiService.verifyKtpAndSelfie(dto.selfiePhotoUrl, dto.idCardPhotoUrl);
+
+      let finalConfidence = 0;
+      let verificationDetail = '';
+
+      if (visionResult) {
+        if (!visionResult.isKtpValid) {
+          throw new Error(
+            `Verifikasi Ditolak: ${visionResult.reason || 'Dokumen yang diunggah bukan KTP resmi Indonesia yang sah.'}`,
+          );
+        }
+
+        if (!visionResult.isMatch) {
+          throw new Error(
+            `Verifikasi Ditolak: ${visionResult.reason || 'Wajah pada selfie tidak cocok dengan foto di KTP Anda.'}`,
+          );
+        }
+
+        finalConfidence = visionResult.confidenceScore || 95;
+        verificationDetail = visionResult.reason;
+
+        // Pengecekan 1 Wajah 1 Identitas 1 Akun
+        if (visionResult.ktpNik) {
+          const existingNik = await this.prisma.talentProfile.findFirst({
+            where: { ktpNik: visionResult.ktpNik, id: { not: talentId } } as any,
+          });
+          if (existingNik) {
+            throw new Error(
+              `Verifikasi Ditolak: KTP dengan NIK ${visionResult.ktpNik} sudah terdaftar pada akun lain. Aturan ketat: 1 identitas hanya untuk 1 akun!`,
+            );
+          }
+        }
+      } else {
+        throw new Error(
+          'Sistem AI Verifikasi Liveness & KTP sedang mengalami antrean tinggi atau galat. Silakan coba beberapa saat lagi.',
+        );
+      }
+
+      // Hitung hash biometrik murni
+      const cleanSelfie = dto.selfiePhotoUrl.replace(/^data:image\/\w+;base64,/, '');
+      const biometricHash = visionResult.biometricHash || crypto.createHash('sha256').update(cleanSelfie).digest('hex');
+
+      const existingFace = await this.prisma.talentProfile.findFirst({
+        where: { biometricDataHash: biometricHash, id: { not: talentId } },
+      });
+      if (existingFace) {
+        throw new Error(
+          'Verifikasi Ditolak: Wajah (data biometrik) ini sudah terdaftar pada akun lain. Aturan ketat: 1 wajah hanya untuk 1 akun!',
+        );
+      }
+
+      // Enkripsi data sensitif (Wajah & KTP) agar tidak bisa dibaca langsung dari database
+      const encryptedFace = EncryptionUtil.encrypt(dto.selfiePhotoUrl);
+      const encryptedKtp = EncryptionUtil.encrypt(dto.idCardPhotoUrl);
+
+      await this.prisma.talentProfile.update({
+        where: { id: talentId },
+        data: {
+          faceVerificationStatus: VerificationStatus.VERIFIED,
+          ktpNik: visionResult.ktpNik,
+          biometricDataHash: biometricHash,
+          encryptedPrivateFace: encryptedFace,
+          encryptedKtpData: encryptedKtp,
+          // avatarUrl tidak lagi otomatis diubah di sini, biarkan public
+        } as any,
+      });
+
+      await this.notificationsService.sendNotification(
+        profile.userId,
+        'Verifikasi Identitas AI Berhasil ✅',
+        `Selamat! Verifikasi KTP & Wajah Anda telah terverifikasi dengan tingkat kecocokan ${finalConfidence}%. Catatan: ${verificationDetail}`,
+        '/profile'
+      );
+
+    } catch (error: any) {
+      await this.prisma.talentProfile.update({
+        where: { id: talentId },
+        data: { faceVerificationStatus: 'FAILED' } as any,
+      });
+
+      await this.notificationsService.sendNotification(
+        profile.userId,
+        'Verifikasi Identitas AI Gagal ❌',
+        error.message || 'Terjadi kesalahan sistem saat memverifikasi identitas Anda. Silakan coba lagi.',
+        '/profile/kyc'
+      );
+    }
   }
 
   async verifyExecution(talentId: string, dto: VerifyExecutionDto) {
@@ -155,27 +143,27 @@ export class VerificationService {
       where: { id: talentId },
     });
 
-    if (!profile || profile.faceVerificationStatus !== 'VERIFIED' || !profile.biometricFeatureVector) {
+    if (!profile || profile.faceVerificationStatus !== 'VERIFIED' || !profile.encryptedPrivateFace) {
       throw new BadRequestException('Profil Anda belum terverifikasi KTP. Harap lakukan verifikasi KTP/Selfie di halaman Profil terlebih dahulu!');
     }
 
-    const liveVector = this.extractFeatureVector(dto.livePhotoUrl);
-    const registeredVector = profile.biometricFeatureVector as number[];
-    const similarity = this.calculateCosineSimilarity(liveVector, registeredVector);
-    const confidencePercentage = Math.round(similarity * 100);
+    // Dekripsi foto wajah asli (Private)
+    const decryptedFace = EncryptionUtil.decrypt(profile.encryptedPrivateFace);
 
-    if (similarity < 0.75) {
+    const matchResult = await this.aiService.verifyFaceMatch(dto.livePhotoUrl, decryptedFace);
+
+    if (!matchResult.isMatch) {
       return {
         verified: false,
-        matchScore: confidencePercentage,
-        message: `Peringatan Anomali Anti-Joki: Wajah yang terdeteksi di kamera tidak cocok dengan KTP/KYC terdaftar (Kemiripan ${confidencePercentage}%). Akses pengumpulan diblokir!`,
+        matchScore: matchResult.confidenceScore,
+        message: `Peringatan Anomali Anti-Joki: Wajah yang terdeteksi di kamera tidak cocok dengan KTP/KYC terdaftar (Kemiripan ${matchResult.confidenceScore}%). Akses pengumpulan diblokir!`,
       };
     }
 
     return {
       verified: true,
-      matchScore: confidencePercentage,
-      message: `✓ Wajah Terverifikasi ${confidencePercentage}% Sesuai dengan KTP/KYC Terdaftar`,
+      matchScore: matchResult.confidenceScore,
+      message: `✓ Wajah Terverifikasi ${matchResult.confidenceScore}% Sesuai dengan KTP/KYC Terdaftar`,
     };
   }
 
@@ -201,6 +189,7 @@ export class VerificationService {
         userId: profile.userId,
         title: 'Verifikasi Legalitas KYB Berhasil',
         content: `Perusahaan ${dto.legalEntityName ?? profile.companyName} dengan nomor registrasi ${dto.businessRegistrationNumber} telah resmi terverifikasi.`,
+        linkUrl: '/profile',
       },
     });
 

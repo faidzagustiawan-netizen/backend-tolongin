@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, Request, UseGuards } from '@nestjs/common';
+import { Controller, Post, Get, Body, Request, UseGuards, HttpCode } from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
@@ -25,10 +25,11 @@ export class VerificationController {
     summary: 'Verifikasi wajah biometrik AI untuk talenta (Mencegah Joki)',
   })
   @ApiResponse({
-    status: 200,
-    description: 'Wajah terverifikasi dan hash biometrik disimpan.',
+    status: 202,
+    description: 'Proses verifikasi diterima dan berjalan di latar belakang.',
   })
   @Roles(Role.TALENT)
+  @HttpCode(202)
   @Post('face-ai')
   async verifyTalentFace(@Request() req: any, @Body() dto: VerifyFaceDto) {
     const talentId = req.user.profileId;

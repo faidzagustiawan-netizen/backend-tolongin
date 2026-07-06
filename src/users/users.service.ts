@@ -72,12 +72,85 @@ export class UsersService {
     });
   }
 
+  async createTeamMember(createUserDto: CreateUserDto, inviteCode: string) {
+    const { email, password, fullName } = createUserDto;
+
+    const existingUser = await this.prisma.user.findUnique({ where: { email } });
+    if (existingUser) {
+      throw new ConflictException('Email sudah terdaftar');
+    }
+
+    const company = await this.prisma.companyProfile.findUnique({
+      where: { inviteCode }
+    });
+
+    if (!company) {
+      throw new NotFoundException('Kode undangan tidak valid atau perusahaan tidak ditemukan');
+    }
+
+    const saltRounds = 10;
+    const passwordHash = await bcrypt.hash(password, saltRounds);
+
+    return this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: {
+          email,
+          passwordHash,
+          role: Role.COMPANY,
+        },
+      });
+
+      await tx.companyMember.create({
+        data: {
+          userId: user.id,
+          companyId: company.id,
+          role: 'ADMIN',
+        }
+      });
+
+      await tx.companyActivityLog.create({
+        data: {
+          companyId: company.id,
+          userId: user.id,
+          action: 'MEMBER_JOINED',
+          entityType: 'USER',
+          entityId: user.id,
+          details: { email: user.email }
+        }
+      });
+
+      return tx.user.findUnique({
+        where: { id: user.id },
+        include: {
+          talentProfile: true,
+          companyProfile: true,
+          teamMemberships: {
+            include: {
+              company: true,
+            }
+          },
+        },
+      });
+    });
+  }
+
   async findByEmail(email: string) {
     return this.prisma.user.findUnique({
       where: { email },
       include: {
-        talentProfile: true,
+        talentProfile: {
+          include: {
+            submissions: {
+              include: { challenge: true },
+            }
+          }
+        },
         companyProfile: true,
+        teamMemberships: {
+          include: {
+            company: true,
+          }
+        },
       },
     });
   }
@@ -91,9 +164,17 @@ export class UsersService {
             earnedBadges: {
               include: { badge: true },
             },
+            submissions: {
+              include: { challenge: true },
+            }
           },
         },
         companyProfile: true,
+        teamMemberships: {
+          include: {
+            company: true,
+          }
+        }
       },
     });
 
@@ -123,7 +204,20 @@ export class UsersService {
           websiteUrl: dto.websiteUrl !== undefined ? dto.websiteUrl : undefined,
           description: dto.description !== undefined ? dto.description : undefined,
           logoUrl: dto.logoUrl !== undefined ? dto.logoUrl : undefined,
+          location: dto.location !== undefined ? dto.location : undefined,
+          linkedinUrl: dto.linkedinUrl !== undefined ? dto.linkedinUrl : undefined,
         },
+      });
+
+      await this.prisma.companyActivityLog.create({
+        data: {
+          companyId: user.companyProfile.id,
+          userId,
+          action: 'PROFILE_UPDATED',
+          entityType: 'COMPANY_PROFILE',
+          entityId: user.companyProfile.id,
+          details: { updatedFields: Object.keys(dto) }
+        }
       });
     } else if (user.role === Role.TALENT && user.talentProfile) {
       const updateData: any = {
@@ -134,15 +228,14 @@ export class UsersService {
         githubUrl: dto.githubUrl !== undefined ? dto.githubUrl : undefined,
         linkedinUrl: dto.linkedinUrl !== undefined ? dto.linkedinUrl : undefined,
         figmaUrl: dto.figmaUrl !== undefined ? dto.figmaUrl : undefined,
-        ktpNik: dto.ktpNik !== undefined ? dto.ktpNik : undefined,
         resumeUrl: dto.resumeUrl !== undefined ? dto.resumeUrl : undefined,
         avatarUrl: dto.avatarUrl !== undefined ? dto.avatarUrl : undefined,
-        biometricFeatureVector: dto.biometricFeatureVector !== undefined ? dto.biometricFeatureVector : undefined,
+        location: dto.location !== undefined ? dto.location : undefined,
+        roleCategory: dto.roleCategory !== undefined ? dto.roleCategory : undefined,
+        encryptedPrivateFace: dto.encryptedPrivateFace !== undefined ? dto.encryptedPrivateFace : undefined,
+        biometricFeatureVector: dto.biometricFeatureVector !== undefined ? JSON.stringify(dto.biometricFeatureVector) : undefined,
+        showcasedSubmissionIds: dto.showcasedSubmissionIds !== undefined ? dto.showcasedSubmissionIds : undefined,
       };
-
-      if (dto.biometricFeatureVector) {
-        updateData.faceVerificationStatus = 'VERIFIED';
-      }
 
       await this.prisma.talentProfile.update({
         where: { userId },

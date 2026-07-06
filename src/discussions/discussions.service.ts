@@ -26,7 +26,7 @@ export class DiscussionsService {
       }
     }
 
-    return this.prisma.discussion.create({
+    const newDiscussion = await this.prisma.discussion.create({
       data: {
         userId,
         challengeId,
@@ -37,6 +37,24 @@ export class DiscussionsService {
         user: { select: { email: true, role: true } },
       },
     });
+
+    if (dto.parentId) {
+      const parent = await this.prisma.discussion.findUnique({
+        where: { id: dto.parentId },
+      });
+      if (parent && parent.userId !== userId) {
+        await this.prisma.notification.create({
+          data: {
+            userId: parent.userId,
+            title: 'Balasan Diskusi Baru',
+            content: `Seseorang telah membalas komentar Anda di studi kasus "${challenge.title}".`,
+            linkUrl: `/challenges/${challenge.slug}#discussions`,
+          }
+        });
+      }
+    }
+
+    return newDiscussion;
   }
 
   async getByChallenge(challengeId: string) {

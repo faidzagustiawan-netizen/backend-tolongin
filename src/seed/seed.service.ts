@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
+import { faker } from '@faker-js/faker';
 import {
   Role,
   VerificationStatus,
@@ -8,11 +9,11 @@ import {
   ChallengeCategory,
   ChallengeDifficulty,
   ChallengeStatus,
+  ChallengeType,
   EnrollmentStatus,
   SubmissionStatus,
-  HiringStatus,
-  ComponentType
 } from '@prisma/client';
+import { realChallenges, publicChallenges } from './real-data';
 
 @Injectable()
 export class SeedService {
@@ -21,15 +22,12 @@ export class SeedService {
   constructor(private readonly prisma: PrismaService) {}
 
   async seed() {
-    this.logger.log('Memulai proses seeding data sampel yang sangat lengkap...');
+    this.logger.log('Memulai proses seeding data MASSAL (30 Challenges, 30 Talents)...');
 
-    // Hapus semua data yang ada menggunakan eksekusi SQL (CASCADE)
-    this.logger.log('Menjalankan SQL untuk menghapus semua data yang ada (TRUNCATE CASCADE)...');
     try {
       await this.prisma.$executeRawUnsafe(`TRUNCATE TABLE "users" CASCADE;`);
       await this.prisma.$executeRawUnsafe(`TRUNCATE TABLE "badges" CASCADE;`);
       await this.prisma.$executeRawUnsafe(`TRUNCATE TABLE "challenges" CASCADE;`);
-      this.logger.log('Semua data berhasil dihapus.');
     } catch (error) {
       this.logger.warn('Gagal melakukan truncate, mencoba deleteMany fallback...');
       await this.prisma.user.deleteMany();
@@ -40,293 +38,305 @@ export class SeedService {
     const saltRounds = 10;
     const defaultPassword = await bcrypt.hash('password123', saltRounds);
 
-    // 1. Buat Badges Gamifikasi
+    // 1. Create Badges
     const badges = [
-      { title: 'Problem Solver Elite', description: 'Menyelesaikan tantangan algoritma dengan efisiensi O(1) atau O(N).', iconUrl: 'https://placehold.co/100x100/10b981/ffffff?text=Elite', requiredXp: 100 },
-      { title: 'Architect of the Future', description: 'Desain arsitektur mikroservis tanpa cacat di bawah beban tinggi.', iconUrl: 'https://placehold.co/100x100/10b981/ffffff?text=Arch', requiredXp: 250 },
-      { title: 'UI/UX Visionary', description: 'Mencapai skor aksesibilitas dan UX 100% pada evaluasi AI.', iconUrl: 'https://placehold.co/100x100/10b981/ffffff?text=UX', requiredXp: 150 },
-      { title: 'Data Alchemist', description: 'Membangun model AI dengan akurasi prediksi p99 di atas 95%.', iconUrl: 'https://placehold.co/100x100/10b981/ffffff?text=Data', requiredXp: 200 },
-      { title: 'Bug Squasher', description: 'Menemukan dan memperbaiki 50+ bug kritis.', iconUrl: 'https://placehold.co/100x100/ef4444/ffffff?text=BugSq', requiredXp: 300 },
+      { title: 'Top Coder', description: 'Master of algorithms', iconUrl: 'https://placehold.co/100/10b981/fff?text=Code', requiredXp: 500 },
+      { title: 'UI Wizard', description: 'Design perfectionist', iconUrl: 'https://placehold.co/100/ec4899/fff?text=UI', requiredXp: 400 },
+      { title: 'Bug Hunter', description: 'Squashed 100 bugs', iconUrl: 'https://placehold.co/100/ef4444/fff?text=Bug', requiredXp: 300 }
     ];
-
     for (const b of badges) {
-      await this.prisma.badge.upsert({ where: { title: b.title }, create: b, update: b });
+      await this.prisma.badge.create({ data: b });
     }
 
-    // 2. Buat Akun Perusahaan
-    const companyUsersData = [
-      { email: 'hr@goto.com', companyName: 'GoTo Group', industry: 'Tech', subscriptionTier: SubscriptionTier.KONGLOMERAT, companySize: '10,000+', logoUrl: 'https://api.dicebear.com/7.x/initials/svg?seed=GoTo' },
-      { email: 'hr@traveloka.com', companyName: 'Traveloka', industry: 'Travel', subscriptionTier: SubscriptionTier.KONGLOMERAT, companySize: '5,000+', logoUrl: 'https://api.dicebear.com/7.x/initials/svg?seed=Traveloka' },
-      { email: 'hr@efishery.com', companyName: 'eFishery', industry: 'Agritech', subscriptionTier: SubscriptionTier.STARTUP, companySize: '1,000+', logoUrl: 'https://api.dicebear.com/7.x/initials/svg?seed=eFishery' },
-      { email: 'hr@ruangguru.com', companyName: 'Ruangguru', industry: 'EdTech', subscriptionTier: SubscriptionTier.STARTUP, companySize: '1,000+', logoUrl: 'https://api.dicebear.com/7.x/initials/svg?seed=Ruangguru' },
-      { email: 'hr@bca.co.id', companyName: 'BCA', industry: 'Banking', subscriptionTier: SubscriptionTier.CUSTOM, companySize: '20,000+', logoUrl: 'https://api.dicebear.com/7.x/initials/svg?seed=BCA' },
-    ];
-
-    const companyProfiles: Record<string, any> = {};
-    for (const c of companyUsersData) {
+    // 2. Create 5 Companies
+    const companies: any[] = [];
+    for (let i = 0; i < 5; i++) {
+      const email = `company${i+1}@test.com`;
       const user = await this.prisma.user.create({
-        data: { email: c.email, passwordHash: defaultPassword, role: Role.COMPANY, isVerified: true },
+        data: { email, passwordHash: defaultPassword, role: Role.COMPANY, isVerified: true },
       });
-      companyProfiles[c.email] = await this.prisma.companyProfile.create({
+      const profile = await this.prisma.companyProfile.create({
         data: {
-          userId: user.id, companyName: c.companyName, industry: c.industry, subscriptionTier: c.subscriptionTier,
-          kybStatus: VerificationStatus.VERIFIED, logoUrl: c.logoUrl, companySize: c.companySize, trustScore: 100,
-        },
+          userId: user.id,
+          companyName: faker.company.name(),
+          industry: faker.helpers.arrayElement(['Fintech', 'E-Commerce', 'SaaS', 'EdTech', 'HealthTech']),
+          subscriptionTier: faker.helpers.arrayElement([SubscriptionTier.CUSTOM, SubscriptionTier.STARTUP, SubscriptionTier.KONGLOMERAT]),
+          kybStatus: VerificationStatus.VERIFIED,
+          logoUrl: `https://api.dicebear.com/7.x/initials/svg?seed=${email}`,
+          companySize: '100-500',
+          trustScore: faker.number.int({ min: 80, max: 100 })
+        }
       });
+      
+      // Create extra team members & logs
+      for (let j = 0; j < 3; j++) {
+        const memEmail = `member${j+1}_${email}`;
+        const memUser = await this.prisma.user.create({
+          data: { email: memEmail, passwordHash: defaultPassword, role: Role.COMPANY, isVerified: true }
+        });
+        await this.prisma.companyMember.create({
+          data: { userId: memUser.id, companyId: profile.id, role: 'MEMBER' }
+        });
+        await this.prisma.companyActivityLog.create({
+          data: { 
+            companyId: profile.id, 
+            userId: memUser.id, 
+            action: 'MEMBER_JOINED', 
+            entityType: 'USER', 
+            entityId: memUser.id, 
+            details: { email: memEmail } 
+          }
+        });
+      }
+
+      // Activity Log for Profile creation
+      await this.prisma.companyActivityLog.create({
+        data: { 
+          companyId: profile.id, 
+          userId: user.id, 
+          action: 'PROFILE_UPDATED', 
+          entityType: 'COMPANY_PROFILE', 
+          entityId: profile.id, 
+          details: { updatedFields: ['companyName', 'industry', 'subscriptionTier'] } 
+        }
+      });
+
+      // Notification
+      await this.prisma.notification.create({
+        data: { userId: user.id, title: 'Selamat Datang', content: 'Selamat datang di platform Tolongin!' }
+      });
+
+      companies.push(profile);
     }
 
-    // 3. Buat Akun Talenta (20 Talenta)
-    const talentNames = [
-      'Budi Raharjo', 'Siti Aminah', 'Agus Setiawan', 'Dewi Lestari', 'Joko Anwar',
-      'Rio Dewanto', 'Susan Susanti', 'Andi Saputra', 'Rini Wulandari', 'Doni Pratama',
-      'Maya Sari', 'Hendra Wijaya', 'Tina Toon', 'Galih Rakasiwi', 'Diana Pungky',
-      'Reza Rahadian', 'Citra Kirana', 'Bayu Skak', 'Putri Marino', 'Arif Muhammad'
-    ];
-
-    const talentProfilesMap: Record<string, any> = {};
-    const allTalentIds: string[] = [];
-
-    for (let i = 0; i < talentNames.length; i++) {
-      const name = talentNames[i];
-      const email = `${name.toLowerCase().replace(/ /g, '.')}@gmail.com`;
+    // 3. Create 30 Talents
+    const talents: any[] = [];
+    for (let i = 0; i < 30; i++) {
+      const email = `talent${i+1}@test.com`;
       const user = await this.prisma.user.create({
         data: { email, passwordHash: defaultPassword, role: Role.TALENT, isVerified: true },
       });
       const profile = await this.prisma.talentProfile.create({
         data: {
-          userId: user.id, fullName: name, headline: 'Software Engineer', skills: ['Javascript', 'React', 'Node.js'],
-          faceVerificationStatus: VerificationStatus.VERIFIED, xp: Math.floor(Math.random() * 5000) + 1000,
-          level: Math.floor(Math.random() * 30) + 10, avatarUrl: `https://api.dicebear.com/7.x/avataaars/svg?seed=${name.split(' ')[0]}`,
-          tokenBalance: 500,
-        },
+          userId: user.id,
+          fullName: faker.person.fullName(),
+          headline: faker.person.jobTitle(),
+          skills: faker.helpers.arrayElements(['React', 'Node.js', 'Python', 'Figma', 'AWS', 'SQL', 'TypeScript'], 3),
+          faceVerificationStatus: faker.helpers.arrayElement([VerificationStatus.VERIFIED, VerificationStatus.VERIFIED, VerificationStatus.UNVERIFIED]),
+          xp: faker.number.int({ min: 100, max: 5000 }),
+          level: faker.number.int({ min: 1, max: 20 }),
+          avatarUrl: `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`,
+          tokenBalance: faker.number.int({ min: 100, max: 1000 })
+        }
       });
-      talentProfilesMap[email] = profile;
-      allTalentIds.push(profile.id);
+      
+      // Notification
+      await this.prisma.notification.create({
+        data: { userId: user.id, title: 'Selamat Datang', content: 'Profil talenta Anda berhasil dibuat!' }
+      });
+
+      talents.push({ user, profile });
     }
 
-    // 4. Create Master Challenge (All Components)
-    this.logger.log('Creating Master Challenge (Fullstack Assessment)...');
-    const masterChallenge = await this.prisma.challenge.create({
-      data: {
-        companyId: companyProfiles['hr@goto.com'].id,
-        title: 'Ultimate Fullstack Assessment',
-        slug: 'goto-ultimate-fullstack-assessment',
-        summary: 'Ujian komprehensif untuk posisi Senior Fullstack Engineer. Termasuk live coding, algoritma, presentasi, dan esai.',
-        description: `### Deskripsi Tantangan\nKami mencari seorang Senior Fullstack Engineer yang mampu berpikir secara holistik. Ujian ini dirancang untuk menguji seluruh aspek keahlian Anda: dari struktur data hingga cara Anda mempresentasikan solusi teknis.\n\n### Persyaratan:\n- Penggunaan pola arsitektur yang efisien.\n- Video presentasi arsitektur tidak lebih dari 5 menit.\n- Kode harus lolos evaluasi otomatis AI.`,
-        category: ChallengeCategory.BACKEND,
-        difficulty: ChallengeDifficulty.SENIOR,
-        status: ChallengeStatus.PUBLISHED,
-        gradingRubric: { logic: 40, presentation: 30, best_practices: 30 },
-        rewardDescription: 'MacBook Pro M3 Max + Tawaran C-Level',
-        deadlineAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-      }
-    });
-
-    const optId1 = 'opt_1';
-    const optId2 = 'opt_2';
-    const optId3 = 'opt_3';
-    const optId4 = 'opt_4';
-
-    const section1 = await this.prisma.challengeSection.create({
-      data: { challengeId: masterChallenge.id, title: 'Pemahaman Konseptual (Pilihan Ganda & Esai)', order: 1 }
-    });
-
-    const section2 = await this.prisma.challengeSection.create({
-      data: { challengeId: masterChallenge.id, title: 'Live Coding & Praktikal', order: 2 }
-    });
-
-    const section3 = await this.prisma.challengeSection.create({
-      data: { challengeId: masterChallenge.id, title: 'Arsitektur Sistem (File & Video)', order: 3 }
-    });
-
-    const components = await Promise.all([
-      // 1. Multiple Choice
-      this.prisma.challengeComponent.create({
-        data: {
-          challengeId: masterChallenge.id, sectionId: section1.id, type: ComponentType.MULTIPLE_CHOICE, order: 1, points: 10,
-          question: 'Manakah dari struktur data berikut yang memberikan kompleksitas waktu pencarian rata-rata O(1)?',
-          options: [
-            { id: optId1, text: 'Binary Search Tree', isCorrect: false },
-            { id: optId2, text: 'Hash Table', isCorrect: true },
-            { id: optId3, text: 'Linked List', isCorrect: false },
-            { id: optId4, text: 'Balanced AVL Tree', isCorrect: false }
-          ]
-        }
-      }),
-      // 2. Essay
-      this.prisma.challengeComponent.create({
-        data: {
-          challengeId: masterChallenge.id, sectionId: section1.id, type: ComponentType.ESSAY, order: 2, points: 20,
-          question: 'Jelaskan pendekatan Anda dalam mengatasi masalah "Thundering Herd" pada layanan berbasis microservices yang mengandalkan Redis Cache.',
-        }
-      }),
-      // 3. Live Coding
-      this.prisma.challengeComponent.create({
-        data: {
-          challengeId: masterChallenge.id, sectionId: section2.id, type: ComponentType.LIVE_CODING, order: 3, points: 40,
-          question: 'Implementasikan fungsi debounce dalam Javascript tanpa menggunakan library eksternal (Lodash, dsb).',
-          metadata: { language: 'javascript' }
-        }
-      }),
-      // 4. File Upload
-      this.prisma.challengeComponent.create({
-        data: {
-          challengeId: masterChallenge.id, sectionId: section3.id, type: ComponentType.FILE_UPLOAD, order: 4, points: 15,
-          question: 'Unggah berkas PDF berisi arsitektur sistem level tinggi (HLD) untuk platform E-Commerce berskala jutaan DAU.',
-          description: 'Max 10MB, format .pdf'
-        }
-      }),
-      // 5. Video Upload
-      this.prisma.challengeComponent.create({
-        data: {
-          challengeId: masterChallenge.id, sectionId: section3.id, type: ComponentType.VIDEO_UPLOAD, order: 5, points: 15,
-          question: 'Rekam video penjelasan singkat (maks 3 menit) mengenai pilihan teknologi pada HLD yang Anda unggah sebelumnya.',
-          description: 'Format .mp4, Max 25MB'
-        }
-      })
-    ]);
-
-    // Generate 20 distinct submissions for the Master Challenge
-    this.logger.log('Generating 20 submissions for Master Challenge...');
-    let passedCount = 0;
-
-    for (let i = 0; i < allTalentIds.length; i++) {
-      const talentId = allTalentIds[i];
-      const isPass = Math.random() > 0.4; // 60% pass rate
-      const subStatus = isPass ? SubmissionStatus.PASSED : (Math.random() > 0.5 ? SubmissionStatus.FAILED : SubmissionStatus.UNDER_REVIEW);
-      const finalScore = isPass ? Math.floor(Math.random() * 20 + 80) : Math.floor(Math.random() * 30 + 40);
-
-      const enrollment = await this.prisma.challengeEnrollment.create({
-        data: {
-          talentId, challengeId: masterChallenge.id, status: EnrollmentStatus.EVALUATED,
-          startedAt: new Date(Date.now() - Math.floor(Math.random() * 5) * 24 * 3600000),
-          completedAt: new Date(Date.now() - Math.floor(Math.random() * 2) * 24 * 3600000),
-        }
-      });
-
-      const aiSummary = isPass ? 
-        'Kandidat menunjukkan pemahaman mendalam tentang struktur data dan implementasi live coding yang sempurna. Penjelasan esai sangat teknis dan tepat sasaran.' : 
-        'Kandidat gagal memberikan solusi O(1) yang efisien, dan live coding mengandung bug kritis. Penjelasan video kurang komprehensif.';
-
-      const submission = await this.prisma.submission.create({
-        data: {
-          enrollmentId: enrollment.id, talentId, challengeId: masterChallenge.id,
-          status: subStatus, finalScore, aiScore: finalScore - Math.floor(Math.random() * 5),
-          aiCorrectionSummary: aiSummary,
-          reviewerFeedback: isPass ? 'Sangat mengesankan. Kami akan menjadwalkan wawancara segera.' : 'Masih butuh latihan dasar struktur data.',
-          hiringStatus: isPass ? HiringStatus.SHORTLISTED : HiringStatus.REJECTED,
-          evaluatedAt: new Date(),
-        }
-      });
-
-      if (isPass) passedCount++;
-
-      // Create Component Responses
-      // 1. Multiple Choice
-      await this.prisma.componentResponse.create({
-        data: {
-          submissionId: submission.id, componentId: components[0].id,
-          textValue: isPass ? optId2 : (Math.random() > 0.5 ? optId1 : optId3),
-          score: isPass ? 10 : 0
-        }
-      });
-
-      // 2. Essay
-      const essayGood = [
-        "Thundering Herd terjadi ketika banyak proses/thread terbangun bersamaan untuk memperebutkan sumber daya. Cara mengatasinya adalah dengan menggunakan mekanisme penguncian (lock) seperti Redlock pada Redis, sehingga hanya satu thread yang melakukan query ke database dan yang lain menunggu.",
-        "Untuk mencegah Thundering Herd, saya menerapkan Jitter/Randomized TTL pada Redis cache untuk mencegah kadaluarsa massal secara simultan, dan menerapkan Mutex Lock saat regenerasi cache."
-      ];
-      const essayBad = [
-        "Thundering Herd itu masalah server lambat. Solusinya ya ditambah RAM servernya.",
-        "Saya tidak tahu pastinya, tapi mungkin dengan me-restart Redis."
-      ];
-      await this.prisma.componentResponse.create({
-        data: {
-          submissionId: submission.id, componentId: components[1].id,
-          textValue: isPass ? essayGood[Math.floor(Math.random() * essayGood.length)] : essayBad[Math.floor(Math.random() * essayBad.length)],
-          score: isPass ? 18 : 5
-        }
-      });
-
-      // 3. Live Coding
-      const debounceGood = `function debounce(func, wait) {\n  let timeout;\n  return function executedFunction(...args) {\n    const later = () => {\n      clearTimeout(timeout);\n      func(...args);\n    };\n    clearTimeout(timeout);\n    timeout = setTimeout(later, wait);\n  };\n}`;
-      const debounceBad = `function debounce(func) {\n  setTimeout(() => func(), 1000);\n}`;
-      await this.prisma.componentResponse.create({
-        data: {
-          submissionId: submission.id, componentId: components[2].id,
-          textValue: isPass ? debounceGood : debounceBad,
-          score: isPass ? 40 : 10
-        }
-      });
-
-      // 4. File Upload
-      await this.prisma.componentResponse.create({
-        data: {
-          submissionId: submission.id, componentId: components[3].id,
-          fileUrl: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
-          score: isPass ? 15 : 5
-        }
-      });
-
-      // 5. Video
-      await this.prisma.componentResponse.create({
-        data: {
-          submissionId: submission.id, componentId: components[4].id,
-          fileUrl: 'http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
-          score: isPass ? 12 : 5
-        }
-      });
-    }
-
-    // 5. Create Other Varied Challenges
-    this.logger.log('Creating other varied challenges...');
+    // 4. Create Challenges from real-data.ts
+    const challenges: any[] = [];
     
-    // Multiple Choice Only Challenge
-    const mcqChallenge = await this.prisma.challenge.create({
-      data: {
-        companyId: companyProfiles['hr@efishery.com'].id,
-        title: 'Basic Frontend Concepts', slug: 'efishery-basic-frontend',
-        summary: 'Uji pemahaman dasar tentang HTML, CSS, dan reaktivitas di web.',
-        description: 'Tantangan ini hanya terdiri dari soal pilihan ganda murni. Silakan kerjakan dengan cermat.',
-        category: ChallengeCategory.FRONTEND, difficulty: ChallengeDifficulty.JUNIOR,
-        status: ChallengeStatus.PUBLISHED, gradingRubric: { concept: 100 },
-      }
-    });
-    await this.prisma.challengeComponent.create({
-      data: { challengeId: mcqChallenge.id, type: ComponentType.MULTIPLE_CHOICE, question: 'Apa singkatan dari DOM?', options: [ { id: 'o1', text: 'Document Object Model', isCorrect: true }, { id: 'o2', text: 'Data Object Model', isCorrect: false } ] }
-    });
+    // 4A. Seed Company Challenges
+    for (let i = 0; i < realChallenges.length; i++) {
+      const company = faker.helpers.arrayElement(companies);
+      const data = realChallenges[i];
 
-    // Essay & File Upload Challenge
-    const designChallenge = await this.prisma.challenge.create({
-      data: {
-        companyId: companyProfiles['hr@ruangguru.com'].id,
-        title: 'Product Design Case Study', slug: 'ruangguru-product-design',
-        summary: 'Selesaikan studi kasus desain produk interaktif untuk platform edukasi.',
-        description: 'Jawab esai mengenai riset pengguna Anda dan lampirkan hasil rancangan low-fidelity.',
-        category: ChallengeCategory.UI_UX, difficulty: ChallengeDifficulty.MEDIOR,
-        status: ChallengeStatus.PUBLISHED, gradingRubric: { research: 50, design: 50 },
-      }
-    });
-    await this.prisma.challengeComponent.create({
-      data: { challengeId: designChallenge.id, type: ComponentType.ESSAY, question: 'Jelaskan pain points utama siswa saat belajar online berdasarkan riset Anda.', points: 50 }
-    });
-    await this.prisma.challengeComponent.create({
-      data: { challengeId: designChallenge.id, type: ComponentType.FILE_UPLOAD, question: 'Unggah file wireframe/prototype Anda (.pdf atau .png)', points: 50 }
-    });
+      const challenge = await this.prisma.challenge.create({
+        data: {
+          companyId: company.id,
+          talentId: null,
+          title: data.title,
+          slug: faker.helpers.slugify(`${company.companyName}-${data.category}-${i}`).toLowerCase(),
+          summary: data.summary,
+          description: data.description,
+          category: data.category as any,
+          difficulty: data.difficulty as any,
+          status: ChallengeStatus.PUBLISHED,
+          challengeType: ChallengeType.COMPANY,
+          rewardDescription: `Sistem Reward: Hingga 75 Token & 400 XP`,
+          gradingRubric: {
+            requireProctoring: faker.datatype.boolean(),
+            proctoringSettings: {
+              continuousTracking: true,
+              maxTabSwitches: 3
+            }
+          }
+        }
+      });
 
-    // Legacy Style Challenge (Only URL and Description)
-    await this.prisma.challenge.create({
-      data: {
-        companyId: companyProfiles['hr@bca.co.id'].id,
-        title: 'Banking Backend Architecture', slug: 'bca-banking-architecture',
-        summary: 'Tugas arsitektur tanpa komponen khusus (Legacy style).',
-        description: 'Buatlah repo GitHub yang memuat API banking sederhana menggunakan Spring Boot atau NestJS. Kumpulkan tautan GitHub Anda di kolom yang tersedia (Tautan Repositori).',
-        category: ChallengeCategory.BACKEND, difficulty: ChallengeDifficulty.SENIOR,
-        status: ChallengeStatus.PUBLISHED, gradingRubric: { security: 60, architecture: 40 },
+      for (let secIdx = 0; secIdx < data.sections.length; secIdx++) {
+        const secData = data.sections[secIdx];
+        await this.prisma.challengeSection.create({
+          data: {
+            challengeId: challenge.id,
+            title: secData.title,
+            description: secData.description,
+            order: secIdx + 1,
+            components: {
+              create: secData.components.map((comp, compIdx) => ({
+                challengeId: challenge.id,
+                type: comp.type as any,
+                order: compIdx + 1,
+                points: Math.floor(100 / secData.components.length),
+                question: comp.question,
+                options: comp.options || undefined,
+              }))
+            }
+          }
+        });
       }
-    });
+      
+      const completeChallenge = await this.prisma.challenge.findUnique({
+        where: { id: challenge.id },
+        include: { components: { orderBy: { order: 'asc' } } }
+      });
+      challenges.push(completeChallenge);
+    }
 
-    this.logger.log(`Seeding data sampel selesai! Dihasilkan ${passedCount} kandidat lulus untuk Master Challenge.`);
-    return { success: true, message: 'Database telah diisi dengan data sampel lengkap setelah di-truncate.' };
+    // 4B. Seed Talent (Public) Challenges
+    for (let i = 0; i < publicChallenges.length; i++) {
+      const talent = faker.helpers.arrayElement(talents);
+      const data = publicChallenges[i];
+
+      const challenge = await this.prisma.challenge.create({
+        data: {
+          companyId: null,
+          talentId: talent.profile.id,
+          title: data.title,
+          slug: faker.helpers.slugify(`${talent.profile.fullName}-${data.category}-${i}`).toLowerCase(),
+          summary: data.summary,
+          description: data.description,
+          category: data.category as any,
+          difficulty: data.difficulty as any,
+          status: ChallengeStatus.PUBLISHED,
+          challengeType: ChallengeType.PUBLIC,
+          rewardDescription: `Bounty: 50 Token & 100 XP`,
+          gradingRubric: {
+            requireProctoring: false
+          }
+        }
+      });
+
+      for (let secIdx = 0; secIdx < data.sections.length; secIdx++) {
+        const secData = data.sections[secIdx];
+        await this.prisma.challengeSection.create({
+          data: {
+            challengeId: challenge.id,
+            title: secData.title,
+            description: secData.description,
+            order: secIdx + 1,
+            components: {
+              create: secData.components.map((comp, compIdx) => ({
+                challengeId: challenge.id,
+                type: comp.type as any,
+                order: compIdx + 1,
+                points: Math.floor(100 / secData.components.length),
+                question: comp.question,
+                options: comp.options || undefined,
+              }))
+            }
+          }
+        });
+      }
+      
+      const completeChallenge = await this.prisma.challenge.findUnique({
+        where: { id: challenge.id },
+        include: { components: { orderBy: { order: 'asc' } } }
+      });
+      challenges.push(completeChallenge);
+    }
+
+    // 5. Create Enrollments and Submissions (Randomly 3-5 per Talent)
+    for (const talent of talents) {
+      const selectedChallenges = faker.helpers.arrayElements(challenges, faker.number.int({ min: 3, max: 5 }));
+      
+      for (const challenge of selectedChallenges) {
+        const isCompleted = faker.datatype.boolean(); // 50% chance completed
+        const status = isCompleted ? EnrollmentStatus.SUBMITTED : EnrollmentStatus.ENROLLED;
+        
+        const enrollment = await this.prisma.challengeEnrollment.create({
+          data: {
+            talentId: talent.profile.id,
+            challengeId: challenge.id,
+            status: status,
+            startedAt: faker.date.recent({ days: 10 }),
+            completedAt: isCompleted ? faker.date.recent({ days: 2 }) : null,
+            draftData: !isCompleted ? ({ notes: "Draft in progress..." } as any) : undefined
+          }
+        });
+
+        if (isCompleted) {
+          const isPassed = faker.datatype.boolean(); // 50% Passed, 50% Failed
+          const subStatus = isPassed ? SubmissionStatus.PASSED : SubmissionStatus.FAILED;
+          const finalScore = isPassed ? faker.number.int({ min: 70, max: 100 }) : faker.number.int({ min: 10, max: 50 });
+
+          // Map realistic component responses based on pass/fail
+          const realDataRef = realChallenges.find(rc => rc.title === challenge.title);
+          const componentResponses: any[] = [];
+
+          if (realDataRef) {
+            for (const section of realDataRef.sections) {
+              for (const comp of section.components) {
+                const dbComp = challenge.components.find((c: any) => c.question === comp.question);
+                if (!dbComp) continue;
+
+                let textValue = '';
+                if (comp.type === 'MULTIPLE_CHOICE' && comp.options) {
+                  // Find correct or wrong option
+                  const opt = isPassed 
+                    ? comp.options.find(o => o.isCorrect) 
+                    : comp.options.find(o => !o.isCorrect);
+                  textValue = opt ? opt.text : comp.options[0].text;
+                } else {
+                  textValue = isPassed 
+                    ? (comp.correctAnswerText || 'Solusi berhasil diimplementasikan.')
+                    : (comp.wrongAnswerText || 'Saya bingung cara mengerjakannya.');
+                }
+
+                componentResponses.push({
+                  componentId: dbComp.id,
+                  textValue: textValue,
+                  score: isPassed ? dbComp.points : 0
+                });
+              }
+            }
+          }
+
+          const submission = await this.prisma.submission.create({
+            data: {
+              enrollmentId: enrollment.id,
+              talentId: talent.profile.id,
+              challengeId: challenge.id,
+              notes: isPassed ? "Tugas selesai, silakan direview!" : "Maaf saya kesulitan di bagian integrasi API.",
+              solutionFilesUrl: "https://github.com/talent/solution",
+              aiScore: finalScore,
+              aiCorrectionSummary: isPassed ? "Logika kode sangat bersih." : "Terdapat banyak error saat kompilasi.",
+              status: subStatus,
+              finalScore: finalScore,
+              reviewerFeedback: isPassed ? "Bagus sekali, kodenya rapi!" : "Sayang sekali, masih banyak requirement yang belum terpenuhi.",
+              componentResponses: {
+                create: componentResponses
+              }
+            }
+          });
+
+          // Add to showcased submissions if passed
+          if (isPassed && faker.datatype.boolean()) {
+            await this.prisma.talentProfile.update({
+              where: { id: talent.profile.id },
+              data: { showcasedSubmissionIds: { push: submission.id } }
+            });
+          }
+        }
+      }
+    }
+
+    this.logger.log('✅ Mass Seeding Selesai! Berhasil membuat 30+ Talent, 5 Company, 30 Challenge, dan ratusan data Enrollment/Submission.');
+    return { success: true, message: 'Database telah diisi dengan konsep permainan masif.' };
   }
 }

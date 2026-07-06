@@ -20,6 +20,7 @@ import { SubmissionsService } from './submissions.service';
 import { EnrollDto } from './dto/enroll.dto';
 import { SubmitSolutionDto } from './dto/submit-solution.dto';
 import { GradeSubmissionDto } from './dto/grade-submission.dto';
+import { SaveDraftDto } from './dto/save-draft.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -78,6 +79,24 @@ export class SubmissionsController {
   }
 
   @ApiOperation({
+    summary: 'Menyimpan progres draf sementara (Auto-Save)',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Draf berhasil disimpan ke server.',
+  })
+  @Roles(Role.TALENT)
+  @Put('draft/:enrollmentId')
+  async saveDraft(
+    @Request() req: any,
+    @Param('enrollmentId') enrollmentId: string,
+    @Body() dto: SaveDraftDto,
+  ) {
+    const talentId = req.user.profileId;
+    return this.submissionsService.saveDraft(talentId, enrollmentId, dto);
+  }
+
+  @ApiOperation({
     summary:
       'Mendapatkan seluruh solusi yang dikumpulkan talenta pada challenge perusahaan',
   })
@@ -112,26 +131,24 @@ export class SubmissionsController {
   }
 
   @ApiOperation({
-    summary:
-      'Memberikan penilaian akhir rekruter dan menerbitkan portofolio otomatis',
-  })
-  @ApiResponse({
-    status: 200,
+    summary: 'Menilai dan memberikan skor pada submisi (Oleh Pembuat Challenge)',
     description:
       'Penilaian akhir tersimpan, XP ditambahkan, dan portofolio terverifikasi diterbitkan.',
   })
-  @Roles(Role.COMPANY, Role.ADMIN)
+  @Roles(Role.COMPANY, Role.ADMIN, Role.TALENT)
   @Put('grade/:id')
   async gradeSubmission(
     @Request() req: any,
     @Param('id') submissionId: string,
     @Body() dto: GradeSubmissionDto,
   ) {
-    const companyId = req.user.profileId;
+    const profileId = req.user.profileId;
     return this.submissionsService.gradeSubmission(
-      companyId,
+      profileId,
       submissionId,
       dto,
+      req.user.sub,
+      req.user.role
     );
   }
 }
