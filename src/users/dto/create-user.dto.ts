@@ -6,6 +6,7 @@ import {
   IsOptional,
   IsString,
   MinLength,
+  IsBoolean,
 } from 'class-validator';
 import { Role, SubscriptionTier } from '@prisma/client';
 
@@ -44,6 +45,7 @@ export class CreateUserDto {
   @IsOptional()
   inviteCode?: string;
 
+  @IsBoolean()
   @IsOptional()
   isJoinTeam?: boolean;
 }
