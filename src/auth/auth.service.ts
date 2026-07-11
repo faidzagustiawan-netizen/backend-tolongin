@@ -30,6 +30,10 @@ export class AuthService {
       throw new UnauthorizedException('Email atau password salah');
     }
 
+    if (user.isBanned) {
+      throw new UnauthorizedException('Akun Anda telah ditangguhkan (Banned). Silakan hubungi admin.');
+    }
+
     const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
 
     if (!isPasswordValid) {

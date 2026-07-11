@@ -43,4 +43,66 @@ export class AdminService {
       data: { kybStatus: status },
     });
   }
+
+  // --- Expanded Admin Features ---
+
+  async getAllUsers() {
+    return this.prisma.user.findMany({
+      select: {
+        id: true,
+        email: true,
+        fullName: true,
+        role: true,
+        isVerified: true,
+        isBanned: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+  }
+
+  async toggleBanUser(userId: string, isBanned: boolean) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+    
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: { isBanned },
+    });
+  }
+
+  async sendWarning(userId: string, message: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+
+    return this.prisma.notification.create({
+      data: {
+        userId,
+        title: 'Peringatan Admin',
+        content: message,
+      }
+    });
+  }
+
+  async getAllChallenges() {
+    return this.prisma.challenge.findMany({
+      include: {
+        company: {
+          select: { companyName: true }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+  }
+
+  async takedownChallenge(challengeId: string) {
+    const challenge = await this.prisma.challenge.findUnique({ where: { id: challengeId } });
+    if (!challenge) throw new NotFoundException('Challenge not found');
+
+    // Option 1: Soft delete or status change. Since there is no status, we can just delete it or mark it.
+    // The user said "takedown aja jangan sampai bisa edit". Let's delete it.
+    return this.prisma.challenge.delete({
+      where: { id: challengeId }
+    });
+  }
 }
