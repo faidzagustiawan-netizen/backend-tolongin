@@ -200,7 +200,7 @@ export class VerificationService {
     };
   }
 
-  async getVerificationStatus(userId: string, role: string) {
+  async getVerificationStatus(userId: string, role: string, profileId?: string) {
     if (role === 'TALENT') {
       const profile = await this.prisma.talentProfile.findUnique({
         where: { userId },
@@ -210,7 +210,7 @@ export class VerificationService {
       };
     } else {
       const profile = await this.prisma.companyProfile.findUnique({
-        where: { userId },
+        where: profileId ? { id: profileId } : { userId },
       });
       return {
         status: profile?.kybStatus ?? VerificationStatus.UNVERIFIED,

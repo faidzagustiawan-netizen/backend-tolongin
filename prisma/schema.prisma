@@ -26,6 +26,7 @@ enum VerificationStatus {
 model User {
   id           String   @id @default(uuid())
   email        String   @unique
+  fullName     String?
   passwordHash String
   role         Role     @default(TALENT)
   isVerified   Boolean  @default(false)

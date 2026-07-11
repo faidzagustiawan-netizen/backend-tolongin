@@ -70,6 +70,7 @@ export class VerificationController {
     return this.verificationService.getVerificationStatus(
       req.user.sub,
       req.user.role,
+      req.user.profileId,
     );
   }
 }

@@ -39,6 +39,7 @@ export class UsersService {
       const user = await tx.user.create({
         data: {
           email,
+          fullName: fullName || email.split('@')[0],
           passwordHash,
           role,
         },
@@ -52,12 +53,14 @@ export class UsersService {
           },
         });
       } else if (role === Role.COMPANY) {
+        const randomStr = Math.random().toString(36).substring(2, 8).toUpperCase();
         await tx.companyProfile.create({
           data: {
             userId: user.id,
             companyName: companyName || 'Perusahaan Mitra',
             industry: industry || 'Teknologi Informasi',
             subscriptionTier: subscriptionTier || 'STARTUP',
+            inviteCode: `CMP-${randomStr}`,
           },
         });
       }
@@ -95,8 +98,10 @@ export class UsersService {
       const user = await tx.user.create({
         data: {
           email,
+          fullName: fullName || email.split('@')[0],
           passwordHash,
           role: Role.COMPANY,
+          isVerified: true,
         },
       });
 
@@ -187,16 +192,18 @@ export class UsersService {
   async updateProfile(userId: string, dto: UpdateProfileDto) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      include: { talentProfile: true, companyProfile: true },
+      include: { talentProfile: true, companyProfile: true, teamMemberships: true },
     });
 
     if (!user) {
       throw new NotFoundException('Pengguna tidak ditemukan');
     }
 
-    if (user.role === Role.COMPANY && user.companyProfile) {
+    const companyId = user.companyProfile?.id || user.teamMemberships?.[0]?.companyId;
+
+    if (user.role === Role.COMPANY && companyId) {
       await this.prisma.companyProfile.update({
-        where: { userId },
+        where: { id: companyId },
         data: {
           companyName: dto.companyName !== undefined ? dto.companyName : undefined,
           industry: dto.industry !== undefined ? dto.industry : undefined,
@@ -211,11 +218,11 @@ export class UsersService {
 
       await this.prisma.companyActivityLog.create({
         data: {
-          companyId: user.companyProfile.id,
+          companyId: companyId,
           userId,
           action: 'PROFILE_UPDATED',
           entityType: 'COMPANY_PROFILE',
-          entityId: user.companyProfile.id,
+          entityId: companyId,
           details: { updatedFields: Object.keys(dto) }
         }
       });

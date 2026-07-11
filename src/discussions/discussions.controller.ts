@@ -16,18 +16,20 @@ import {
 import { DiscussionsService } from './discussions.service';
 import { CreateDiscussionDto } from './dto/create-discussion.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { VerifiedCompanyGuard } from '../auth/guards/verified-company.guard';
 
-@ApiTags('Discussions & Q&A')
+@ApiTags('Discussions & Communication')
+@ApiBearerAuth('JWT-auth')
 @Controller('challenges/:challengeId/discussions')
 export class DiscussionsController {
   constructor(private readonly discussionsService: DiscussionsService) {}
 
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
-    summary: 'Menambahkan pesan / pertanyaan baru di forum Q&A studi kasus',
+    summary: 'Menerbitkan pesan baru di ruang diskusi',
   })
   @ApiResponse({ status: 201, description: 'Pesan berhasil dipublikasikan.' })
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, VerifiedCompanyGuard)
   @Post()
   async create(
     @Request() req: any,

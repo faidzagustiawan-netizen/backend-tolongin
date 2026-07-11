@@ -25,10 +25,11 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { Role } from '@prisma/client';
+import { VerifiedCompanyGuard } from '../auth/guards/verified-company.guard';
 
 @ApiTags('Workspace, Submissions & AI Assessment')
 @ApiBearerAuth('JWT-auth')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, VerifiedCompanyGuard)
 @Controller('workspace')
 export class SubmissionsController {
   constructor(private readonly submissionsService: SubmissionsService) {}
