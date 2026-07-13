@@ -9,6 +9,15 @@ jobs:
     name: Deploy ke VPS 1 (Utama)
     runs-on: ubuntu-latest
     steps:
+
+      # --- LANGKAH BARU: Sambungkan GitHub runner ke Tailscale ---
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v2
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+          version: latest
+      # -----------------------------------------------------------
+        
       - name: Eksekusi SSH dan Deploy VPS 1
         uses: appleboy/ssh-action@v1.0.3
         with:
