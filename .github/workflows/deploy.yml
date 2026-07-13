@@ -1,21 +1,52 @@
-name: Deploy to Prod VPS
+name: Deploy to Dual Prod VPS
 
 on:
   push:
     branches: [ main ] # Akan trigger otomatis saat ada push ke branch main
 
 jobs:
-  deploy:
+  deploy-vps1:
+    name: Deploy ke VPS 1 (Utama)
     runs-on: ubuntu-latest
     steps:
-      - name: Eksekusi SSH dan Deploy
+      - name: Eksekusi SSH dan Deploy VPS 1
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS2_IP }}
+          username: ${{ secrets.VPS2_USER }}
+          key: ${{ secrets.VPS2_SSH_KEY }}
+          script: |
+            # 1. Pindah ke folder project di VPS 1
+            cd ~/homelab/projects/backend-tolongin
+            
+            # 2. Load NVM agar Node, pnpm, dan PM2 otomatis dikenali
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+            
+            # 3. Ambil pembaruan kode terbaru dari GitHub
+            git pull origin main
+            
+            # 4. Install dependencies menggunakan pnpm
+            pnpm install --frozen-lockfile
+
+            # 5. Jalankan pnpm run build untuk membangun aplikasi
+            pnpm run build
+            
+            # 6. Restart aplikasi menggunakan PM2
+            pm2 restart tolongin
+
+  deploy-vps2:
+    name: Deploy ke VPS 2 (Cadangan)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Eksekusi SSH dan Deploy VPS 2
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VPS_IP }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
-            # 1. Pindah ke folder project kamu di VPS
+            # 1. Pindah ke folder project di VPS 2
             cd ~/backend-tolongin
             
             # 2. Load NVM agar Node, pnpm, dan PM2 otomatis dikenali
