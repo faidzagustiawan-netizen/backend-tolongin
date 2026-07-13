@@ -23,16 +23,21 @@ jobs:
             export NVM_DIR="$HOME/.nvm"
             [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
             
-            # 3. Ambil pembaruan kode terbaru dari GitHub
+            # 3. Paksa Git untuk membuang perubahan lokal dan ambil kode terbaru
+            git fetch --all
+            git reset --hard origin/main
             git pull origin main
             
-            # 4. Install dependencies menggunakan pnpm
+            # 4. Install dependencies
             pnpm install --frozen-lockfile
 
-            # 5. Jalankan pnpm run build untuk membangun aplikasi
+            # 5. Generate ulang Prisma Client (WAJIB jika ada perubahan schema)
+            pnpm exec prisma generate
+            
+            # 6. Jalankan pnpm run build untuk membangun aplikasi
             pnpm run build
             
-            # 6. Restart aplikasi menggunakan PM2
+            # 7. Restart aplikasi menggunakan PM2
             pm2 restart tolongin
 
   deploy-vps2:
