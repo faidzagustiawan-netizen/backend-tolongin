@@ -26,9 +26,11 @@ enum VerificationStatus {
 model User {
   id           String   @id @default(uuid())
   email        String   @unique
+  fullName     String?
   passwordHash String
   role         Role     @default(TALENT)
   isVerified   Boolean  @default(false)
+  isBanned     Boolean  @default(false)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -40,6 +42,9 @@ model User {
   notifications       Notification[]
   tokenTransactions   TokenTransaction[]
   paymentTransactions PaymentTransaction[]
+  systemAuditLogs     SystemAuditLog[]
+  supportTickets      SupportTicket[]
+  ticketReplies       TicketReply[]
 
   @@map("users")
 }
@@ -60,9 +65,9 @@ model TalentProfile {
 
   // AI Identity & Security
   faceVerificationStatus VerificationStatus @default(UNVERIFIED)
-  ktpNik                 String? @unique // Untuk memastikan 1 identitas KTP 1 akun
-  biometricDataHash      String? @unique // Untuk verifikasi wajah anti-joki & memastikan 1 wajah 1 akun
-  biometricFeatureVector Json?   // Vektor fitur biometrik 64-dimensi untuk deteksi real-time anti-joki
+  ktpNik                 String?            @unique // Untuk memastikan 1 identitas KTP 1 akun
+  biometricDataHash      String?            @unique // Untuk verifikasi wajah anti-joki & memastikan 1 wajah 1 akun
+  biometricFeatureVector Json? // Vektor fitur biometrik 64-dimensi untuk deteksi real-time anti-joki
 
   // Leaderboard & Demographics
   location     String?
@@ -120,7 +125,7 @@ model CompanyProfile {
   subscriptionExpiresAt DateTime?
 
   // Accountability & Team
-  trustScore Int @default(100)
+  trustScore Int     @default(100)
   inviteCode String? @unique
 
   createdAt DateTime @default(now())
@@ -199,13 +204,13 @@ model Challenge {
   talentId  String?
   creator   TalentProfile?  @relation("CreatedChallenges", fields: [talentId], references: [id], onDelete: SetNull)
 
-  challengeType ChallengeType @default(COMPANY)
+  challengeType ChallengeType       @default(COMPANY)
   title         String
-  slug        String              @unique
-  summary     String
-  description String // Detail studi kasus / problem statement
-  category    ChallengeCategory
-  difficulty  ChallengeDifficulty
+  slug          String              @unique
+  summary       String
+  description   String // Detail studi kasus / problem statement
+  category      ChallengeCategory
+  difficulty    ChallengeDifficulty
 
   // Resource & Aset
   datasetUrl        String?
@@ -238,18 +243,18 @@ model Challenge {
 }
 
 model ChallengeSection {
-  id          String        @id @default(uuid())
+  id          String    @id @default(uuid())
   challengeId String
-  challenge   Challenge     @relation(fields: [challengeId], references: [id], onDelete: Cascade)
-  
+  challenge   Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+
   title       String
   description String?
-  order       Int           @default(0)
+  order       Int     @default(0)
 
-  components  ChallengeComponent[]
+  components ChallengeComponent[]
 
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@map("challenge_sections")
 }
@@ -264,25 +269,25 @@ enum ComponentType {
 }
 
 model ChallengeComponent {
-  id          String        @id @default(uuid())
+  id          String    @id @default(uuid())
   challengeId String
-  challenge   Challenge     @relation(fields: [challengeId], references: [id], onDelete: Cascade)
-  
-  sectionId   String?
-  section     ChallengeSection? @relation(fields: [sectionId], references: [id], onDelete: Cascade)
-  
+  challenge   Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+
+  sectionId String?
+  section   ChallengeSection? @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+
   type        ComponentType
   question    String
   description String?
-  options     Json?         // Jika MULTIPLE_CHOICE: [{id, text, isCorrect}]
-  metadata    Json?         // Konfigurasi lain misal: language untuk LIVE_CODING, durasi untuk VIDEO
+  options     Json? // Jika MULTIPLE_CHOICE: [{id, text, isCorrect}]
+  metadata    Json? // Konfigurasi lain misal: language untuk LIVE_CODING, durasi untuk VIDEO
   points      Int           @default(10)
   order       Int           @default(0)
 
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  responses   ComponentResponse[]
+  responses ComponentResponse[]
 
   @@map("challenge_components")
 }
@@ -382,14 +387,14 @@ model ComponentResponse {
   component    ChallengeComponent @relation(fields: [componentId], references: [id], onDelete: Cascade)
 
   // Nilai jawaban fleksibel
-  textValue    String? // Untuk Essay, URL, Live Coding, Option ID
-  fileUrl      String? // Untuk File/Video
+  textValue String? // Untuk Essay, URL, Live Coding, Option ID
+  fileUrl   String? // Untuk File/Video
 
-  score        Float?  // Penilaian
-  aiFeedback   String?
+  score      Float? // Penilaian
+  aiFeedback String?
 
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@map("component_responses")
 }
@@ -517,20 +522,95 @@ enum PaymentType {
 }
 
 model PaymentTransaction {
-  id              String        @id @default(uuid())
-  userId          String
-  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  externalId      String        @unique // Xendit external_id
-  checkoutUrl     String?       // Xendit invoice_url
-  amount          Int
-  status          PaymentStatus @default(PENDING)
-  paymentType     PaymentType
-  
-  metadata        Json?         // Untuk menyimpan data spesifik paket (misal: tokenAmount)
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  externalId  String        @unique // Xendit external_id
+  checkoutUrl String? // Xendit invoice_url
+  amount      Int
+  status      PaymentStatus @default(PENDING)
+  paymentType PaymentType
+
+  metadata Json? // Untuk menyimpan data spesifik paket (misal: tokenAmount)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@map("payment_transactions")
+}
+
+// ==========================================
+// 10. ADVANCED SUPER ADMIN FEATURES
+// ==========================================
+
+model SystemAuditLog {
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  action     String // e.g. "BANNED_USER", "CREATED_ANNOUNCEMENT"
+  entityType String // e.g. "USER", "CHALLENGE"
+  entityId   String?
+  details    Json?
+  createdAt  DateTime @default(now())
+
+  @@map("system_audit_logs")
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+model SupportTicket {
+  id          String       @id @default(uuid())
+  userId      String
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subject     String
+  description String
+  status      TicketStatus @default(OPEN)
+
+  replies TicketReply[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("support_tickets")
+}
+
+model TicketReply {
+  id       String        @id @default(uuid())
+  ticketId String
+  ticket   SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  message  String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("ticket_replies")
+}
+
+enum AnnouncementType {
+  INFO
+  WARNING
+  SUCCESS
+  MAINTENANCE
+}
+
+model Announcement {
+  id        String           @id @default(uuid())
+  title     String
+  content   String
+  type      AnnouncementType @default(INFO)
+  isActive  Boolean          @default(true)
+  expiresAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("announcements")
 }

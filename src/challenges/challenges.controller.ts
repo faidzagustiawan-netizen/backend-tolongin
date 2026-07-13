@@ -23,6 +23,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
+import { VerifiedCompanyGuard } from '../auth/guards/verified-company.guard';
 import { ChallengeCategory, ChallengeDifficulty, ChallengeType, Role } from '@prisma/client';
 
 @ApiTags('Challenge Directory & AI Generator')
@@ -96,7 +97,7 @@ export class ChallengesController {
     description: 'Challenge berhasil dibuat dan diterbitkan.',
   })
   @ApiResponse({ status: 403, description: 'Akses ditolak.' })
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, VerifiedCompanyGuard)
   @Roles(Role.COMPANY, Role.ADMIN, Role.TALENT)
   @Post()
   async create(
@@ -115,7 +116,7 @@ export class ChallengesController {
   @ApiOperation({
     summary: 'Memperbarui challenge (khusus status DRAFT)',
   })
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, VerifiedCompanyGuard)
   @Roles(Role.COMPANY, Role.ADMIN, Role.TALENT)
   @Patch(':id')
   async update(
@@ -137,7 +138,7 @@ export class ChallengesController {
     description: 'Studi kasus draf berhasil dirumuskan oleh AI.',
   })
   @ApiResponse({ status: 403, description: 'Akses ditolak.' })
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, VerifiedCompanyGuard)
   @Roles(Role.COMPANY, Role.ADMIN, Role.TALENT)
   @Post('ai-generate')
   async generateAiChallenge(

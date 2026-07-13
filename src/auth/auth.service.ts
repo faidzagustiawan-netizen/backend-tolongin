@@ -30,6 +30,10 @@ export class AuthService {
       throw new UnauthorizedException('Email atau password salah');
     }
 
+    if (user.isBanned) {
+      throw new UnauthorizedException('Akun Anda telah ditangguhkan (Banned). Silakan hubungi admin.');
+    }
+
     const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
 
     if (!isPasswordValid) {
@@ -44,6 +48,8 @@ export class AuthService {
       sub: user.id,
       email: user.email,
       role: user.role,
+      isVerified: user.isVerified,
+      fullName: user.fullName,
       profileId: user.talentProfile?.id || user.companyProfile?.id || user.teamMemberships?.[0]?.companyId,
     };
 
@@ -52,7 +58,9 @@ export class AuthService {
       user: {
         id: user.id,
         email: user.email,
+        fullName: user.fullName,
         role: user.role,
+        isVerified: user.isVerified,
         profile: user.talentProfile || user.companyProfile || (user.teamMemberships?.length > 0 ? { ...user.teamMemberships[0].company, isTeamMember: true } : null),
       },
     };
