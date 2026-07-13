@@ -6,7 +6,7 @@ on:
 
 jobs:
   deploy-vps1:
-    name: Deploy ke VPS 1 (Utama)
+    name: Deploy ke VPS 1 (Utama Laptop)
     runs-on: ubuntu-latest
     steps:
 
@@ -51,7 +51,7 @@ jobs:
             pm2 restart tolongin
 
   deploy-vps2:
-    name: Deploy ke VPS 2 (Cadangan)
+    name: Deploy ke VPS 2 (Cadangan Sumapod)
     runs-on: ubuntu-latest
     steps:
       - name: Eksekusi SSH dan Deploy VPS 2
