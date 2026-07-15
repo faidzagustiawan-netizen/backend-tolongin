@@ -171,7 +171,9 @@ export class UsersService {
             },
             submissions: {
               include: { challenge: true },
-            }
+            },
+            experiences: true,
+            educations: true,
           },
         },
         companyProfile: true,
@@ -248,6 +250,43 @@ export class UsersService {
         where: { userId },
         data: updateData,
       });
+
+      if (dto.experiences) {
+        // Simple replace all for experiences
+        await this.prisma.experience.deleteMany({ where: { talentId: user.talentProfile.id } });
+        for (const exp of dto.experiences) {
+          await this.prisma.experience.create({
+            data: {
+              talentId: user.talentProfile.id,
+              title: exp.title,
+              companyName: exp.companyName,
+              location: exp.location,
+              startDate: exp.startDate ? new Date(exp.startDate) : null,
+              endDate: exp.endDate ? new Date(exp.endDate) : null,
+              isCurrent: exp.isCurrent || false,
+              description: exp.description,
+            }
+          });
+        }
+      }
+
+      if (dto.educations) {
+        // Simple replace all for educations
+        await this.prisma.education.deleteMany({ where: { talentId: user.talentProfile.id } });
+        for (const edu of dto.educations) {
+          await this.prisma.education.create({
+            data: {
+              talentId: user.talentProfile.id,
+              school: edu.school,
+              degree: edu.degree,
+              fieldOfStudy: edu.fieldOfStudy,
+              startDate: edu.startDate ? new Date(edu.startDate) : null,
+              endDate: edu.endDate ? new Date(edu.endDate) : null,
+              description: edu.description,
+            }
+          });
+        }
+      }
     }
 
     return this.findById(userId);

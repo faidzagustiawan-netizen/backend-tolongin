@@ -80,9 +80,15 @@ importers:
       express:
         specifier: ^5.2.1
         version: 5.2.1
+      helmet:
+        specifier: ^8.2.0
+        version: 8.2.0
       midtrans-client:
         specifier: ^1.4.3
         version: 1.4.3
+      multer:
+        specifier: ^2.2.0
+        version: 2.2.0
       openai:
         specifier: ^6.38.0
         version: 6.38.0(ws@8.21.0)
@@ -8647,7 +8653,7 @@ snapshots:
       browserslist: 4.28.2
       chrome-trace-event: 1.0.4
       enhanced-resolve: 5.21.3
-      es-module-lexer: 2.1.0
+      es-module-lexer: 2.3.0
       eslint-scope: 5.1.1
       events: 3.3.0
       glob-to-regexp: 0.4.1

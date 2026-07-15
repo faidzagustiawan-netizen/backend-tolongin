@@ -93,7 +93,53 @@ model TalentProfile {
   earnedBadges      TalentBadge[]
   createdChallenges Challenge[]           @relation("CreatedChallenges")
 
+  experiences       Experience[]
+  educations        Education[]
+
   @@map("talent_profiles")
+}
+
+model Experience {
+  id          String        @id @default(uuid())
+  talentId    String
+  talent      TalentProfile @relation(fields: [talentId], references: [id], onDelete: Cascade)
+  title       String
+  companyName String
+  location    String?
+  startDate   DateTime?
+  endDate     DateTime?
+  isCurrent   Boolean       @default(false)
+  description String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("experiences")
+}
+
+model Education {
+  id           String        @id @default(uuid())
+  talentId     String
+  talent       TalentProfile @relation(fields: [talentId], references: [id], onDelete: Cascade)
+  school       String
+  degree       String?
+  fieldOfStudy String?
+  startDate    DateTime?
+  endDate      DateTime?
+  description  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("educations")
+}
+
+model Skill {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  createdAt DateTime @default(now())
+
+  @@map("skills")
 }
 
 // ==========================================

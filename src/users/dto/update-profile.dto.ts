@@ -85,4 +85,12 @@ export class UpdateProfileDto {
   @IsString({ each: true })
   @IsOptional()
   showcasedSubmissionIds?: string[];
+
+  @IsArray()
+  @IsOptional()
+  experiences?: any[];
+
+  @IsArray()
+  @IsOptional()
+  educations?: any[];
 }

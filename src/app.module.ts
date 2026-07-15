@@ -24,6 +24,7 @@ import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { MailModule } from './mail/mail.module';
 import { AdminModule } from './admin/admin.module';
+import { SkillsModule } from './skills/skills.module';
 
 @Module({
   imports: [
@@ -55,6 +56,7 @@ import { AdminModule } from './admin/admin.module';
     PaymentsModule,
     MailModule,
     AdminModule,
+    SkillsModule,
   ],
   controllers: [AppController],
   providers: [
