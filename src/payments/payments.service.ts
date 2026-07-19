@@ -7,7 +7,6 @@ import { PrismaService } from '../prisma/prisma.service';
 import { PaymentStatus, PaymentType, SubscriptionTier } from '@prisma/client';
 import * as crypto from 'crypto';
 
-// eslint-disable-next-line @typescript-eslint/no-var-requires
 const midtransClient = require('midtrans-client');
 
 @Injectable()
@@ -32,7 +31,7 @@ export class PaymentsService {
     } else if (tokenAmount === 500) {
       price = 100000;
     } else {
-      price = tokenAmount * 300; 
+      price = tokenAmount * 300;
     }
 
     const orderId = `topup-${talentId.substring(0, 8)}-${Date.now()}`;
@@ -69,7 +68,7 @@ export class PaymentsService {
       };
 
       const transaction = await this.snap.createTransaction(parameter);
-      
+
       // 3. Update checkoutUrl dengan redirect_url (opsional jika user tidak pakai pop-up)
       await this.prisma.paymentTransaction.update({
         where: { id: tx.id },
@@ -83,7 +82,9 @@ export class PaymentsService {
       };
     } catch (error) {
       console.error('Midtrans Snap Error:', error);
-      throw new InternalServerErrorException('Gagal menghubungi Payment Gateway Midtrans');
+      throw new InternalServerErrorException(
+        'Gagal menghubungi Payment Gateway Midtrans',
+      );
     }
   }
 
@@ -91,7 +92,7 @@ export class PaymentsService {
   // COMPANY: SUBSCRIPTION
   // =====================================
   async createSubscription(companyUserId: string, email: string) {
-    const price = 2500000; 
+    const price = 2500000;
     const orderId = `sub-${companyUserId.substring(0, 8)}-${Date.now()}`;
 
     const tx = await this.prisma.paymentTransaction.create({
@@ -137,7 +138,9 @@ export class PaymentsService {
       };
     } catch (error) {
       console.error('Midtrans Subscription Error:', error);
-      throw new InternalServerErrorException('Gagal menghubungi Payment Gateway');
+      throw new InternalServerErrorException(
+        'Gagal menghubungi Payment Gateway',
+      );
     }
   }
 
@@ -145,12 +148,21 @@ export class PaymentsService {
   // WEBHOOK HANDLER (KEAMANAN SHA-512)
   // =====================================
   async handleMidtransWebhook(payload: any) {
-    const { order_id, status_code, gross_amount, signature_key, transaction_status } = payload;
+    const {
+      order_id,
+      status_code,
+      gross_amount,
+      signature_key,
+      transaction_status,
+    } = payload;
     const serverKey = process.env.MIDTRANS_SERVER_KEY || 'dummy_server_key';
 
     // 1. Kalkulasi signature manual untuk dicocokkan (Anti-Hacker)
     const rawString = `${order_id}${status_code}${gross_amount}${serverKey}`;
-    const hashedSignature = crypto.createHash('sha512').update(rawString).digest('hex');
+    const hashedSignature = crypto
+      .createHash('sha512')
+      .update(rawString)
+      .digest('hex');
 
     if (hashedSignature !== signature_key) {
       console.error('Invalid Webhook Signature. Peringatan Keamanan!');
@@ -171,8 +183,10 @@ export class PaymentsService {
     }
 
     // 3. Verifikasi Status Pembayaran Midtrans
-    if (transaction_status === 'capture' || transaction_status === 'settlement') {
-      
+    if (
+      transaction_status === 'capture' ||
+      transaction_status === 'settlement'
+    ) {
       await this.prisma.paymentTransaction.update({
         where: { id: tx.id },
         data: { status: PaymentStatus.SUCCESS },
@@ -186,7 +200,6 @@ export class PaymentsService {
           where: { userId: tx.userId },
           data: { tokenBalance: { increment: addedTokens } },
         });
-
       } else if (tx.paymentType === PaymentType.SUBSCRIPTION) {
         const expiresAt = new Date();
         expiresAt.setMonth(expiresAt.getMonth() + 1);
@@ -199,12 +212,21 @@ export class PaymentsService {
           },
         });
       }
-      
+
       return { success: true };
-    } else if (transaction_status === 'expire' || transaction_status === 'cancel' || transaction_status === 'deny') {
+    } else if (
+      transaction_status === 'expire' ||
+      transaction_status === 'cancel' ||
+      transaction_status === 'deny'
+    ) {
       await this.prisma.paymentTransaction.update({
         where: { id: tx.id },
-        data: { status: transaction_status === 'expire' ? PaymentStatus.EXPIRED : PaymentStatus.FAILED },
+        data: {
+          status:
+            transaction_status === 'expire'
+              ? PaymentStatus.EXPIRED
+              : PaymentStatus.FAILED,
+        },
       });
       return { success: true };
     }

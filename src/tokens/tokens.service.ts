@@ -1,4 +1,8 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TokenType } from '@prisma/client';
 
@@ -80,7 +84,7 @@ export class TokensService {
           title: 'Token Digunakan',
           content: `Anda telah menggunakan -${amount} Token. Keterangan: ${description}`,
           linkUrl: '/profile',
-        }
+        },
       });
 
       return { success: true };
@@ -112,7 +116,7 @@ export class TokensService {
           title: 'Token Diterima',
           content: `Anda menerima +${amount} Token! Keterangan: ${description}`,
           linkUrl: '/profile',
-        }
+        },
       });
 
       return { success: true };

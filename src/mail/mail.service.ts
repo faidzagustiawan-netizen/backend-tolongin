@@ -14,7 +14,9 @@ export class MailService {
       this.resend = new Resend(apiKey);
       this.isEnabled = true;
     } else {
-      this.logger.warn('RESEND_API_KEY tidak ditemukan. Email hanya akan dilog ke konsol.');
+      this.logger.warn(
+        'RESEND_API_KEY tidak ditemukan. Email hanya akan dilog ke konsol.',
+      );
       this.isEnabled = false;
     }
   }

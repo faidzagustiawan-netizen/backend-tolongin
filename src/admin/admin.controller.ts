@@ -1,4 +1,13 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Delete,
+  Param,
+  Body,
+  UseGuards,
+} from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -27,7 +36,7 @@ export class AdminController {
   @Post('companies/:id/verify')
   async verifyCompany(
     @Param('id') companyId: string,
-    @Body('status') status: 'VERIFIED' | 'FAILED'
+    @Body('status') status: 'VERIFIED' | 'FAILED',
   ) {
     return this.adminService.verifyCompany(companyId, status);
   }
@@ -42,7 +51,7 @@ export class AdminController {
   @Patch('users/:id/ban')
   async toggleBanUser(
     @Param('id') userId: string,
-    @Body('isBanned') isBanned: boolean
+    @Body('isBanned') isBanned: boolean,
   ) {
     return this.adminService.toggleBanUser(userId, isBanned);
   }
@@ -50,7 +59,7 @@ export class AdminController {
   @Post('users/:id/warning')
   async sendWarning(
     @Param('id') userId: string,
-    @Body('message') message: string
+    @Body('message') message: string,
   ) {
     return this.adminService.sendWarning(userId, message);
   }
@@ -90,7 +99,14 @@ export class AdminController {
   }
 
   @Post('announcements')
-  async createAnnouncement(@Body() data: { title: string; content: string; type: 'INFO'|'WARNING'|'SUCCESS'|'MAINTENANCE' }) {
+  async createAnnouncement(
+    @Body()
+    data: {
+      title: string;
+      content: string;
+      type: 'INFO' | 'WARNING' | 'SUCCESS' | 'MAINTENANCE';
+    },
+  ) {
     return this.adminService.createAnnouncement(data);
   }
 
@@ -114,7 +130,7 @@ export class AdminController {
   async replyToTicket(
     @Param('id') id: string,
     @Body('userId') userId: string,
-    @Body('message') message: string
+    @Body('message') message: string,
   ) {
     return this.adminService.replyToTicket(id, userId, message);
   }
@@ -124,4 +140,3 @@ export class AdminController {
     return this.adminService.closeTicket(id);
   }
 }
-

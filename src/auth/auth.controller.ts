@@ -28,7 +28,7 @@ export class AuthController {
   @Post('register-team')
   async registerTeam(
     @Body() createUserDto: CreateUserDto,
-    @Body('inviteCode') inviteCode: string
+    @Body('inviteCode') inviteCode: string,
   ) {
     return this.authService.registerTeam(createUserDto, inviteCode);
   }

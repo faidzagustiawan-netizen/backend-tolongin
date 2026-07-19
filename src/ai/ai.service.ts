@@ -40,16 +40,22 @@ export class AiService {
     const geminiKey = this.configService.get<string>('GEMINI_API_KEY');
     if (geminiKey && geminiKey.trim() !== '') {
       this.gemini = new GoogleGenerativeAI(geminiKey);
-      this.logger.log('Google Gemini Client berhasil diinisialisasi untuk pemrosesan AI Vision & LLM.');
+      this.logger.log(
+        'Google Gemini Client berhasil diinisialisasi untuk pemrosesan AI Vision & LLM.',
+      );
     } else {
-      this.logger.warn('GEMINI_API_KEY belum dikonfigurasi. Menggunakan OpenAI atau fallback deterministik.');
+      this.logger.warn(
+        'GEMINI_API_KEY belum dikonfigurasi. Menggunakan OpenAI atau fallback deterministik.',
+      );
     }
 
     // 2. Inisialisasi OpenAI Client (Sebagai fallback sekunder)
     const apiKey = this.configService.get<string>('OPENAI_API_KEY');
     if (apiKey && !apiKey.startsWith('sk-mock-')) {
       this.openai = new OpenAI({ apiKey });
-      this.logger.log('OpenAI Client berhasil diinisialisasi sebagai mesin evaluasi cadangan.');
+      this.logger.log(
+        'OpenAI Client berhasil diinisialisasi sebagai mesin evaluasi cadangan.',
+      );
     }
   }
 
@@ -76,28 +82,51 @@ export class AiService {
     };
   }
 
-  private async verifyWithPythonEngine(selfieUrl: string, ktpUrl: string, mode: string = 'full'): Promise<KycVerificationResult> {
+  private async verifyWithPythonEngine(
+    selfieUrl: string,
+    ktpUrl: string,
+    mode: string = 'full',
+  ): Promise<KycVerificationResult> {
     const exec = require('child_process').exec;
     const path = require('path');
     const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
-    
+
     const runScript = (scriptName: string, payload: any): Promise<any> => {
       return new Promise((resolve, reject) => {
-        const scriptPath = path.resolve(process.cwd(), `src/ai/python/${scriptName}`);
-        const execOptions = { 
+        const scriptPath = path.resolve(
+          process.cwd(),
+          `src/ai/python/${scriptName}`,
+        );
+        const execOptions = {
           maxBuffer: 1024 * 1024 * 50,
-          env: { ...process.env, CUDA_VISIBLE_DEVICES: "-1", TF_CPP_MIN_LOG_LEVEL: "3" }
+          env: {
+            ...process.env,
+            CUDA_VISIBLE_DEVICES: '-1',
+            TF_CPP_MIN_LOG_LEVEL: '3',
+          },
         };
-        const pythonProcess = exec(`${pythonCmd} "${scriptPath}"`, execOptions, (error: any, stdout: string, stderr: string) => {
-          if (error) this.logger.error(`Error executing ${scriptName}: ${error.message}`);
-          try {
-            const jsonMatch = stdout.match(/===JSON_START===\s*([\s\S]*?)\s*===JSON_END===/);
-            const rawJson = jsonMatch && jsonMatch[1] ? jsonMatch[1] : stdout.trim();
-            resolve(JSON.parse(rawJson));
-          } catch (e: any) {
-            reject(new Error(`Failed to parse ${scriptName} stdout: ${e.message}`));
-          }
-        });
+        const pythonProcess = exec(
+          `${pythonCmd} "${scriptPath}"`,
+          execOptions,
+          (error: any, stdout: string, stderr: string) => {
+            if (error)
+              this.logger.error(
+                `Error executing ${scriptName}: ${error.message}`,
+              );
+            try {
+              const jsonMatch = stdout.match(
+                /===JSON_START===\s*([\s\S]*?)\s*===JSON_END===/,
+              );
+              const rawJson =
+                jsonMatch && jsonMatch[1] ? jsonMatch[1] : stdout.trim();
+              resolve(JSON.parse(rawJson));
+            } catch (e: any) {
+              reject(
+                new Error(`Failed to parse ${scriptName} stdout: ${e.message}`),
+              );
+            }
+          },
+        );
         pythonProcess.stdin.write(JSON.stringify(payload));
         pythonProcess.stdin.end();
       });
@@ -105,26 +134,39 @@ export class AiService {
 
     try {
       this.logger.log('Starting Phase 1: Biometric Face Match (TensorFlow)');
-      const faceResult = await runScript('verify_face.py', { selfiePhotoUrl: selfieUrl, idCardPhotoUrl: ktpUrl });
-      
+      const faceResult = await runScript('verify_face.py', {
+        selfiePhotoUrl: selfieUrl,
+        idCardPhotoUrl: ktpUrl,
+      });
+
       if (!faceResult.isMatch) {
         return {
-          isKtpValid: false, isMatch: false, confidenceScore: faceResult.confidenceScore || 0,
-          ktpNik: null, ktpName: null, reason: faceResult.reason || 'Wajah tidak cocok.',
+          isKtpValid: false,
+          isMatch: false,
+          confidenceScore: faceResult.confidenceScore || 0,
+          ktpNik: null,
+          ktpName: null,
+          reason: faceResult.reason || 'Wajah tidak cocok.',
           biometricHash: faceResult.biometricHash,
         };
       }
 
       if (mode !== 'full') {
-         return {
-          isKtpValid: true, isMatch: true, confidenceScore: faceResult.confidenceScore,
-          ktpNik: 'MATCH_ONLY_MODE', ktpName: 'MATCH_ONLY_MODE', reason: faceResult.reason,
+        return {
+          isKtpValid: true,
+          isMatch: true,
+          confidenceScore: faceResult.confidenceScore,
+          ktpNik: 'MATCH_ONLY_MODE',
+          ktpName: 'MATCH_ONLY_MODE',
+          reason: faceResult.reason,
           biometricHash: faceResult.biometricHash,
         };
       }
 
       this.logger.log('Starting Phase 2: KTP OCR (PyTorch)');
-      const ktpResult = await runScript('verify_ktp.py', { idCardPhotoUrl: ktpUrl });
+      const ktpResult = await runScript('verify_ktp.py', {
+        idCardPhotoUrl: ktpUrl,
+      });
 
       return {
         isKtpValid: ktpResult.isKtpValid,
@@ -132,15 +174,20 @@ export class AiService {
         confidenceScore: faceResult.confidenceScore,
         ktpNik: ktpResult.ktpNik,
         ktpName: ktpResult.ktpName,
-        reason: ktpResult.isKtpValid ? 'Validasi Identitas KTP & Biometrik Wajah sukses terverifikasi.' : ktpResult.reason,
+        reason: ktpResult.isKtpValid
+          ? 'Validasi Identitas KTP & Biometrik Wajah sukses terverifikasi.'
+          : ktpResult.reason,
         biometricHash: faceResult.biometricHash,
       };
-
     } catch (e: any) {
       this.logger.error('Python Engine Error: ' + e.message);
       return {
-        isKtpValid: false, isMatch: false, confidenceScore: 0,
-        ktpNik: null, ktpName: null, reason: 'Sistem deteksi biometrik Python gagal memproses gambar.',
+        isKtpValid: false,
+        isMatch: false,
+        confidenceScore: 0,
+        ktpNik: null,
+        ktpName: null,
+        reason: 'Sistem deteksi biometrik Python gagal memproses gambar.',
         biometricHash: null,
       };
     }
@@ -187,15 +234,21 @@ Berikan penilaian akhir berupa objek JSON dengan struktur persis berikut:
 
         const result = await model.generateContent(prompt);
         const resultJson = JSON.parse(result.response.text());
-        this.logger.log(`Berhasil mengevaluasi studi kasus "${challengeTitle}" menggunakan Google Gemini.`);
+        this.logger.log(
+          `Berhasil mengevaluasi studi kasus "${challengeTitle}" menggunakan Google Gemini.`,
+        );
 
         return {
           aiScore: resultJson.aiScore || 85,
           aiPlagiarismScore: resultJson.aiPlagiarismScore || 0.0,
-          aiCorrectionSummary: resultJson.aiCorrectionSummary || 'Evaluasi Gemini AI berhasil dilakukan.',
+          aiCorrectionSummary:
+            resultJson.aiCorrectionSummary ||
+            'Evaluasi Gemini AI berhasil dilakukan.',
         };
       } catch (geminiErr: any) {
-        this.logger.error('Evaluasi Gemini gagal, beralih ke OpenAI: ' + geminiErr.message);
+        this.logger.error(
+          'Evaluasi Gemini gagal, beralih ke OpenAI: ' + geminiErr.message,
+        );
       }
     }
 
@@ -208,16 +261,24 @@ Berikan penilaian akhir berupa objek JSON dengan struktur persis berikut:
           response_format: { type: 'json_object' },
         });
 
-        const resultJson = JSON.parse(response.choices[0].message.content || '{}');
-        this.logger.log(`Berhasil mengevaluasi studi kasus "${challengeTitle}" menggunakan OpenAI GPT-4o.`);
+        const resultJson = JSON.parse(
+          response.choices[0].message.content || '{}',
+        );
+        this.logger.log(
+          `Berhasil mengevaluasi studi kasus "${challengeTitle}" menggunakan OpenAI GPT-4o.`,
+        );
 
         return {
           aiScore: resultJson.aiScore || 85,
           aiPlagiarismScore: resultJson.aiPlagiarismScore || 0.0,
-          aiCorrectionSummary: resultJson.aiCorrectionSummary || 'Evaluasi OpenAI berhasil dilakukan.',
+          aiCorrectionSummary:
+            resultJson.aiCorrectionSummary ||
+            'Evaluasi OpenAI berhasil dilakukan.',
         };
       } catch (error: any) {
-        this.logger.error('Evaluasi OpenAI gagal, beralih ke fallback lokal: ' + error.message);
+        this.logger.error(
+          'Evaluasi OpenAI gagal, beralih ke fallback lokal: ' + error.message,
+        );
       }
     }
 
@@ -236,7 +297,12 @@ Berikan penilaian akhir berupa objek JSON dengan struktur persis berikut:
   async evaluateComponents(
     challengeTitle: string,
     challengeCategory: string,
-    componentsData: { id: string; question: string; maxPoints: number; candidateAnswer: string }[],
+    componentsData: {
+      id: string;
+      question: string;
+      maxPoints: number;
+      candidateAnswer: string;
+    }[],
     gradingRubric?: Record<string, number>,
   ): Promise<ComponentEvaluationResult> {
     const prompt = `Anda adalah AI Evaluator Senior untuk platform Tolongin.co. Evaluasi penyerahan solusi studi kasus multi-tahap berikut:
@@ -244,13 +310,17 @@ Judul Studi Kasus: "${challengeTitle}"
 Kategori: "${challengeCategory}"
 
 Berikut adalah daftar tahapan/soal (komponen) dan jawaban dari kandidat:
-${componentsData.map(c => `
+${componentsData
+  .map(
+    (c) => `
 ---
 ID Soal: ${c.id}
 Poin Maksimal: ${c.maxPoints}
 Soal: ${c.question}
 Jawaban Kandidat: ${c.candidateAnswer}
-`).join('\n')}
+`,
+  )
+  .join('\n')}
 
 Kriteria dan Bobot Penilaian Kualitas Keseluruhan (Rubrik):
 ${gradingRubric ? JSON.stringify(gradingRubric, null, 2) : 'Gunakan penilaian objektif standar.'}
@@ -285,16 +355,22 @@ Berikan penilaian akhir berupa objek JSON dengan struktur persis berikut:
 
         const result = await model.generateContent(prompt);
         const resultJson = JSON.parse(result.response.text());
-        this.logger.log(`Berhasil mengevaluasi studi kasus komponen "${challengeTitle}" menggunakan Google Gemini.`);
+        this.logger.log(
+          `Berhasil mengevaluasi studi kasus komponen "${challengeTitle}" menggunakan Google Gemini.`,
+        );
 
         return {
           aiScore: resultJson.aiScore || 0,
           aiPlagiarismScore: resultJson.aiPlagiarismScore || 0.0,
-          aiCorrectionSummary: resultJson.aiCorrectionSummary || 'Evaluasi komponen selesai.',
+          aiCorrectionSummary:
+            resultJson.aiCorrectionSummary || 'Evaluasi komponen selesai.',
           components: resultJson.components || [],
         };
       } catch (geminiErr: any) {
-        this.logger.error('Evaluasi komponen Gemini gagal, beralih ke OpenAI: ' + geminiErr.message);
+        this.logger.error(
+          'Evaluasi komponen Gemini gagal, beralih ke OpenAI: ' +
+            geminiErr.message,
+        );
       }
     }
 
@@ -306,13 +382,18 @@ Berikan penilaian akhir berupa objek JSON dengan struktur persis berikut:
           response_format: { type: 'json_object' },
         });
 
-        const resultJson = JSON.parse(response.choices[0].message.content || '{}');
-        this.logger.log(`Berhasil mengevaluasi studi kasus komponen "${challengeTitle}" menggunakan OpenAI GPT-4o.`);
+        const resultJson = JSON.parse(
+          response.choices[0].message.content || '{}',
+        );
+        this.logger.log(
+          `Berhasil mengevaluasi studi kasus komponen "${challengeTitle}" menggunakan OpenAI GPT-4o.`,
+        );
 
         return {
           aiScore: resultJson.aiScore || 0,
           aiPlagiarismScore: resultJson.aiPlagiarismScore || 0.0,
-          aiCorrectionSummary: resultJson.aiCorrectionSummary || 'Evaluasi komponen selesai.',
+          aiCorrectionSummary:
+            resultJson.aiCorrectionSummary || 'Evaluasi komponen selesai.',
           components: resultJson.components || [],
         };
       } catch (error: any) {
@@ -321,11 +402,26 @@ Berikan penilaian akhir berupa objek JSON dengan struktur persis berikut:
     }
 
     // Fallback dihapus. Kita harus memaksa evaluasi AI benar-benar berjalan, atau kembalikan error agar masuk antrean review manual.
-    this.logger.error('Evaluasi otomatis fallback dibatalkan karena merupakan data mock. Mengembalikan error agar direview manual.');
+    this.logger.error(
+      'Evaluasi otomatis fallback dibatalkan karena merupakan data mock. Mengembalikan error agar direview manual.',
+    );
     throw new Error('AI_EVALUATION_FAILED');
   }
 
-  async generateChallengeContent(promptStr: string, category: string, difficulty: string, companyName: string): Promise<{ title: string, summary: string, description: string, rubric: Record<string, number>, startsAt?: string, deadlineAt?: string, sections: any[] }> {
+  async generateChallengeContent(
+    promptStr: string,
+    category: string,
+    difficulty: string,
+    companyName: string,
+  ): Promise<{
+    title: string;
+    summary: string;
+    description: string;
+    rubric: Record<string, number>;
+    startsAt?: string;
+    deadlineAt?: string;
+    sections: any[];
+  }> {
     const prompt = `Anda adalah AI Technical Recruiter Senior. Buatlah rancangan studi kasus (challenge) rekrutmen IT berdasarkan kebutuhan berikut:
 Perusahaan: ${companyName}
 Kategori Pekerjaan: ${category}
@@ -378,7 +474,9 @@ Tipe komponen yang valid (type) adalah: MULTIPLE_CHOICE, ESSAY, FILE_UPLOAD, VID
         this.logger.log(`Berhasil men-generate challenge via Gemini.`);
         return resultJson;
       } catch (geminiErr: any) {
-        this.logger.error('Gemini generate challenge gagal: ' + geminiErr.message);
+        this.logger.error(
+          'Gemini generate challenge gagal: ' + geminiErr.message,
+        );
       }
     }
 
@@ -390,7 +488,9 @@ Tipe komponen yang valid (type) adalah: MULTIPLE_CHOICE, ESSAY, FILE_UPLOAD, VID
           response_format: { type: 'json_object' },
         });
 
-        const resultJson = JSON.parse(response.choices[0].message.content || '{}');
+        const resultJson = JSON.parse(
+          response.choices[0].message.content || '{}',
+        );
         this.logger.log(`Berhasil men-generate challenge via OpenAI.`);
         return resultJson;
       } catch (error: any) {
@@ -417,40 +517,66 @@ Tipe komponen yang valid (type) adalah: MULTIPLE_CHOICE, ESSAY, FILE_UPLOAD, VID
           components: [
             {
               type: 'URL_SUBMISSION',
-              question: 'Kirimkan tautan repositori GitHub Anda yang berisi solusi teknis.',
-              points: 50
+              question:
+                'Kirimkan tautan repositori GitHub Anda yang berisi solusi teknis.',
+              points: 50,
             },
             {
               type: 'ESSAY',
-              question: 'Jelaskan cara Anda merancang skema database untuk proyek ini.',
-              points: 50
-            }
-          ]
-        }
-      ]
+              question:
+                'Jelaskan cara Anda merancang skema database untuk proyek ini.',
+              points: 50,
+            },
+          ],
+        },
+      ],
     };
   }
 
-  async verifyFaceMatch(photo1Url: string, photo2Url: string): Promise<{ isMatch: boolean, confidenceScore: number, reason: string }> {
-    this.logger.log('Mencocokkan wajah secara lokal menggunakan DeepFace ML...');
-    const pythonRes = await this.verifyWithPythonEngine(photo1Url, photo2Url, 'match_only');
+  async verifyFaceMatch(
+    photo1Url: string,
+    photo2Url: string,
+  ): Promise<{ isMatch: boolean; confidenceScore: number; reason: string }> {
+    this.logger.log(
+      'Mencocokkan wajah secara lokal menggunakan DeepFace ML...',
+    );
+    const pythonRes = await this.verifyWithPythonEngine(
+      photo1Url,
+      photo2Url,
+      'match_only',
+    );
     return {
       isMatch: pythonRes.isMatch,
       confidenceScore: pythonRes.confidenceScore,
-      reason: pythonRes.reason
+      reason: pythonRes.reason,
     };
   }
 
-  async verifyKtpAndSelfie(selfieUrl: string, ktpUrl: string): Promise<KycVerificationResult | null> {
+  async verifyKtpAndSelfie(
+    selfieUrl: string,
+    ktpUrl: string,
+  ): Promise<KycVerificationResult | null> {
     // 1. Prioritas Utama: Verifikasi menggunakan DeepFace & EasyOCR (Python Engine)
     try {
-      this.logger.log('Menjalankan verifikasi identitas menggunakan DeepFace ML & EasyOCR (Python Engine)...');
-      const pythonRes = await this.verifyWithPythonEngine(selfieUrl, ktpUrl, 'full');
-      if (pythonRes && !pythonRes.reason.includes('Fatal Python Error') && !pythonRes.reason.includes('Python gagal memproses')) {
+      this.logger.log(
+        'Menjalankan verifikasi identitas menggunakan DeepFace ML & EasyOCR (Python Engine)...',
+      );
+      const pythonRes = await this.verifyWithPythonEngine(
+        selfieUrl,
+        ktpUrl,
+        'full',
+      );
+      if (
+        pythonRes &&
+        !pythonRes.reason.includes('Fatal Python Error') &&
+        !pythonRes.reason.includes('Python gagal memproses')
+      ) {
         return pythonRes;
       }
     } catch (err: any) {
-      this.logger.warn('Python verification engine mengalami galat eksekusi, beralih ke Gemini / OpenAI...');
+      this.logger.warn(
+        'Python verification engine mengalami galat eksekusi, beralih ke Gemini / OpenAI...',
+      );
     }
 
     const prompt = `Anda adalah Petugas KYC Verifikasi Identitas Resmi untuk platform rekrutmen Tolongin.co di Indonesia.
@@ -476,7 +602,7 @@ Berikan hasil akhir dalam format JSON persis dengan struktur berikut:
     // 2. Google Gemini 1.5 Flash Vision
     if (this.gemini) {
       try {
-        const model = this.gemini!.getGenerativeModel({
+        const model = this.gemini.getGenerativeModel({
           model: 'gemini-1.5-flash-latest',
           generationConfig: { responseMimeType: 'application/json' },
         });
@@ -484,10 +610,16 @@ Berikan hasil akhir dalam format JSON persis dengan struktur berikut:
         const ktpPart = this.fileToGenerativePart(ktpUrl, 'image/jpeg');
         const selfiePart = this.fileToGenerativePart(selfieUrl, 'image/jpeg');
 
-        const result = await model.generateContent([prompt, ktpPart, selfiePart]);
+        const result = await model.generateContent([
+          prompt,
+          ktpPart,
+          selfiePart,
+        ]);
         const resultJson = JSON.parse(result.response.text());
 
-        this.logger.log('Berhasil memverifikasi dokumen KYC menggunakan Google Gemini 1.5 Flash.');
+        this.logger.log(
+          'Berhasil memverifikasi dokumen KYC menggunakan Google Gemini 1.5 Flash.',
+        );
 
         return {
           isKtpValid: resultJson.isKtpValid ?? false,
@@ -498,14 +630,17 @@ Berikan hasil akhir dalam format JSON persis dengan struktur berikut:
           reason: resultJson.reason ?? 'Pemeriksaan Gemini AI Vision selesai.',
         };
       } catch (geminiError: any) {
-        this.logger.error('Gagal memverifikasi KYC dengan Google Gemini, beralih ke OpenAI: ' + geminiError.message);
+        this.logger.error(
+          'Gagal memverifikasi KYC dengan Google Gemini, beralih ke OpenAI: ' +
+            geminiError.message,
+        );
       }
     }
 
     // 3. OpenAI GPT-4o Vision
     if (this.openai) {
       try {
-        const response = await this.openai!.chat.completions.create({
+        const response = await this.openai.chat.completions.create({
           model: 'gpt-4o',
           messages: [
             {
@@ -520,8 +655,12 @@ Berikan hasil akhir dalam format JSON persis dengan struktur berikut:
           response_format: { type: 'json_object' },
         });
 
-        const resultJson = JSON.parse(response.choices[0].message.content || '{}');
-        this.logger.log('Berhasil memverifikasi dokumen KYC menggunakan OpenAI GPT-4o.');
+        const resultJson = JSON.parse(
+          response.choices[0].message.content || '{}',
+        );
+        this.logger.log(
+          'Berhasil memverifikasi dokumen KYC menggunakan OpenAI GPT-4o.',
+        );
 
         return {
           isKtpValid: resultJson.isKtpValid ?? false,
@@ -532,7 +671,9 @@ Berikan hasil akhir dalam format JSON persis dengan struktur berikut:
           reason: resultJson.reason ?? 'Pemeriksaan OpenAI Vision selesai.',
         };
       } catch (error: any) {
-        this.logger.error('Gagal memverifikasi KYC dengan OpenAI Vision: ' + error.message);
+        this.logger.error(
+          'Gagal memverifikasi KYC dengan OpenAI Vision: ' + error.message,
+        );
       }
     }
 
@@ -546,7 +687,8 @@ Berikan hasil akhir dalam format JSON persis dengan struktur berikut:
       confidenceScore: 0,
       ktpNik: null,
       ktpName: null,
-      reason: 'Sistem keamanan gagal mendeteksi KTP asli atau kecocokan wajah pada dokumen yang diunggah. Harap unggah foto KTP beresolusi tinggi dan selfie di ruangan dengan pencahayaan terang.',
+      reason:
+        'Sistem keamanan gagal mendeteksi KTP asli atau kecocokan wajah pada dokumen yang diunggah. Harap unggah foto KTP beresolusi tinggi dan selfie di ruangan dengan pencahayaan terang.',
     };
   }
 }

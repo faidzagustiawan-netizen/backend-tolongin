@@ -2,7 +2,12 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiService } from '../ai/ai.service';
-import { SubmissionStatus, EnrollmentStatus, ChallengeType, HiringStatus } from '@prisma/client';
+import {
+  SubmissionStatus,
+  EnrollmentStatus,
+  ChallengeType,
+  HiringStatus,
+} from '@prisma/client';
 
 @Injectable()
 export class SubmissionsCronService {
@@ -53,14 +58,17 @@ export class SubmissionsCronService {
       for (const submission of pendingSubmissions) {
         try {
           const { challenge } = submission.enrollment;
-          
+
           const componentsData: any[] = [];
-          
+
           if (submission.componentResponses) {
             for (const r of submission.componentResponses) {
-              const compData = challenge.components.find((c: any) => c.id === r.componentId) || 
-                               challenge.sections.flatMap((s: any) => s.components).find((c: any) => c.id === r.componentId);
-              
+              const compData =
+                challenge.components.find((c: any) => c.id === r.componentId) ||
+                challenge.sections
+                  .flatMap((s: any) => s.components)
+                  .find((c: any) => c.id === r.componentId);
+
               if (compData) {
                 componentsData.push({
                   id: compData.id,
@@ -74,7 +82,10 @@ export class SubmissionsCronService {
 
           if (componentsData.length === 0) {
             // Jika tidak ada komponen, setel ke manual review saja
-            await this.markAsManualReview(submission.id, submission.enrollmentId);
+            await this.markAsManualReview(
+              submission.id,
+              submission.enrollmentId,
+            );
             continue;
           }
 
@@ -83,7 +94,7 @@ export class SubmissionsCronService {
             challenge.title,
             challenge.category,
             componentsData,
-            challenge.gradingRubric as Record<string, number>
+            challenge.gradingRubric as Record<string, number>,
           );
 
           // Update hasil AI
@@ -102,20 +113,27 @@ export class SubmissionsCronService {
             if (evaluation.components) {
               for (const ec of evaluation.components) {
                 await tx.componentResponse.updateMany({
-                  where: { submissionId: submission.id, componentId: ec.componentId },
+                  where: {
+                    submissionId: submission.id,
+                    componentId: ec.componentId,
+                  },
                   data: {
                     score: ec.score,
                     aiFeedback: ec.aiFeedback,
-                  }
+                  },
                 });
               }
             }
           });
 
-          this.logger.log(`Sukses mengevaluasi submission ${submission.id} via AI`);
-
+          this.logger.log(
+            `Sukses mengevaluasi submission ${submission.id} via AI`,
+          );
         } catch (error) {
-          this.logger.error(`Gagal mengevaluasi AI untuk submission ${submission.id}:`, error);
+          this.logger.error(
+            `Gagal mengevaluasi AI untuk submission ${submission.id}:`,
+            error,
+          );
           await this.markAsManualReview(submission.id, submission.enrollmentId);
         }
       }
@@ -135,7 +153,9 @@ export class SubmissionsCronService {
         },
       });
       // Beritahu sistem bahwa ini butuh manual review
-      this.logger.log(`Submission ${submissionId} dialihkan ke peninjauan manual (UNDER_REVIEW)`);
+      this.logger.log(
+        `Submission ${submissionId} dialihkan ke peninjauan manual (UNDER_REVIEW)`,
+      );
     } catch (e) {
       this.logger.error(`Gagal mengubah status fallback ke UNDER_REVIEW:`, e);
     }

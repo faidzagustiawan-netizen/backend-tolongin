@@ -55,27 +55,29 @@ describe('SubmissionsCronService', () => {
         talentId: 'talent-1',
         challengeId: 'chall-1',
         talent: { userId: 'user-1' },
-        challenge: { 
-          title: 'Test Challenge', 
+        challenge: {
+          title: 'Test Challenge',
           category: 'Test',
           challengeType: ChallengeType.COMPANY,
           components: [{ id: 'comp-1', question: 'Q1', points: 10 }],
           sections: [],
-          gradingRubric: { "code_quality": 5 }
+          gradingRubric: { code_quality: 5 },
         },
       },
       componentResponses: [
-        { componentId: 'comp-1', textValue: 'My code here' }
+        { componentId: 'comp-1', textValue: 'My code here' },
       ],
     };
 
     mockPrisma.submission.findMany.mockResolvedValue([mockSubmission]);
-    
+
     // Provide a basic mock implementation for transaction
-    (mockPrisma as any).$transaction = jest.fn().mockImplementation(async (cb) => {
-      return cb(mockPrisma); // passing the same prisma instance so nested calls work
-    });
-    
+    (mockPrisma as any).$transaction = jest
+      .fn()
+      .mockImplementation(async (cb) => {
+        return cb(mockPrisma); // passing the same prisma instance so nested calls work
+      });
+
     mockAiService.evaluateComponents.mockResolvedValue({
       aiPlagiarismScore: 0,
       aiCorrectionSummary: 'Good',
@@ -88,7 +90,7 @@ describe('SubmissionsCronService', () => {
     // Verify Expectations
     expect(prisma.submission.findMany).toHaveBeenCalled();
     expect(aiService.evaluateComponents).toHaveBeenCalled();
-    
+
     expect(prisma.submission.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: 'sub-1' },

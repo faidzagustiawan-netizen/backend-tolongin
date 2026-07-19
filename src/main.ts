@@ -27,7 +27,7 @@ async function bootstrap() {
     origin: [
       'https://tolongin.co',
       'https://frontend-tolongin.vercel.app',
-      'http://localhost:3000'
+      'http://localhost:3000',
     ],
     credentials: true,
   });

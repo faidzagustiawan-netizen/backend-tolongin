@@ -24,7 +24,12 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 import { VerifiedCompanyGuard } from '../auth/guards/verified-company.guard';
-import { ChallengeCategory, ChallengeDifficulty, ChallengeType, Role } from '@prisma/client';
+import {
+  ChallengeCategory,
+  ChallengeDifficulty,
+  ChallengeType,
+  Role,
+} from '@prisma/client';
 
 @ApiTags('Challenge Directory & AI Generator')
 @Controller('challenges')
@@ -105,10 +110,17 @@ export class ChallengesController {
     @Body() createChallengeDto: CreateChallengeDto,
   ) {
     if (req.user.role === Role.TALENT) {
-      return this.challengesService.createPublic(req.user.sub, createChallengeDto);
+      return this.challengesService.createPublic(
+        req.user.sub,
+        createChallengeDto,
+      );
     } else {
       const companyId = req.user.profileId;
-      return this.challengesService.create(companyId, createChallengeDto, req.user.sub);
+      return this.challengesService.create(
+        companyId,
+        createChallengeDto,
+        req.user.sub,
+      );
     }
   }
 
@@ -125,7 +137,13 @@ export class ChallengesController {
     @Body() updateDto: Partial<CreateChallengeDto>,
   ) {
     const profileId = req.user.profileId;
-    return this.challengesService.updateChallenge(id, profileId, updateDto, req.user.sub, req.user.role);
+    return this.challengesService.updateChallenge(
+      id,
+      profileId,
+      updateDto,
+      req.user.sub,
+      req.user.role,
+    );
   }
 
   @ApiBearerAuth('JWT-auth')
@@ -146,7 +164,10 @@ export class ChallengesController {
     @Body() dto: GenerateAiChallengeDto,
   ) {
     if (req.user.role === Role.TALENT) {
-      return this.challengesService.generateAiPublicChallenge(req.user.sub, dto);
+      return this.challengesService.generateAiPublicChallenge(
+        req.user.sub,
+        dto,
+      );
     } else {
       const companyId = req.user.profileId;
       return this.challengesService.generateAiChallenge(companyId, dto);

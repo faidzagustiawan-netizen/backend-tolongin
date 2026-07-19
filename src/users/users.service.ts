@@ -45,22 +45,34 @@ export class UsersService {
         },
       });
 
+      const createSlug = (text: string) => {
+        const base = (text || 'user').toString().toLowerCase().trim().replace(/\s+/g, '-').replace(/[^\w\-]+/g, '').replace(/\-\-+/g, '-');
+        return `${base}-${Math.random().toString(36).substring(2, 8)}`;
+      };
+
       if (role === Role.TALENT) {
+        const name = fullName || email.split('@')[0];
         await tx.talentProfile.create({
           data: {
             userId: user.id,
-            fullName: fullName || email.split('@')[0],
+            fullName: name,
+            slug: createSlug(name),
           },
         });
       } else if (role === Role.COMPANY) {
-        const randomStr = Math.random().toString(36).substring(2, 8).toUpperCase();
+        const randomStr = Math.random()
+          .toString(36)
+          .substring(2, 8)
+          .toUpperCase();
+        const cName = companyName || 'Perusahaan Mitra';
         await tx.companyProfile.create({
           data: {
             userId: user.id,
-            companyName: companyName || 'Perusahaan Mitra',
+            companyName: cName,
             industry: industry || 'Teknologi Informasi',
             subscriptionTier: subscriptionTier || 'STARTUP',
             inviteCode: `CMP-${randomStr}`,
+            slug: createSlug(cName),
           },
         });
       }
@@ -78,17 +90,21 @@ export class UsersService {
   async createTeamMember(createUserDto: CreateUserDto, inviteCode: string) {
     const { email, password, fullName } = createUserDto;
 
-    const existingUser = await this.prisma.user.findUnique({ where: { email } });
+    const existingUser = await this.prisma.user.findUnique({
+      where: { email },
+    });
     if (existingUser) {
       throw new ConflictException('Email sudah terdaftar');
     }
 
     const company = await this.prisma.companyProfile.findUnique({
-      where: { inviteCode }
+      where: { inviteCode },
     });
 
     if (!company) {
-      throw new NotFoundException('Kode undangan tidak valid atau perusahaan tidak ditemukan');
+      throw new NotFoundException(
+        'Kode undangan tidak valid atau perusahaan tidak ditemukan',
+      );
     }
 
     const saltRounds = 10;
@@ -110,7 +126,7 @@ export class UsersService {
           userId: user.id,
           companyId: company.id,
           role: 'ADMIN',
-        }
+        },
       });
 
       await tx.companyActivityLog.create({
@@ -120,8 +136,8 @@ export class UsersService {
           action: 'MEMBER_JOINED',
           entityType: 'USER',
           entityId: user.id,
-          details: { email: user.email }
-        }
+          details: { email: user.email },
+        },
       });
 
       return tx.user.findUnique({
@@ -132,7 +148,7 @@ export class UsersService {
           teamMemberships: {
             include: {
               company: true,
-            }
+            },
           },
         },
       });
@@ -147,22 +163,36 @@ export class UsersService {
           include: {
             submissions: {
               include: { challenge: true },
-            }
-          }
+            },
+          },
         },
         companyProfile: true,
         teamMemberships: {
           include: {
             company: true,
-          }
+          },
         },
       },
     });
   }
 
-  async findById(id: string) {
+  async findById(idOrSlug: string) {
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrSlug);
+    let userId = idOrSlug;
+
+    if (!isUuid) {
+      // Find the user ID based on slug
+      const talent = await this.prisma.talentProfile.findUnique({ where: { slug: idOrSlug } });
+      if (talent) {
+        userId = talent.userId;
+      } else {
+        const company = await this.prisma.companyProfile.findUnique({ where: { slug: idOrSlug } });
+        if (company) userId = company.userId;
+      }
+    }
+
     const user = await this.prisma.user.findUnique({
-      where: { id },
+      where: { id: userId },
       include: {
         talentProfile: {
           include: {
@@ -180,8 +210,8 @@ export class UsersService {
         teamMemberships: {
           include: {
             company: true,
-          }
-        }
+          },
+        },
       },
     });
 
@@ -194,27 +224,36 @@ export class UsersService {
   async updateProfile(userId: string, dto: UpdateProfileDto) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      include: { talentProfile: true, companyProfile: true, teamMemberships: true },
+      include: {
+        talentProfile: true,
+        companyProfile: true,
+        teamMemberships: true,
+      },
     });
 
     if (!user) {
       throw new NotFoundException('Pengguna tidak ditemukan');
     }
 
-    const companyId = user.companyProfile?.id || user.teamMemberships?.[0]?.companyId;
+    const companyId =
+      user.companyProfile?.id || user.teamMemberships?.[0]?.companyId;
 
     if (user.role === Role.COMPANY && companyId) {
       await this.prisma.companyProfile.update({
         where: { id: companyId },
         data: {
-          companyName: dto.companyName !== undefined ? dto.companyName : undefined,
+          companyName:
+            dto.companyName !== undefined ? dto.companyName : undefined,
           industry: dto.industry !== undefined ? dto.industry : undefined,
-          companySize: dto.companySize !== undefined ? dto.companySize : undefined,
+          companySize:
+            dto.companySize !== undefined ? dto.companySize : undefined,
           websiteUrl: dto.websiteUrl !== undefined ? dto.websiteUrl : undefined,
-          description: dto.description !== undefined ? dto.description : undefined,
+          description:
+            dto.description !== undefined ? dto.description : undefined,
           logoUrl: dto.logoUrl !== undefined ? dto.logoUrl : undefined,
           location: dto.location !== undefined ? dto.location : undefined,
-          linkedinUrl: dto.linkedinUrl !== undefined ? dto.linkedinUrl : undefined,
+          linkedinUrl:
+            dto.linkedinUrl !== undefined ? dto.linkedinUrl : undefined,
         },
       });
 
@@ -225,8 +264,8 @@ export class UsersService {
           action: 'PROFILE_UPDATED',
           entityType: 'COMPANY_PROFILE',
           entityId: companyId,
-          details: { updatedFields: Object.keys(dto) }
-        }
+          details: { updatedFields: Object.keys(dto) },
+        },
       });
     } else if (user.role === Role.TALENT && user.talentProfile) {
       const updateData: any = {
@@ -235,15 +274,26 @@ export class UsersService {
         bio: dto.bio !== undefined ? dto.bio : undefined,
         skills: dto.skills !== undefined ? dto.skills : undefined,
         githubUrl: dto.githubUrl !== undefined ? dto.githubUrl : undefined,
-        linkedinUrl: dto.linkedinUrl !== undefined ? dto.linkedinUrl : undefined,
+        linkedinUrl:
+          dto.linkedinUrl !== undefined ? dto.linkedinUrl : undefined,
         figmaUrl: dto.figmaUrl !== undefined ? dto.figmaUrl : undefined,
         resumeUrl: dto.resumeUrl !== undefined ? dto.resumeUrl : undefined,
         avatarUrl: dto.avatarUrl !== undefined ? dto.avatarUrl : undefined,
         location: dto.location !== undefined ? dto.location : undefined,
-        roleCategory: dto.roleCategory !== undefined ? dto.roleCategory : undefined,
-        encryptedPrivateFace: dto.encryptedPrivateFace !== undefined ? dto.encryptedPrivateFace : undefined,
-        biometricFeatureVector: dto.biometricFeatureVector !== undefined ? JSON.stringify(dto.biometricFeatureVector) : undefined,
-        showcasedSubmissionIds: dto.showcasedSubmissionIds !== undefined ? dto.showcasedSubmissionIds : undefined,
+        roleCategory:
+          dto.roleCategory !== undefined ? dto.roleCategory : undefined,
+        encryptedPrivateFace:
+          dto.encryptedPrivateFace !== undefined
+            ? dto.encryptedPrivateFace
+            : undefined,
+        biometricFeatureVector:
+          dto.biometricFeatureVector !== undefined
+            ? JSON.stringify(dto.biometricFeatureVector)
+            : undefined,
+        showcasedSubmissionIds:
+          dto.showcasedSubmissionIds !== undefined
+            ? dto.showcasedSubmissionIds
+            : undefined,
       };
 
       await this.prisma.talentProfile.update({
@@ -253,7 +303,9 @@ export class UsersService {
 
       if (dto.experiences) {
         // Simple replace all for experiences
-        await this.prisma.experience.deleteMany({ where: { talentId: user.talentProfile.id } });
+        await this.prisma.experience.deleteMany({
+          where: { talentId: user.talentProfile.id },
+        });
         for (const exp of dto.experiences) {
           await this.prisma.experience.create({
             data: {
@@ -265,14 +317,16 @@ export class UsersService {
               endDate: exp.endDate ? new Date(exp.endDate) : null,
               isCurrent: exp.isCurrent || false,
               description: exp.description,
-            }
+            },
           });
         }
       }
 
       if (dto.educations) {
         // Simple replace all for educations
-        await this.prisma.education.deleteMany({ where: { talentId: user.talentProfile.id } });
+        await this.prisma.education.deleteMany({
+          where: { talentId: user.talentProfile.id },
+        });
         for (const edu of dto.educations) {
           await this.prisma.education.create({
             data: {
@@ -283,7 +337,7 @@ export class UsersService {
               startDate: edu.startDate ? new Date(edu.startDate) : null,
               endDate: edu.endDate ? new Date(edu.endDate) : null,
               description: edu.description,
-            }
+            },
           });
         }
       }

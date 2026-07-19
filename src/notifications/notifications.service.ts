@@ -11,7 +11,12 @@ export class NotificationsService {
     private readonly notificationsGateway: NotificationsGateway,
   ) {}
 
-  async sendNotification(userId: string, title: string, content: string, linkUrl?: string) {
+  async sendNotification(
+    userId: string,
+    title: string,
+    content: string,
+    linkUrl?: string,
+  ) {
     // 1. Simpan di DB
     const notification = await this.prisma.notification.create({
       data: {

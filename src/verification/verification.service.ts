@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { VerifyFaceDto } from './dto/verify-face.dto';
 import { VerifyKybDto } from './dto/verify-kyb.dto';
@@ -17,8 +21,6 @@ export class VerificationService {
     private readonly notificationsService: NotificationsService,
   ) {}
 
-
-
   async verifyTalentFace(talentId: string, dto: VerifyFaceDto) {
     const profile = await this.prisma.talentProfile.findUnique({
       where: { id: talentId },
@@ -36,20 +38,28 @@ export class VerificationService {
     });
 
     // Jalankan asinkron di latar belakang (fire and forget)
-    this.verifyTalentFaceBackground(talentId, profile, dto).catch(err => {
+    this.verifyTalentFaceBackground(talentId, profile, dto).catch((err) => {
       console.error('Error background face verification:', err);
     });
 
     return {
       status: 'PROCESSING',
-      message: 'Verifikasi KTP & Wajah sedang diproses di latar belakang. Anda akan menerima notifikasi segera.',
+      message:
+        'Verifikasi KTP & Wajah sedang diproses di latar belakang. Anda akan menerima notifikasi segera.',
     };
   }
 
-  private async verifyTalentFaceBackground(talentId: string, profile: any, dto: VerifyFaceDto) {
+  private async verifyTalentFaceBackground(
+    talentId: string,
+    profile: any,
+    dto: VerifyFaceDto,
+  ) {
     try {
       // 1. Coba lakukan verifikasi tingkat lanjut menggunakan DeepFace / EasyOCR / OpenAI Vision
-      const visionResult = await this.aiService.verifyKtpAndSelfie(dto.selfiePhotoUrl, dto.idCardPhotoUrl);
+      const visionResult = await this.aiService.verifyKtpAndSelfie(
+        dto.selfiePhotoUrl,
+        dto.idCardPhotoUrl,
+      );
 
       let finalConfidence = 0;
       let verificationDetail = '';
@@ -73,7 +83,10 @@ export class VerificationService {
         // Pengecekan 1 Wajah 1 Identitas 1 Akun
         if (visionResult.ktpNik) {
           const existingNik = await this.prisma.talentProfile.findFirst({
-            where: { ktpNik: visionResult.ktpNik, id: { not: talentId } } as any,
+            where: {
+              ktpNik: visionResult.ktpNik,
+              id: { not: talentId },
+            } as any,
           });
           if (existingNik) {
             throw new Error(
@@ -88,8 +101,13 @@ export class VerificationService {
       }
 
       // Hitung hash biometrik murni
-      const cleanSelfie = dto.selfiePhotoUrl.replace(/^data:image\/\w+;base64,/, '');
-      const biometricHash = visionResult.biometricHash || crypto.createHash('sha256').update(cleanSelfie).digest('hex');
+      const cleanSelfie = dto.selfiePhotoUrl.replace(
+        /^data:image\/\w+;base64,/,
+        '',
+      );
+      const biometricHash =
+        visionResult.biometricHash ||
+        crypto.createHash('sha256').update(cleanSelfie).digest('hex');
 
       const existingFace = await this.prisma.talentProfile.findFirst({
         where: { biometricDataHash: biometricHash, id: { not: talentId } },
@@ -120,9 +138,8 @@ export class VerificationService {
         profile.userId,
         'Verifikasi Identitas AI Berhasil ✅',
         `Selamat! Verifikasi KTP & Wajah Anda telah terverifikasi dengan tingkat kecocokan ${finalConfidence}%. Catatan: ${verificationDetail}`,
-        '/profile'
+        '/profile',
       );
-
     } catch (error: any) {
       await this.prisma.talentProfile.update({
         where: { id: talentId },
@@ -132,8 +149,9 @@ export class VerificationService {
       await this.notificationsService.sendNotification(
         profile.userId,
         'Verifikasi Identitas AI Gagal ❌',
-        error.message || 'Terjadi kesalahan sistem saat memverifikasi identitas Anda. Silakan coba lagi.',
-        '/profile/kyc'
+        error.message ||
+          'Terjadi kesalahan sistem saat memverifikasi identitas Anda. Silakan coba lagi.',
+        '/profile/kyc',
       );
     }
   }
@@ -143,14 +161,23 @@ export class VerificationService {
       where: { id: talentId },
     });
 
-    if (!profile || profile.faceVerificationStatus !== 'VERIFIED' || !profile.encryptedPrivateFace) {
-      throw new BadRequestException('Profil Anda belum terverifikasi KTP. Harap lakukan verifikasi KTP/Selfie di halaman Profil terlebih dahulu!');
+    if (
+      !profile ||
+      profile.faceVerificationStatus !== 'VERIFIED' ||
+      !profile.encryptedPrivateFace
+    ) {
+      throw new BadRequestException(
+        'Profil Anda belum terverifikasi KTP. Harap lakukan verifikasi KTP/Selfie di halaman Profil terlebih dahulu!',
+      );
     }
 
     // Dekripsi foto wajah asli (Private)
     const decryptedFace = EncryptionUtil.decrypt(profile.encryptedPrivateFace);
 
-    const matchResult = await this.aiService.verifyFaceMatch(dto.livePhotoUrl, decryptedFace);
+    const matchResult = await this.aiService.verifyFaceMatch(
+      dto.livePhotoUrl,
+      decryptedFace,
+    );
 
     if (!matchResult.isMatch) {
       return {
@@ -196,17 +223,23 @@ export class VerificationService {
     return {
       status: VerificationStatus.VERIFIED,
       companyName: profile.companyName,
-      message: 'Dokumen KYB berhasil divalidasi. Perusahaan Anda mendapatkan lencana Verified Partner.',
+      message:
+        'Dokumen KYB berhasil divalidasi. Perusahaan Anda mendapatkan lencana Verified Partner.',
     };
   }
 
-  async getVerificationStatus(userId: string, role: string, profileId?: string) {
+  async getVerificationStatus(
+    userId: string,
+    role: string,
+    profileId?: string,
+  ) {
     if (role === 'TALENT') {
       const profile = await this.prisma.talentProfile.findUnique({
         where: { userId },
       });
       return {
-        status: profile?.faceVerificationStatus ?? VerificationStatus.UNVERIFIED,
+        status:
+          profile?.faceVerificationStatus ?? VerificationStatus.UNVERIFIED,
       };
     } else {
       const profile = await this.prisma.companyProfile.findUnique({

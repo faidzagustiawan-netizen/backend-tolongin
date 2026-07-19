@@ -1,4 +1,9 @@
-import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  CanActivate,
+  ExecutionContext,
+  ForbiddenException,
+} from '@nestjs/common';
 import { Role } from '@prisma/client';
 
 @Injectable()
@@ -12,7 +17,9 @@ export class VerifiedCompanyGuard implements CanActivate {
     }
 
     if (user.role === Role.COMPANY && user.isVerified === false) {
-      throw new ForbiddenException('Perusahaan Anda belum diverifikasi oleh admin. Anda tidak memiliki akses ke fitur ini.');
+      throw new ForbiddenException(
+        'Perusahaan Anda belum diverifikasi oleh admin. Anda tidak memiliki akses ke fitur ini.',
+      );
     }
 
     return true;

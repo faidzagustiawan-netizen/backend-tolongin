@@ -18,7 +18,10 @@ export class AuthService {
   }
 
   async registerTeam(createUserDto: CreateUserDto, inviteCode: string) {
-    const user = await this.usersService.createTeamMember(createUserDto, inviteCode);
+    const user = await this.usersService.createTeamMember(
+      createUserDto,
+      inviteCode,
+    );
     return this.generateToken(user);
   }
 
@@ -31,7 +34,9 @@ export class AuthService {
     }
 
     if (user.isBanned) {
-      throw new UnauthorizedException('Akun Anda telah ditangguhkan (Banned). Silakan hubungi admin.');
+      throw new UnauthorizedException(
+        'Akun Anda telah ditangguhkan (Banned). Silakan hubungi admin.',
+      );
     }
 
     const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
@@ -50,7 +55,10 @@ export class AuthService {
       role: user.role,
       isVerified: user.isVerified,
       fullName: user.fullName,
-      profileId: user.talentProfile?.id || user.companyProfile?.id || user.teamMemberships?.[0]?.companyId,
+      profileId:
+        user.talentProfile?.id ||
+        user.companyProfile?.id ||
+        user.teamMemberships?.[0]?.companyId,
     };
 
     return {
@@ -61,7 +69,12 @@ export class AuthService {
         fullName: user.fullName,
         role: user.role,
         isVerified: user.isVerified,
-        profile: user.talentProfile || user.companyProfile || (user.teamMemberships?.length > 0 ? { ...user.teamMemberships[0].company, isTeamMember: true } : null),
+        profile:
+          user.talentProfile ||
+          user.companyProfile ||
+          (user.teamMemberships?.length > 0
+            ? { ...user.teamMemberships[0].company, isTeamMember: true }
+            : null),
       },
     };
   }

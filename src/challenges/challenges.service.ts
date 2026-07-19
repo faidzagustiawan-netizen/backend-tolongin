@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ForbiddenException,
+  BadRequestException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiService } from '../ai/ai.service';
 import { TokensService } from '../tokens/tokens.service';
@@ -26,21 +31,32 @@ export class ChallengesService {
     private readonly companiesService: CompaniesService,
   ) {}
 
-  async create(companyId: string, createChallengeDto: CreateChallengeDto, userId: string) {
+  async create(
+    companyId: string,
+    createChallengeDto: CreateChallengeDto,
+    userId: string,
+  ) {
     const company = await this.prisma.companyProfile.findUnique({
       where: { id: companyId },
     });
     if (!company) throw new NotFoundException('Perusahaan tidak ditemukan');
 
     const activeCount = await this.prisma.challenge.count({
-      where: { companyId, status: { in: [ChallengeStatus.DRAFT, ChallengeStatus.PUBLISHED] } }
+      where: {
+        companyId,
+        status: { in: [ChallengeStatus.DRAFT, ChallengeStatus.PUBLISHED] },
+      },
     });
 
     if (company.subscriptionTier === 'STARTUP' && activeCount >= 1) {
-      throw new ForbiddenException('Paket Murah hanya mengizinkan 1 studi kasus aktif/draf. Silakan tingkatkan langganan Anda.');
+      throw new ForbiddenException(
+        'Paket Murah hanya mengizinkan 1 studi kasus aktif/draf. Silakan tingkatkan langganan Anda.',
+      );
     }
     if (company.subscriptionTier === 'KONGLOMERAT' && activeCount >= 5) {
-      throw new ForbiddenException('Paket Pro hanya mengizinkan 5 studi kasus aktif/draf. Silakan tingkatkan langganan Anda.');
+      throw new ForbiddenException(
+        'Paket Pro hanya mengizinkan 5 studi kasus aktif/draf. Silakan tingkatkan langganan Anda.',
+      );
     }
 
     const slug = this.generateSlug(createChallengeDto.title);
@@ -67,7 +83,9 @@ export class ChallengesService {
         mockApiUrl: createChallengeDto.mockApiUrl,
         brandGuidelineUrl: createChallengeDto.brandGuidelineUrl,
         gradingRubric: createChallengeDto.gradingRubric ?? defaultRubric,
-        rewardDescription: this.generateSystemRewardDescription(createChallengeDto.difficulty),
+        rewardDescription: this.generateSystemRewardDescription(
+          createChallengeDto.difficulty,
+        ),
         startsAt: createChallengeDto.startsAt
           ? new Date(createChallengeDto.startsAt)
           : null,
@@ -79,25 +97,31 @@ export class ChallengesService {
         createdByAi: createChallengeDto.createdByAi ?? false,
         aiPromptUsed: createChallengeDto.aiPromptUsed,
         challengeType: ChallengeType.COMPANY,
-        sections: createChallengeDto.sections && createChallengeDto.sections.length > 0 ? {
-          create: createChallengeDto.sections.map(s => ({
-            title: s.title,
-            description: s.description,
-            order: s.order ?? 0,
-            components: s.components && s.components.length > 0 ? {
-              create: s.components.map(c => ({
-                challengeId: challengeId,
-                type: c.type as any,
-                question: c.question,
-                description: c.description,
-                options: c.options || undefined,
-                metadata: c.metadata || undefined,
-                points: c.points ?? 10,
-                order: c.order ?? 0,
-              }))
-            } : undefined
-          }))
-        } : undefined,
+        sections:
+          createChallengeDto.sections && createChallengeDto.sections.length > 0
+            ? {
+                create: createChallengeDto.sections.map((s) => ({
+                  title: s.title,
+                  description: s.description,
+                  order: s.order ?? 0,
+                  components:
+                    s.components && s.components.length > 0
+                      ? {
+                          create: s.components.map((c) => ({
+                            challengeId: challengeId,
+                            type: c.type as any,
+                            question: c.question,
+                            description: c.description,
+                            options: c.options || undefined,
+                            metadata: c.metadata || undefined,
+                            points: c.points ?? 10,
+                            order: c.order ?? 0,
+                          })),
+                        }
+                      : undefined,
+                })),
+              }
+            : undefined,
       },
     });
 
@@ -107,7 +131,7 @@ export class ChallengesService {
         title: 'Studi Kasus Diterbitkan',
         content: `Studi Kasus "${newChallenge.title}" berhasil ${createChallengeDto.status === ChallengeStatus.DRAFT ? 'disimpan sebagai draft' : 'diterbitkan'}.`,
         linkUrl: `/challenges/${newChallenge.slug}`,
-      }
+      },
     });
 
     await this.companiesService.logAction(
@@ -116,7 +140,7 @@ export class ChallengesService {
       'CHALLENGE_CREATED',
       'CHALLENGE',
       newChallenge.id,
-      { title: newChallenge.title, status: newChallenge.status }
+      { title: newChallenge.title, status: newChallenge.status },
     );
 
     return newChallenge;
@@ -124,16 +148,16 @@ export class ChallengesService {
 
   async createPublic(userId: string, createChallengeDto: CreateChallengeDto) {
     const PUBLIC_CHALLENGE_COST = 50;
-    
+
     // Deduct tokens
     await this.tokensService.spendTokens(
-      userId, 
-      PUBLIC_CHALLENGE_COST, 
-      `Membuat Public Challenge: ${createChallengeDto.title}`
+      userId,
+      PUBLIC_CHALLENGE_COST,
+      `Membuat Public Challenge: ${createChallengeDto.title}`,
     );
 
     const talentProfile = await this.prisma.talentProfile.findUnique({
-      where: { userId }
+      where: { userId },
     });
 
     if (!talentProfile) {
@@ -164,32 +188,42 @@ export class ChallengesService {
         mockApiUrl: createChallengeDto.mockApiUrl,
         brandGuidelineUrl: createChallengeDto.brandGuidelineUrl,
         gradingRubric: createChallengeDto.gradingRubric ?? defaultRubric,
-        rewardDescription: this.generateSystemRewardDescription(createChallengeDto.difficulty),
-        deadlineAt: createChallengeDto.deadlineAt ? new Date(createChallengeDto.deadlineAt) : null,
+        rewardDescription: this.generateSystemRewardDescription(
+          createChallengeDto.difficulty,
+        ),
+        deadlineAt: createChallengeDto.deadlineAt
+          ? new Date(createChallengeDto.deadlineAt)
+          : null,
         isPrivate: createChallengeDto.isPrivate ?? false,
         status: createChallengeDto.status ?? ChallengeStatus.PUBLISHED,
         createdByAi: createChallengeDto.createdByAi ?? false,
         aiPromptUsed: createChallengeDto.aiPromptUsed,
         challengeType: ChallengeType.PUBLIC,
-        sections: createChallengeDto.sections && createChallengeDto.sections.length > 0 ? {
-          create: createChallengeDto.sections.map(s => ({
-            title: s.title,
-            description: s.description,
-            order: s.order ?? 0,
-            components: s.components && s.components.length > 0 ? {
-              create: s.components.map(c => ({
-                challengeId: challengeId,
-                type: c.type as any,
-                question: c.question,
-                description: c.description,
-                options: c.options || undefined,
-                metadata: c.metadata || undefined,
-                points: c.points ?? 10,
-                order: c.order ?? 0,
-              }))
-            } : undefined
-          }))
-        } : undefined,
+        sections:
+          createChallengeDto.sections && createChallengeDto.sections.length > 0
+            ? {
+                create: createChallengeDto.sections.map((s) => ({
+                  title: s.title,
+                  description: s.description,
+                  order: s.order ?? 0,
+                  components:
+                    s.components && s.components.length > 0
+                      ? {
+                          create: s.components.map((c) => ({
+                            challengeId: challengeId,
+                            type: c.type as any,
+                            question: c.question,
+                            description: c.description,
+                            options: c.options || undefined,
+                            metadata: c.metadata || undefined,
+                            points: c.points ?? 10,
+                            order: c.order ?? 0,
+                          })),
+                        }
+                      : undefined,
+                })),
+              }
+            : undefined,
       },
     });
 
@@ -199,7 +233,7 @@ export class ChallengesService {
         title: 'Public Challenge Diterbitkan',
         content: `Public Challenge "${newChallenge.title}" berhasil ${createChallengeDto.status === ChallengeStatus.DRAFT ? 'disimpan sebagai draft' : 'diterbitkan'}.`,
         linkUrl: `/challenges/${newChallenge.slug}`,
-      }
+      },
     });
 
     return newChallenge;
@@ -247,7 +281,12 @@ export class ChallengesService {
       where,
       include: {
         company: {
-          select: { companyName: true, logoUrl: true, industry: true, trustScore: true },
+          select: {
+            companyName: true,
+            logoUrl: true,
+            industry: true,
+            trustScore: true,
+          },
         },
         creator: {
           select: { fullName: true, avatarUrl: true },
@@ -287,7 +326,11 @@ export class ChallengesService {
     }
 
     let isOwner = false;
-    if (userReq && userReq.role === 'COMPANY' && userReq.profileId === challenge.companyId) {
+    if (
+      userReq &&
+      userReq.role === 'COMPANY' &&
+      userReq.profileId === challenge.companyId
+    ) {
       isOwner = true;
     }
 
@@ -297,17 +340,17 @@ export class ChallengesService {
         question: '[TERKUNCI - HARAP DAFTAR]',
         options: null,
         metadata: null,
-        points: comp.points
+        points: comp.points,
       });
 
       if (challenge.components) {
         challenge.components = challenge.components.map(redactComponent) as any;
       }
       if (challenge.sections) {
-        challenge.sections = challenge.sections.map(sec => ({
+        challenge.sections = challenge.sections.map((sec) => ({
           ...sec,
-          components: sec.components.map(redactComponent)
-        })) as any;
+          components: sec.components.map(redactComponent),
+        }));
       }
     }
 
@@ -324,22 +367,29 @@ export class ChallengesService {
     }
 
     if (company.subscriptionTier === 'STARTUP') {
-      throw new ForbiddenException('Fitur AI Generator dikunci pada Paket Murah. Silakan tingkatkan langganan Anda.');
+      throw new ForbiddenException(
+        'Fitur AI Generator dikunci pada Paket Murah. Silakan tingkatkan langganan Anda.',
+      );
     }
 
     const activeCount = await this.prisma.challenge.count({
-      where: { companyId, status: { in: [ChallengeStatus.DRAFT, ChallengeStatus.PUBLISHED] } }
+      where: {
+        companyId,
+        status: { in: [ChallengeStatus.DRAFT, ChallengeStatus.PUBLISHED] },
+      },
     });
 
     if (company.subscriptionTier === 'KONGLOMERAT' && activeCount >= 5) {
-      throw new ForbiddenException('Paket Pro hanya mengizinkan 5 studi kasus aktif/draf. Silakan tingkatkan langganan Anda.');
+      throw new ForbiddenException(
+        'Paket Pro hanya mengizinkan 5 studi kasus aktif/draf. Silakan tingkatkan langganan Anda.',
+      );
     }
 
     const aiContent = await this.aiService.generateChallengeContent(
       dto.prompt,
       dto.category,
       dto.difficulty,
-      company.companyName
+      company.companyName,
     );
 
     const newChallenge = await this.prisma.challenge.create({
@@ -354,26 +404,34 @@ export class ChallengesService {
         gradingRubric: aiContent.rubric,
         rewardDescription: this.generateSystemRewardDescription(dto.difficulty),
         startsAt: aiContent.startsAt ? new Date(aiContent.startsAt) : null,
-        deadlineAt: aiContent.deadlineAt ? new Date(aiContent.deadlineAt) : null,
+        deadlineAt: aiContent.deadlineAt
+          ? new Date(aiContent.deadlineAt)
+          : null,
         status: ChallengeStatus.DRAFT,
         createdByAi: true,
         aiPromptUsed: dto.prompt,
         challengeType: ChallengeType.COMPANY,
-        sections: aiContent.sections && aiContent.sections.length > 0 ? {
-          create: aiContent.sections.map((s: any, sIdx: number) => ({
-            title: s.title,
-            description: s.description,
-            order: sIdx,
-            components: s.components && s.components.length > 0 ? {
-              create: s.components.map((c: any, cIdx: number) => ({
-                type: c.type || 'TEXT',
-                question: c.question,
-                points: c.points ?? 10,
-                order: cIdx,
-              }))
-            } : undefined
-          }))
-        } : undefined,
+        sections:
+          aiContent.sections && aiContent.sections.length > 0
+            ? {
+                create: aiContent.sections.map((s: any, sIdx: number) => ({
+                  title: s.title,
+                  description: s.description,
+                  order: sIdx,
+                  components:
+                    s.components && s.components.length > 0
+                      ? {
+                          create: s.components.map((c: any, cIdx: number) => ({
+                            type: c.type || 'TEXT',
+                            question: c.question,
+                            points: c.points ?? 10,
+                            order: cIdx,
+                          })),
+                        }
+                      : undefined,
+                })),
+              }
+            : undefined,
       },
     });
 
@@ -383,7 +441,7 @@ export class ChallengesService {
         title: 'Draft AI Selesai',
         content: `Sistem AI telah selesai membuat draf studi kasus "${newChallenge.title}". Silakan periksa dan terbitkan.`,
         linkUrl: `/workspace/edit/${newChallenge.id}`,
-      }
+      },
     });
 
     return newChallenge;
@@ -394,9 +452,9 @@ export class ChallengesService {
 
     // Deduct tokens
     await this.tokensService.spendTokens(
-      userId, 
-      PUBLIC_CHALLENGE_COST, 
-      `AI Generate Public Challenge: ${dto.category}`
+      userId,
+      PUBLIC_CHALLENGE_COST,
+      `AI Generate Public Challenge: ${dto.category}`,
     );
 
     const talent = await this.prisma.talentProfile.findUnique({
@@ -411,7 +469,7 @@ export class ChallengesService {
       dto.prompt,
       dto.category,
       dto.difficulty,
-      'Komunitas / Public'
+      'Komunitas / Public',
     );
 
     const newChallenge = await this.prisma.challenge.create({
@@ -426,26 +484,34 @@ export class ChallengesService {
         gradingRubric: aiContent.rubric,
         rewardDescription: this.generateSystemRewardDescription(dto.difficulty),
         startsAt: aiContent.startsAt ? new Date(aiContent.startsAt) : null,
-        deadlineAt: aiContent.deadlineAt ? new Date(aiContent.deadlineAt) : null,
+        deadlineAt: aiContent.deadlineAt
+          ? new Date(aiContent.deadlineAt)
+          : null,
         status: ChallengeStatus.DRAFT,
         createdByAi: true,
         aiPromptUsed: dto.prompt,
         challengeType: ChallengeType.PUBLIC,
-        sections: aiContent.sections && aiContent.sections.length > 0 ? {
-          create: aiContent.sections.map((s: any, sIdx: number) => ({
-            title: s.title,
-            description: s.description,
-            order: sIdx,
-            components: s.components && s.components.length > 0 ? {
-              create: s.components.map((c: any, cIdx: number) => ({
-                type: c.type || 'TEXT',
-                question: c.question,
-                points: c.points ?? 10,
-                order: cIdx,
-              }))
-            } : undefined
-          }))
-        } : undefined,
+        sections:
+          aiContent.sections && aiContent.sections.length > 0
+            ? {
+                create: aiContent.sections.map((s: any, sIdx: number) => ({
+                  title: s.title,
+                  description: s.description,
+                  order: sIdx,
+                  components:
+                    s.components && s.components.length > 0
+                      ? {
+                          create: s.components.map((c: any, cIdx: number) => ({
+                            type: c.type || 'TEXT',
+                            question: c.question,
+                            points: c.points ?? 10,
+                            order: cIdx,
+                          })),
+                        }
+                      : undefined,
+                })),
+              }
+            : undefined,
       },
     });
 
@@ -455,34 +521,44 @@ export class ChallengesService {
         title: 'Draft AI Selesai',
         content: `Sistem AI telah selesai membuat draf Public Challenge "${newChallenge.title}". Silakan periksa dan terbitkan.`,
         linkUrl: `/workspace/edit/${newChallenge.id}`,
-      }
+      },
     });
 
     return newChallenge;
   }
 
-  async updateChallenge(id: string, profileId: string, updateDto: Partial<CreateChallengeDto>, userId?: string, role?: string) {
+  async updateChallenge(
+    id: string,
+    profileId: string,
+    updateDto: Partial<CreateChallengeDto>,
+    userId?: string,
+    role?: string,
+  ) {
     const challenge = await this.prisma.challenge.findFirst({
-      where: { 
-        id, 
-        OR: [
-          { companyId: profileId },
-          { talentId: profileId }
-        ]
-      }
+      where: {
+        id,
+        OR: [{ companyId: profileId }, { talentId: profileId }],
+      },
     });
 
     if (!challenge) {
       throw new NotFoundException('Challenge tidak ditemukan');
     }
 
-    if (challenge.status === ChallengeStatus.PUBLISHED && updateDto.status !== ChallengeStatus.PUBLISHED) {
+    if (
+      challenge.status === ChallengeStatus.PUBLISHED &&
+      updateDto.status !== ChallengeStatus.PUBLISHED
+    ) {
       // You can't unpublish or edit a published challenge
-      throw new ForbiddenException('Studi kasus yang sudah diterbitkan tidak dapat diubah lagi.');
+      throw new ForbiddenException(
+        'Studi kasus yang sudah diterbitkan tidak dapat diubah lagi.',
+      );
     }
-    
+
     if (challenge.status === ChallengeStatus.PUBLISHED) {
-       throw new ForbiddenException('Studi kasus yang sudah diterbitkan tidak dapat diedit. Silakan buat yang baru.');
+      throw new ForbiddenException(
+        'Studi kasus yang sudah diterbitkan tidak dapat diedit. Silakan buat yang baru.',
+      );
     }
 
     // Now update the challenge
@@ -497,31 +573,42 @@ export class ChallengesService {
         datasetUrl: updateDto.datasetUrl,
         mockApiUrl: updateDto.mockApiUrl,
         brandGuidelineUrl: updateDto.brandGuidelineUrl,
-        gradingRubric: updateDto.gradingRubric !== undefined ? updateDto.gradingRubric : undefined,
-        rewardDescription: updateDto.difficulty ? this.generateSystemRewardDescription(updateDto.difficulty) : undefined,
+        gradingRubric:
+          updateDto.gradingRubric !== undefined
+            ? updateDto.gradingRubric
+            : undefined,
+        rewardDescription: updateDto.difficulty
+          ? this.generateSystemRewardDescription(updateDto.difficulty)
+          : undefined,
         startsAt: updateDto.startsAt ? new Date(updateDto.startsAt) : undefined,
         status: updateDto.status,
-        sections: updateDto.sections && updateDto.sections.length > 0 ? {
-          deleteMany: {},
-          create: updateDto.sections.map(s => ({
-            title: s.title,
-            description: s.description,
-            order: s.order ?? 0,
-            components: s.components && s.components.length > 0 ? {
-              create: s.components.map(c => ({
-                challengeId: id,
-                type: c.type as any,
-                question: c.question,
-                description: c.description,
-                options: c.options || undefined,
-                metadata: c.metadata || undefined,
-                points: c.points ?? 10,
-                order: c.order ?? 0,
-              }))
-            } : undefined
-          }))
-        } : undefined,
-      }
+        sections:
+          updateDto.sections && updateDto.sections.length > 0
+            ? {
+                deleteMany: {},
+                create: updateDto.sections.map((s) => ({
+                  title: s.title,
+                  description: s.description,
+                  order: s.order ?? 0,
+                  components:
+                    s.components && s.components.length > 0
+                      ? {
+                          create: s.components.map((c) => ({
+                            challengeId: id,
+                            type: c.type as any,
+                            question: c.question,
+                            description: c.description,
+                            options: c.options || undefined,
+                            metadata: c.metadata || undefined,
+                            points: c.points ?? 10,
+                            order: c.order ?? 0,
+                          })),
+                        }
+                      : undefined,
+                })),
+              }
+            : undefined,
+      },
     });
 
     if (role === Role.COMPANY && userId && challenge.companyId) {
@@ -532,7 +619,7 @@ export class ChallengesService {
         'UPDATE_CHALLENGE',
         'CHALLENGE',
         challenge.id,
-        { changedFields: changedKeys }
+        { changedFields: changedKeys },
       );
     }
 
@@ -548,7 +635,9 @@ export class ChallengesService {
     return `${baseSlug}-${randomSuffix}`;
   }
 
-  private generateSystemRewardDescription(difficulty: ChallengeDifficulty): string {
+  private generateSystemRewardDescription(
+    difficulty: ChallengeDifficulty,
+  ): string {
     let maxToken = 10;
     let maxXP = 100;
 
@@ -562,7 +651,7 @@ export class ChallengesService {
 
     // Hitung bonus perfect score untuk token (max token + 50%)
     const perfectToken = maxToken + Math.floor(maxToken * 0.5);
-    
+
     return `Sistem Reward: Hingga ${perfectToken} Token & ${maxXP} XP`;
   }
 }

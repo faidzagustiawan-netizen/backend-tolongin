@@ -1,4 +1,11 @@
-import { Controller, Get, Param, UseGuards, Post, Request } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Param,
+  UseGuards,
+  Post,
+  Request,
+} from '@nestjs/common';
 import { CompaniesService } from './companies.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -20,7 +27,7 @@ export class CompaniesController {
   }
 
   // --- Team Management & Logs ---
-  
+
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.COMPANY, Role.ADMIN)
   @Get('workspace/team')

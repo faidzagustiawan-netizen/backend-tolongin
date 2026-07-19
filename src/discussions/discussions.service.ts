@@ -49,7 +49,7 @@ export class DiscussionsService {
             title: 'Balasan Diskusi Baru',
             content: `Seseorang telah membalas komentar Anda di studi kasus "${challenge.title}".`,
             linkUrl: `/challenges/${challenge.slug}#discussions`,
-          }
+          },
         });
       }
     }

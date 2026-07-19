@@ -21,7 +21,8 @@ export class HealthController {
   ) {}
 
   @ApiOperation({
-    summary: 'Memeriksa kesehatan server menyeluruh (Database, Heap, RSS Memory, dan Disk Storage)',
+    summary:
+      'Memeriksa kesehatan server menyeluruh (Database, Heap, RSS Memory, dan Disk Storage)',
   })
   @ApiResponse({
     status: 200,
@@ -38,7 +39,11 @@ export class HealthController {
       () => this.prismaHealth.pingCheck('database', this.prismaService),
       () => this.memory.checkHeap('memory_heap', 250 * 1024 * 1024),
       () => this.memory.checkRSS('memory_rss', 500 * 1024 * 1024),
-      () => this.disk.checkStorage('disk_storage', { path: process.cwd(), thresholdPercent: 0.9 }),
+      () =>
+        this.disk.checkStorage('disk_storage', {
+          path: process.cwd(),
+          thresholdPercent: 0.9,
+        }),
     ]);
   }
 }

@@ -1,4 +1,12 @@
-import { Controller, Post, Get, Body, Request, UseGuards, HttpCode } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Get,
+  Body,
+  Request,
+  UseGuards,
+  HttpCode,
+} from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
@@ -41,7 +49,8 @@ export class VerificationController {
   })
   @ApiResponse({
     status: 200,
-    description: 'Dokumen KYB terverifikasi dan lencana Verified Partner aktif.',
+    description:
+      'Dokumen KYB terverifikasi dan lencana Verified Partner aktif.',
   })
   @Roles(Role.COMPANY, Role.ADMIN)
   @Post('kyb')
@@ -51,9 +60,13 @@ export class VerificationController {
   }
 
   @ApiOperation({
-    summary: 'Verifikasi anti-joki real-time saat pengerjaan studi kasus di Workspace',
+    summary:
+      'Verifikasi anti-joki real-time saat pengerjaan studi kasus di Workspace',
   })
-  @ApiResponse({ status: 200, description: 'Hasil pencocokan biometrik wajah.' })
+  @ApiResponse({
+    status: 200,
+    description: 'Hasil pencocokan biometrik wajah.',
+  })
   @Roles(Role.TALENT)
   @Post('verify-execution')
   async verifyExecution(@Request() req: any, @Body() dto: VerifyExecutionDto) {

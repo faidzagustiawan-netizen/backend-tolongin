@@ -64,6 +64,8 @@ export class PortfoliosService {
     return this.prisma.talentProfile.findMany({
       select: {
         id: true,
+        slug: true,
+        userId: true,
         fullName: true,
         avatarUrl: true,
         headline: true,

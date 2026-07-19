@@ -23,8 +23,15 @@ export class PaymentsController {
   @Roles(Role.TALENT)
   @ApiOperation({ summary: 'Top-up token untuk Talent' })
   @Post('topup')
-  async createTopup(@Request() req: any, @Body('tokenAmount') tokenAmount: number) {
-    return this.paymentsService.createTokenTopup(req.user.sub, req.user.email, tokenAmount);
+  async createTopup(
+    @Request() req: any,
+    @Body('tokenAmount') tokenAmount: number,
+  ) {
+    return this.paymentsService.createTokenTopup(
+      req.user.sub,
+      req.user.email,
+      tokenAmount,
+    );
   }
 
   @ApiBearerAuth('JWT-auth')
@@ -33,7 +40,10 @@ export class PaymentsController {
   @ApiOperation({ summary: 'Berlangganan paket Premium untuk Company' })
   @Post('subscribe')
   async createSubscription(@Request() req: any) {
-    return this.paymentsService.createSubscription(req.user.sub, req.user.email);
+    return this.paymentsService.createSubscription(
+      req.user.sub,
+      req.user.email,
+    );
   }
 
   // Webhook endpoint: Midtrans tidak pakai custom header, langsung payload HTTP POST

@@ -1,4 +1,12 @@
-import { Controller, Get, Param, UseGuards, Patch, Body, Request } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Param,
+  UseGuards,
+  Patch,
+  Body,
+  Request,
+} from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
@@ -26,7 +34,7 @@ export class UsersController {
   async getProfile(@Param('id') id: string, @Request() req: any) {
     const user = await this.usersService.findById(id);
     const { passwordHash, ...safeUser } = user;
-    
+
     // Jika bukan pemilik profil, hapus data biometrik/KTP privat
     if (req.user.sub !== id && safeUser.talentProfile) {
       const tp = safeUser.talentProfile as any;
@@ -46,10 +54,7 @@ export class UsersController {
   @ApiResponse({ status: 200, description: 'Profil berhasil diperbarui.' })
   @UseGuards(JwtAuthGuard)
   @Patch('me/profile')
-  async updateProfile(
-    @Request() req: any,
-    @Body() dto: UpdateProfileDto,
-  ) {
+  async updateProfile(@Request() req: any, @Body() dto: UpdateProfileDto) {
     const userId = req.user.sub;
     const updatedUser = await this.usersService.updateProfile(userId, dto);
     const { passwordHash, ...safeUser } = updatedUser;

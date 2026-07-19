@@ -35,7 +35,8 @@ export class SubmissionsController {
   constructor(private readonly submissionsService: SubmissionsService) {}
 
   @ApiOperation({
-    summary: 'Mendaftar (enroll) dan menyetujui NDA untuk mengerjakan challenge',
+    summary:
+      'Mendaftar (enroll) dan menyetujui NDA untuk mengerjakan challenge',
   })
   @ApiResponse({
     status: 201,
@@ -56,7 +57,10 @@ export class SubmissionsController {
     summary:
       'Mendapatkan daftar challenge yang sedang atau telah dikerjakan talenta',
   })
-  @ApiResponse({ status: 200, description: 'Daftar riwayat enrollment talenta.' })
+  @ApiResponse({
+    status: 200,
+    description: 'Daftar riwayat enrollment talenta.',
+  })
   @Roles(Role.TALENT)
   @Get('my-enrollments')
   async getMyEnrollments(@Request() req: any) {
@@ -65,7 +69,8 @@ export class SubmissionsController {
   }
 
   @ApiOperation({
-    summary: 'Mengunggah solusi dan memicu AI Anti-Plagiarism & Correction Engine',
+    summary:
+      'Mengunggah solusi dan memicu AI Anti-Plagiarism & Correction Engine',
   })
   @ApiResponse({
     status: 201,
@@ -121,9 +126,13 @@ export class SubmissionsController {
   }
 
   @ApiOperation({
-    summary: 'Mendapatkan daftar challenge beserta statistik submisi untuk company',
+    summary:
+      'Mendapatkan daftar challenge beserta statistik submisi untuk company',
   })
-  @ApiResponse({ status: 200, description: 'Daftar challenge dan statistik submisi.' })
+  @ApiResponse({
+    status: 200,
+    description: 'Daftar challenge dan statistik submisi.',
+  })
   @Roles(Role.COMPANY, Role.ADMIN)
   @Get('challenge-stats')
   async getChallengeStats(@Request() req: any) {
@@ -132,7 +141,8 @@ export class SubmissionsController {
   }
 
   @ApiOperation({
-    summary: 'Menilai dan memberikan skor pada submisi (Oleh Pembuat Challenge)',
+    summary:
+      'Menilai dan memberikan skor pada submisi (Oleh Pembuat Challenge)',
     description:
       'Penilaian akhir tersimpan, XP ditambahkan, dan portofolio terverifikasi diterbitkan.',
   })
@@ -149,7 +159,7 @@ export class SubmissionsController {
       submissionId,
       dto,
       req.user.sub,
-      req.user.role
+      req.user.role,
     );
   }
 }
