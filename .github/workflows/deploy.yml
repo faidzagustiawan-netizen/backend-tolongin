@@ -47,8 +47,8 @@ jobs:
             # 6. Jalankan pnpm run build untuk membangun aplikasi
             pnpm run build
             
-            # 7. Restart aplikasi menggunakan PM2
-            pm2 restart tolongin
+            # 7. Restart aplikasi menggunakan PM2 Ecosystem Config
+            pm2 reload ecosystem.config.js --env production --update-env
 
   deploy-vps2:
     name: Deploy ke VPS 2 (Cadangan Sumapod)
@@ -77,5 +77,5 @@ jobs:
             # 5. Jalankan pnpm run build untuk membangun aplikasi
             pnpm run build
             
-            # 6. Restart aplikasi menggunakan PM2
-            pm2 restart tolongin
+            # 6. Restart aplikasi menggunakan PM2 Ecosystem Config
+            pm2 reload ecosystem.config.js --env production --update-env

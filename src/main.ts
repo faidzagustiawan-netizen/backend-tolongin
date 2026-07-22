@@ -28,6 +28,8 @@ async function bootstrap() {
       'https://tolongin.co',
       'https://frontend-tolongin.vercel.app',
       'http://localhost:3000',
+      'https://podorukunspk.fun',
+      'https://api.podorukunspk.fun',
     ],
     credentials: true,
   });

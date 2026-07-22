@@ -626,6 +626,92 @@ export class ChallengesService {
     return updated;
   }
 
+  async getTemplates() {
+    return this.prisma.challenge.findMany({
+      where: { isTemplate: true },
+      include: {
+        sections: {
+          include: { components: true },
+        },
+      },
+    });
+  }
+
+  async cloneTemplate(templateId: string, companyId: string, userId: string) {
+    const template = await this.prisma.challenge.findUnique({
+      where: { id: templateId, isTemplate: true },
+      include: {
+        sections: {
+          include: { components: true },
+        },
+      },
+    });
+
+    if (!template) {
+      throw new NotFoundException('Template tidak ditemukan');
+    }
+
+    const company = await this.prisma.companyProfile.findUnique({
+      where: { id: companyId },
+    });
+    if (!company) throw new NotFoundException('Perusahaan tidak ditemukan');
+
+    const slug = this.generateSlug(template.title);
+    const challengeId = crypto.randomUUID();
+
+    const newChallenge = await this.prisma.challenge.create({
+      data: {
+        id: challengeId,
+        companyId,
+        title: template.title,
+        slug,
+        summary: template.summary,
+        description: template.description,
+        category: template.category,
+        difficulty: template.difficulty,
+        datasetUrl: template.datasetUrl,
+        mockApiUrl: template.mockApiUrl,
+        brandGuidelineUrl: template.brandGuidelineUrl,
+        gradingRubric: template.gradingRubric ?? {},
+        rewardDescription: template.rewardDescription,
+        status: ChallengeStatus.DRAFT, // Always draft on clone
+        isPrivate: false,
+        isTemplate: false, // Ensure it's not a template
+        challengeType: ChallengeType.COMPANY,
+        sections: {
+          create: template.sections.map((s) => ({
+            title: s.title,
+            description: s.description,
+            order: s.order,
+            components: {
+              create: s.components.map((c) => ({
+                challengeId: challengeId,
+                type: c.type,
+                question: c.question,
+                description: c.description,
+                options: c.options || undefined,
+                metadata: c.metadata || undefined,
+                points: c.points,
+                order: c.order,
+              })),
+            },
+          })),
+        },
+      },
+    });
+
+    await this.companiesService.logAction(
+      companyId,
+      userId,
+      'CLONE_TEMPLATE',
+      'CHALLENGE',
+      newChallenge.id,
+      { templateId },
+    );
+
+    return newChallenge;
+  }
+
   private generateSlug(title: string): string {
     const baseSlug = title
       .toLowerCase()

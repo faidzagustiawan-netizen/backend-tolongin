@@ -7,6 +7,9 @@ export interface EvaluationResult {
   aiScore: number;
   aiPlagiarismScore: number;
   aiCorrectionSummary: string;
+  softSkillScore?: number | null;
+  softSkillFeedback?: string | null;
+  weaknessTags?: string[];
 }
 
 export interface ComponentEvaluation {
@@ -302,6 +305,7 @@ Berikan penilaian akhir berupa objek JSON dengan struktur persis berikut:
       question: string;
       maxPoints: number;
       candidateAnswer: string;
+      skillCategory?: string;
     }[],
     gradingRubric?: Record<string, number>,
   ): Promise<ComponentEvaluationResult> {
@@ -315,6 +319,7 @@ ${componentsData
     (c) => `
 ---
 ID Soal: ${c.id}
+Kategori Skill: ${c.skillCategory || 'TECHNICAL'}
 Poin Maksimal: ${c.maxPoints}
 Soal: ${c.question}
 Jawaban Kandidat: ${c.candidateAnswer}
@@ -326,17 +331,21 @@ Kriteria dan Bobot Penilaian Kualitas Keseluruhan (Rubrik):
 ${gradingRubric ? JSON.stringify(gradingRubric, null, 2) : 'Gunakan penilaian objektif standar.'}
 
 Instruksi Penilaian Mutlak:
-1. Evaluasi setiap jawaban kandidat secara mandiri berdasarkan konteks soalnya.
-2. Berikan nilai (score) untuk setiap soal. Nilai minimal adalah 0 dan nilai maksimal TIDAK BOLEH MELEBIHI "Poin Maksimal" dari soal tersebut.
-3. Berikan umpan balik (aiFeedback) untuk setiap jawaban kandidat yang membenarkan atau mengoreksi jawaban tersebut.
-4. Nilai "aiScore" HARUS memperhitungkan tidak hanya skor komponen tetapi juga kualitas berdasarkan Rubrik (jika ada), sehingga aiScore mencerminkan total pemahaman kandidat.
-5. Total "aiScore" adalah nilai 0-100 secara keseluruhan.
+1. Evaluasi setiap jawaban secara mandiri.
+2. Berikan nilai per soal (score) 0 hingga Poin Maksimal, serta umpan balik teknis khusus untuk jawaban tersebut di dalam array "components".
+3. Tentukan "aiScore" sebagai skor evaluasi untuk jawaban yang berfokus pada Hard Skill (Kategori Skill selain SOFT_SKILL). aiScore maksimal 100.
+4. Tentukan "softSkillScore" sebagai evaluasi khusus untuk jawaban yang berfokus pada SOFT_SKILL (Kategori Skill: SOFT_SKILL). Jika tidak ada soal soft skill, kembalikan null. Maksimal 100.
+5. Berikan "softSkillFeedback" berupa umpan balik kualitatif mengenai kepribadian, gaya komunikasi, atau penyelesaian konflik kandidat (jika ada soal soft skill).
+6. Berdasarkan jawaban yang salah/kurang optimal, berikan maksimal 3 kata kunci keahlian yang menjadi kelemahan kandidat (weaknessTags). Contoh: ["React Hooks", "SEO On-Page"]. Jika sempurna, biarkan kosong [].
 
 Berikan penilaian akhir berupa objek JSON dengan struktur persis berikut:
 {
-  "aiScore": <total akumulasi nilai dari semua soal>,
-  "aiPlagiarismScore": <persentase 0-100, misal 0.5 jika sangat orisinal>,
-  "aiCorrectionSummary": "<analisis singkat dan rekomendasi perbaikan keseluruhan>",
+  "aiScore": <nilai numerik 0-100 untuk hard skill>,
+  "softSkillScore": <nilai numerik 0-100 khusus penilaian kompetensi soft skill, jika tidak dinilai berikan null>,
+  "softSkillFeedback": "<umpan balik kepribadian/manajerial, berikan null jika tidak ada evaluasi soft skill>",
+  "aiPlagiarismScore": <persentase 0-100 plagiarisme>,
+  "aiCorrectionSummary": "<analisis singkat teknis (hard skill)>",
+  "weaknessTags": ["Tag 1", "Tag 2"],
   "components": [
     {
       "componentId": "<ID Soal (sama persis dengan ID Soal di atas)>",
@@ -361,9 +370,12 @@ Berikan penilaian akhir berupa objek JSON dengan struktur persis berikut:
 
         return {
           aiScore: resultJson.aiScore || 0,
+          softSkillScore: resultJson.softSkillScore ?? null,
+          softSkillFeedback: resultJson.softSkillFeedback ?? null,
           aiPlagiarismScore: resultJson.aiPlagiarismScore || 0.0,
           aiCorrectionSummary:
             resultJson.aiCorrectionSummary || 'Evaluasi komponen selesai.',
+          weaknessTags: resultJson.weaknessTags || [],
           components: resultJson.components || [],
         };
       } catch (geminiErr: any) {
@@ -391,9 +403,12 @@ Berikan penilaian akhir berupa objek JSON dengan struktur persis berikut:
 
         return {
           aiScore: resultJson.aiScore || 0,
+          softSkillScore: resultJson.softSkillScore ?? null,
+          softSkillFeedback: resultJson.softSkillFeedback ?? null,
           aiPlagiarismScore: resultJson.aiPlagiarismScore || 0.0,
           aiCorrectionSummary:
             resultJson.aiCorrectionSummary || 'Evaluasi komponen selesai.',
+          weaknessTags: resultJson.weaknessTags || [],
           components: resultJson.components || [],
         };
       } catch (error: any) {

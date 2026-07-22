@@ -282,6 +282,10 @@ model Challenge {
   createdByAi  Boolean @default(false)
   aiPromptUsed String?
 
+  // Template System
+  isTemplate   Boolean @default(false)
+  templateRole String? // e.g. "Junior Frontend Developer"
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -413,6 +417,13 @@ model Submission {
   aiPlagiarismScore   Float? // 0.0 - 100.0%
   aiCorrectionSummary String? // Analisis otomatis dari AI
   aiScore             Float? // Skor awal dari AI (0-100)
+  
+  // Soft Skills
+  softSkillScore      Float? // Agregasi skor soft skill (0-100)
+  softSkillFeedback   String? // Feedback AI khusus kepribadian/soft skill
+  
+  // Career Development
+  weaknessTags        String[] @default([])
 
   // Review Manusia & Keputusan
   finalScore       Float? // Skor dari rekruter

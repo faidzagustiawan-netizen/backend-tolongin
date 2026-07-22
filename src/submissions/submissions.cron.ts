@@ -70,11 +70,18 @@ export class SubmissionsCronService {
                   .find((c: any) => c.id === r.componentId);
 
               if (compData) {
+                // Determine skillCategory from component's metadata
+                let skillCategory = 'TECHNICAL';
+                if (compData.metadata && typeof compData.metadata === 'object' && !Array.isArray(compData.metadata)) {
+                  skillCategory = (compData.metadata as any).skillCategory || 'TECHNICAL';
+                }
+
                 componentsData.push({
                   id: compData.id,
                   question: compData.question,
                   maxPoints: compData.points || 10,
                   candidateAnswer: r.textValue || r.fileUrl || '',
+                  skillCategory,
                 });
               }
             }
@@ -105,6 +112,9 @@ export class SubmissionsCronService {
                 aiPlagiarismScore: evaluation.aiPlagiarismScore,
                 aiCorrectionSummary: evaluation.aiCorrectionSummary,
                 aiScore: evaluation.aiScore,
+                softSkillScore: evaluation.softSkillScore ?? null,
+                softSkillFeedback: evaluation.softSkillFeedback ?? null,
+                weaknessTags: evaluation.weaknessTags || [],
                 status: SubmissionStatus.UNDER_REVIEW, // AI berhasil, tinggal review manual final
               },
             });
