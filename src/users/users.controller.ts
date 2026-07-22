@@ -35,13 +35,23 @@ export class UsersController {
     const user = await this.usersService.findById(id);
     const { passwordHash, ...safeUser } = user;
 
-    // Jika bukan pemilik profil, hapus data biometrik/KTP privat
-    if (req.user.sub !== id && safeUser.talentProfile) {
+    // Jika bukan pemilik profil, hapus data biometrik/KTP/privat dan filter portofolio
+    if (req.user?.sub !== user.id && safeUser.talentProfile) {
       const tp = safeUser.talentProfile as any;
       delete tp.encryptedPrivateFace;
       delete tp.encryptedKtpData;
       delete tp.biometricDataHash;
       delete tp.biometricFeatureVector;
+      delete tp.ktpNik;
+
+      // Filter submissions to only show those in showcasedSubmissionIds
+      if (tp.submissions && tp.showcasedSubmissionIds) {
+        tp.submissions = tp.submissions.filter((sub: any) =>
+          tp.showcasedSubmissionIds.includes(sub.id)
+        );
+      } else {
+        tp.submissions = [];
+      }
     }
 
     return safeUser;
