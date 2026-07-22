@@ -48,7 +48,7 @@ jobs:
             pnpm run build
             
             # 7. Restart aplikasi menggunakan PM2 Ecosystem Config
-            pm2 reload ecosystem.config.js --env production --update-env
+            pm2 reload ecosystem.config.js --env production --update-env || pm2 start ecosystem.config.js --env production
 
   deploy-vps2:
     name: Deploy ke VPS 2 (Cadangan Sumapod)
@@ -68,14 +68,19 @@ jobs:
             export NVM_DIR="$HOME/.nvm"
             [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
             
-            # 3. Ambil pembaruan kode terbaru dari GitHub
+            # 3. Paksa Git untuk membuang perubahan lokal dan ambil kode terbaru
+            git fetch --all
+            git reset --hard origin/main
             git pull origin main
             
             # 4. Install dependencies menggunakan pnpm
             pnpm install --frozen-lockfile
 
-            # 5. Jalankan pnpm run build untuk membangun aplikasi
+            # 5. Generate ulang Prisma Client (WAJIB)
+            pnpm exec prisma generate
+            
+            # 6. Jalankan pnpm run build untuk membangun aplikasi
             pnpm run build
             
-            # 6. Restart aplikasi menggunakan PM2 Ecosystem Config
-            pm2 reload ecosystem.config.js --env production --update-env
+            # 7. Restart aplikasi menggunakan PM2 Ecosystem Config
+            pm2 reload ecosystem.config.js --env production --update-env || pm2 start ecosystem.config.js --env production
