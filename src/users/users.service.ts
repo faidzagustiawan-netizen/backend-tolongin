@@ -312,6 +312,8 @@ export class UsersService {
               talentId: user.talentProfile.id,
               title: exp.title,
               companyName: exp.companyName,
+              employmentType: exp.employmentType,
+              locationType: exp.locationType,
               location: exp.location,
               startDate: exp.startDate ? new Date(exp.startDate) : null,
               endDate: exp.endDate ? new Date(exp.endDate) : null,
@@ -336,6 +338,8 @@ export class UsersService {
               fieldOfStudy: edu.fieldOfStudy,
               startDate: edu.startDate ? new Date(edu.startDate) : null,
               endDate: edu.endDate ? new Date(edu.endDate) : null,
+              grade: edu.grade,
+              activities: edu.activities,
               description: edu.description,
             },
           });

@@ -104,9 +104,11 @@ model Experience {
   id          String        @id @default(uuid())
   talentId    String
   talent      TalentProfile @relation(fields: [talentId], references: [id], onDelete: Cascade)
-  title       String
-  companyName String
-  location    String?
+  title          String
+  companyName    String
+  employmentType String?
+  locationType   String?
+  location       String?
   startDate   DateTime?
   endDate     DateTime?
   isCurrent   Boolean       @default(false)
@@ -127,6 +129,8 @@ model Education {
   fieldOfStudy String?
   startDate    DateTime?
   endDate      DateTime?
+  grade        String?
+  activities   String?
   description  String?
 
   createdAt DateTime @default(now())
