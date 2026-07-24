@@ -441,13 +441,16 @@ Berikan penilaian akhir berupa objek JSON dengan struktur persis berikut:
 
 Fokuslah pada skenario, objektif, dan silabus (tanpa membuat detail soal kodenya).
 Lakukan penalaran (Chain-of-Thought) terlebih dahulu. Pikirkan secara mendalam tentang skenario bisnis, kesulitan, dan apa saja yang diuji sebelum merancang struktur blueprint.
+PENTING: Deskripsi setiap 'sections_outline' WAJIB detail (3-5 kalimat) menjelaskan tugas kandidat dan metrik tahap tersebut. 
+PENTING: Jika prompt mengimplikasikan adanya data eksternal (dataset, dokumentasi, UI design) masukkan ke dalam array 'requiredAssets'.
 
 Berikan respons HANYA dalam format JSON persis dengan struktur ini:
 {
   "reasoning": "Analisis mendalam mengapa blueprint ini dirancang seperti ini dan bagaimana ini menguji kompetensi yang relevan dengan perusahaan/masukan.",
+  "requiredAssets": ["URL Dataset Aktivitas", "Dokumentasi API"],
   "title": "Judul studi kasus yang menarik dan profesional (maks 60 karakter)",
   "summary": "Ringkasan singkat tentang tantangan ini (maks 150 karakter)",
-  "description": "Deskripsi rinci menggunakan format Markdown (### Latar Belakang Bisnis, ### Objektif & Target, ### Batasan & Persyaratan)",
+  "description": "Deskripsi rinci skenario bisnis dan konteks permasalahan (minimal 3 paragraf).",
   "rubric": {
     "kriteria_1": 40,
     "kriteria_2": 30,
@@ -456,7 +459,7 @@ Berikan respons HANYA dalam format JSON persis dengan struktur ini:
   "sections_outline": [
     {
       "title": "Tahap 1: Analisis",
-      "description": "Tahap awal pemahaman masalah",
+      "description": "Deskripsi yang SANGAT DETAIL (3-5 kalimat). Jelaskan persis apa yang harus dilakukan kandidat, tools apa yang akan diuji, dan hasil akhirnya.",
       "competencies": ["Sistem Arsitektur", "Database Design"]
     }
   ]
