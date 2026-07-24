@@ -415,6 +415,70 @@ export class ChallengesService {
     return blueprint;
   }
 
+  private async processAiChallengeBackground(
+    challengeId: string,
+    userId: string,
+    dto: GenerateAiChallengeDto
+  ) {
+    try {
+      const aiContent = await this.aiService.generateChallengeContent(dto.blueprint);
+
+      await this.prisma.challenge.update({
+        where: { id: challengeId },
+        data: {
+          title: aiContent.title,
+          slug: this.generateSlug(aiContent.title),
+          summary: aiContent.summary,
+          description: aiContent.description,
+          gradingRubric: aiContent.rubric,
+          startsAt: aiContent.startsAt ? new Date(aiContent.startsAt) : null,
+          deadlineAt: aiContent.deadlineAt ? new Date(aiContent.deadlineAt) : null,
+          sections: aiContent.sections && aiContent.sections.length > 0
+            ? {
+                create: aiContent.sections.map((s: any, sIdx: number) => ({
+                  title: s.title,
+                  description: s.description,
+                  order: sIdx,
+                  components: s.components && s.components.length > 0
+                    ? {
+                        create: s.components.map((c: any, cIdx: number) => ({
+                          challengeId: challengeId,
+                          type: c.type === 'TEXT' ? 'ESSAY' : (c.type || 'ESSAY'),
+                          question: c.question,
+                          points: c.points ?? 10,
+                          order: cIdx,
+                        })),
+                      }
+                    : undefined,
+                })),
+              }
+            : undefined,
+        },
+      });
+
+      const challenge = await this.prisma.challenge.findUnique({ where: { id: challengeId } });
+
+      await this.prisma.notification.create({
+        data: {
+          userId,
+          title: 'Draft AI Selesai',
+          content: `Sistem AI telah selesai membuat draf studi kasus "${challenge?.title || aiContent.title}". Silakan periksa dan terbitkan.`,
+          linkUrl: `/challenges/${challengeId}/edit`,
+        },
+      });
+    } catch (error) {
+      console.error('Background AI Challenge Generation failed:', error);
+      await this.prisma.notification.create({
+        data: {
+          userId,
+          title: 'Draft AI Gagal',
+          content: `Maaf, sistem AI gagal menyelesaikan draf studi kasus Anda.`,
+          linkUrl: `/challenges/${challengeId}/edit`,
+        },
+      });
+    }
+  }
+
   async generateAiChallenge(companyId: string, dto: GenerateAiChallengeDto) {
     const company = await this.prisma.companyProfile.findUnique({
       where: { id: companyId },
@@ -443,65 +507,28 @@ export class ChallengesService {
       );
     }
 
-    const aiContent = await this.aiService.generateChallengeContent(
-      dto.blueprint
-    );
-
     const challengeId = crypto.randomUUID();
 
     const newChallenge = await this.prisma.challenge.create({
       data: {
         id: challengeId,
         companyId,
-        title: aiContent.title,
-        slug: this.generateSlug(aiContent.title),
-        summary: aiContent.summary,
-        description: aiContent.description,
+        title: dto.blueprint.title || 'Draft AI Challenge',
+        slug: this.generateSlug(dto.blueprint.title || 'Draft AI Challenge'),
+        summary: dto.blueprint.summary || 'Proses pembuatan sedang berjalan di latar belakang...',
+        description: dto.blueprint.description || 'Mohon tunggu, AI sedang menyusun soal...',
         category: dto.category,
         difficulty: dto.difficulty,
-        gradingRubric: aiContent.rubric,
-        rewardDescription: this.generateSystemRewardDescription(dto.difficulty),
-        startsAt: aiContent.startsAt ? new Date(aiContent.startsAt) : null,
-        deadlineAt: aiContent.deadlineAt
-          ? new Date(aiContent.deadlineAt)
-          : null,
+        gradingRubric: dto.blueprint.rubric || {},
         status: ChallengeStatus.DRAFT,
         createdByAi: true,
         aiPromptUsed: dto.prompt,
         challengeType: ChallengeType.COMPANY,
-        sections:
-          aiContent.sections && aiContent.sections.length > 0
-            ? {
-                create: aiContent.sections.map((s: any, sIdx: number) => ({
-                  title: s.title,
-                  description: s.description,
-                  order: sIdx,
-                  components:
-                    s.components && s.components.length > 0
-                      ? {
-                          create: s.components.map((c: any, cIdx: number) => ({
-                            challengeId: challengeId,
-                            type: c.type || 'TEXT',
-                            question: c.question,
-                            points: c.points ?? 10,
-                            order: cIdx,
-                          })),
-                        }
-                      : undefined,
-                })),
-              }
-            : undefined,
       },
     });
 
-    await this.prisma.notification.create({
-      data: {
-        userId: company.userId,
-        title: 'Draft AI Selesai',
-        content: `Sistem AI telah selesai membuat draf studi kasus "${newChallenge.title}". Silakan periksa dan terbitkan.`,
-        linkUrl: `/challenges/${newChallenge.id}/edit`,
-      },
-    });
+    // Run in background without await
+    this.processAiChallengeBackground(challengeId, company.userId, dto).catch(e => console.error(e));
 
     return newChallenge;
   }
@@ -524,61 +551,28 @@ export class ChallengesService {
       throw new NotFoundException('Profil Talenta tidak ditemukan');
     }
 
-    const aiContent = await this.aiService.generateChallengeContent(
-      dto.blueprint
-    );
+    const challengeId = crypto.randomUUID();
 
     const newChallenge = await this.prisma.challenge.create({
       data: {
+        id: challengeId,
         talentId: talent.id,
-        title: aiContent.title,
-        slug: this.generateSlug(aiContent.title),
-        summary: aiContent.summary,
-        description: aiContent.description,
+        title: dto.blueprint.title || 'Draft AI Public Challenge',
+        slug: this.generateSlug(dto.blueprint.title || 'Draft AI Public Challenge'),
+        summary: dto.blueprint.summary || 'Proses pembuatan sedang berjalan di latar belakang...',
+        description: dto.blueprint.description || 'Mohon tunggu, AI sedang menyusun soal...',
         category: dto.category,
         difficulty: dto.difficulty,
-        gradingRubric: aiContent.rubric,
-        rewardDescription: this.generateSystemRewardDescription(dto.difficulty),
-        startsAt: aiContent.startsAt ? new Date(aiContent.startsAt) : null,
-        deadlineAt: aiContent.deadlineAt
-          ? new Date(aiContent.deadlineAt)
-          : null,
+        gradingRubric: dto.blueprint.rubric || {},
         status: ChallengeStatus.DRAFT,
         createdByAi: true,
         aiPromptUsed: dto.prompt,
         challengeType: ChallengeType.PUBLIC,
-        sections:
-          aiContent.sections && aiContent.sections.length > 0
-            ? {
-                create: aiContent.sections.map((s: any, sIdx: number) => ({
-                  title: s.title,
-                  description: s.description,
-                  order: sIdx,
-                  components:
-                    s.components && s.components.length > 0
-                      ? {
-                          create: s.components.map((c: any, cIdx: number) => ({
-                            type: c.type || 'TEXT',
-                            question: c.question,
-                            points: c.points ?? 10,
-                            order: cIdx,
-                          })),
-                        }
-                      : undefined,
-                })),
-              }
-            : undefined,
       },
     });
 
-    await this.prisma.notification.create({
-      data: {
-        userId: talent.userId,
-        title: 'Draft AI Selesai',
-        content: `Sistem AI telah selesai membuat draf Public Challenge "${newChallenge.title}". Silakan periksa dan terbitkan.`,
-        linkUrl: `/challenges/${newChallenge.id}/edit`,
-      },
-    });
+    // Run in background without await
+    this.processAiChallengeBackground(challengeId, talent.userId, dto).catch(e => console.error(e));
 
     return newChallenge;
   }

@@ -518,31 +518,39 @@ Berikan respons dalam format JSON persis dengan struktur ini:
   }> {
     const prompt = `Anda adalah AI Technical Assessor Master. Anda diberikan sebuah blueprint kerangka studi kasus rekrutmen. Tugas Anda adalah mengembangkan blueprint tersebut menjadi sekumpulan soal teknis (components) yang SANGAT KOMPREHENSIF, MENDALAM, SULIT, dan MENGUJI EDGE-CASES.
 
-Blueprint:
+Blueprint Awal:
 ${JSON.stringify(blueprint, null, 2)}
 
-Buatlah soal yang jauh lebih dalam dari sekadar teori dasar. Uji kemampuan kandidat dalam memecahkan masalah nyata, optimasi performa, atau bug-fixing yang kompleks.
-Berikan respons dalam format JSON persis dengan struktur ini:
+INSTRUKSI WAJIB:
+1. PENTING: Kembangkan "sections_outline" dari blueprint menjadi "sections" yang berisi daftar pertanyaan aktual ("components").
+2. WAJIB membuat minimal 1 hingga 3 soal (components) di dalam setiap section. Uji kemampuan kandidat dalam memecahkan masalah nyata, optimasi performa, atau bug-fixing yang kompleks. JANGAN PERNAH memberikan array components yang kosong!
+3. WAJIB lengkapi atau buat "rubric" (Kriteria dan Bobot Penilaian) secara proporsional.
+4. Total points dari seluruh components HARUS relevan dengan skala penilaian.
+5. Tipe komponen (type) yang valid adalah: MULTIPLE_CHOICE, ESSAY, FILE_UPLOAD, VIDEO_UPLOAD, URL_SUBMISSION, LIVE_CODING.
+
+Berikan respons HANYA dalam format JSON dengan struktur ini (tanpa markdown blok):
 {
-  "title": "${blueprint.title || ''}",
-  "summary": "${blueprint.summary || ''}",
-  "description": "${(blueprint.description || '').replace(/\n/g, '\\n')}",
-  "rubric": ${JSON.stringify(blueprint.rubric || {})},
+  "title": "Judul dari blueprint",
+  "summary": "Ringkasan dari blueprint",
+  "description": "Deskripsi dari blueprint (Markdown dibolehkan)",
+  "rubric": {
+    "Kriteria 1": 40,
+    "Kriteria 2": 60
+  },
   "sections": [
     {
-      "title": "Tahap 1: Analisis",
-      "description": "Tahap awal pemahaman masalah",
+      "title": "Nama Tahap",
+      "description": "Deskripsi tahap",
       "components": [
         {
-          "type": "TEXT",
-          "question": "Jelaskan secara mendalam bagaimana Anda mengoptimasi X pada kasus Y dengan load Z.",
+          "type": "ESSAY",
+          "question": "Pertanyaan yang sangat mendalam terkait skenario...",
           "points": 50
         }
       ]
     }
   ]
-}
-Tipe komponen (type) yang valid adalah: MULTIPLE_CHOICE, ESSAY, FILE_UPLOAD, VIDEO_UPLOAD, URL_SUBMISSION, LIVE_CODING, TEXT. (Catatan: gunakan tipe yang sesuai).`;
+}`;
 
     if (this.gemini) {
       try {
