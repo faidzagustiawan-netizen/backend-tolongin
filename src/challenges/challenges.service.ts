@@ -391,6 +391,7 @@ export class ChallengesService {
       dto.category,
       dto.difficulty,
       company.companyName,
+      dto.previousBlueprint,
     );
 
     return blueprint;
@@ -410,6 +411,7 @@ export class ChallengesService {
       dto.category,
       dto.difficulty,
       'Komunitas / Public',
+      dto.previousBlueprint,
     );
 
     return blueprint;
@@ -421,7 +423,7 @@ export class ChallengesService {
     dto: GenerateAiChallengeDto
   ) {
     try {
-      const aiContent = await this.aiService.generateChallengeContent(dto.blueprint);
+      const aiContent = await this.aiService.generateChallengeContent(dto.blueprint, dto.difficulty);
 
       await this.prisma.challenge.update({
         where: { id: challengeId },

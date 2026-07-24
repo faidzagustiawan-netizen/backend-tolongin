@@ -431,16 +431,20 @@ Berikan penilaian akhir berupa objek JSON dengan struktur persis berikut:
     category: string,
     difficulty: string,
     companyName: string,
+    previousBlueprint?: any,
   ): Promise<any> {
-    const prompt = `Anda adalah AI Technical Recruiter Senior. Buatlah KERANGKA (blueprint) studi kasus (challenge) rekrutmen IT berdasarkan kebutuhan berikut:
-Perusahaan: ${companyName}
-Kategori Pekerjaan: ${category}
-Tingkat Kesulitan: ${difficulty}
-Kebutuhan Khusus / Prompt: "${promptStr}"
+    const baseInstruction = previousBlueprint 
+      ? `Anda adalah AI Technical Recruiter Senior. Pengguna (user) ingin MEREVISI blueprint kerangka studi kasus yang sudah ada. Berikan Blueprint baru berdasarkan masukan berikut.\n\nBlueprint Sebelumnya:\n${JSON.stringify(previousBlueprint, null, 2)}\n\nMasukan Revisi (Prompt): "${promptStr}"`
+      : `Anda adalah AI Technical Recruiter Senior. Buatlah KERANGKA (blueprint) studi kasus (challenge) rekrutmen IT berdasarkan kebutuhan berikut:\nPerusahaan: ${companyName}\nKategori Pekerjaan: ${category}\nTingkat Kesulitan: ${difficulty}\nKebutuhan Khusus / Prompt: "${promptStr}"`;
+
+    const prompt = `${baseInstruction}
 
 Fokuslah pada skenario, objektif, dan silabus (tanpa membuat detail soal kodenya).
-Berikan respons dalam format JSON persis dengan struktur ini:
+Lakukan penalaran (Chain-of-Thought) terlebih dahulu. Pikirkan secara mendalam tentang skenario bisnis, kesulitan, dan apa saja yang diuji sebelum merancang struktur blueprint.
+
+Berikan respons HANYA dalam format JSON persis dengan struktur ini:
 {
+  "reasoning": "Analisis mendalam mengapa blueprint ini dirancang seperti ini dan bagaimana ini menguji kompetensi yang relevan dengan perusahaan/masukan.",
   "title": "Judul studi kasus yang menarik dan profesional (maks 60 karakter)",
   "summary": "Ringkasan singkat tentang tantangan ini (maks 150 karakter)",
   "description": "Deskripsi rinci menggunakan format Markdown (### Latar Belakang Bisnis, ### Objektif & Target, ### Batasan & Persyaratan)",
@@ -507,6 +511,7 @@ Berikan respons dalam format JSON persis dengan struktur ini:
 
   async generateChallengeContent(
     blueprint: any,
+    difficulty?: string,
   ): Promise<{
     title: string;
     summary: string;
@@ -516,20 +521,28 @@ Berikan respons dalam format JSON persis dengan struktur ini:
     deadlineAt?: string;
     sections: any[];
   }> {
-    const prompt = `Anda adalah AI Technical Assessor Master. Anda diberikan sebuah blueprint kerangka studi kasus rekrutmen. Tugas Anda adalah mengembangkan blueprint tersebut menjadi sekumpulan soal teknis (components) yang SANGAT KOMPREHENSIF, MENDALAM, SULIT, dan MENGUJI EDGE-CASES.
+    const difficultyInstruction = difficulty === 'ADVANCED' 
+      ? 'Level: ADVANCED. Buat soal SANGAT SULIT SEKALI, menguji edge-cases ekstrem, optimasi kompleks, dan problem-solving tingkat arsitek senior.' 
+      : (difficulty === 'INTERMEDIATE' ? 'Level: INTERMEDIATE. Buat soal dengan kesulitan menengah, menguji best-practice dan integrasi tingkat menengah.' : 'Level: BEGINNER. Buat soal yang fundamental namun praktikal.');
+
+    const prompt = `Anda adalah AI Technical Assessor Master. Anda diberikan sebuah blueprint kerangka studi kasus rekrutmen. Tugas Anda adalah mengembangkan blueprint tersebut menjadi sekumpulan soal teknis (components) yang SANGAT KOMPREHENSIF dan MENDALAM.
+
+${difficultyInstruction}
 
 Blueprint Awal:
 ${JSON.stringify(blueprint, null, 2)}
 
 INSTRUKSI WAJIB:
 1. PENTING: Kembangkan "sections_outline" dari blueprint menjadi "sections" yang berisi daftar pertanyaan aktual ("components").
-2. WAJIB membuat minimal 1 hingga 3 soal (components) di dalam setiap section. Uji kemampuan kandidat dalam memecahkan masalah nyata, optimasi performa, atau bug-fixing yang kompleks. JANGAN PERNAH memberikan array components yang kosong!
-3. WAJIB lengkapi atau buat "rubric" (Kriteria dan Bobot Penilaian) secara proporsional.
-4. Total points dari seluruh components HARUS relevan dengan skala penilaian.
-5. Tipe komponen (type) yang valid adalah: MULTIPLE_CHOICE, ESSAY, FILE_UPLOAD, VIDEO_UPLOAD, URL_SUBMISSION, LIVE_CODING.
+2. Lakukan penalaran (Chain-of-Thought) terlebih dahulu. Analisis objektif dari section tersebut, lalu tentukan tipe soal apa yang PALING RELEVAN dan MENDALAM.
+3. Anda BEBAS memilih tipe soal (ESSAY, MULTIPLE_CHOICE, LIVE_CODING, FILE_UPLOAD, VIDEO_UPLOAD, URL_SUBMISSION) secara organik sesuai dengan skenario. JANGAN PERNAH memberikan array components yang kosong.
+4. Jika menggunakan MULTIPLE_CHOICE, sediakan array 'options' dengan jawaban yang menjebak. Jika LIVE_CODING, berikan starter code.
+5. WAJIB lengkapi atau buat "rubric" (Kriteria dan Bobot Penilaian) secara proporsional.
+6. Total points dari seluruh components HARUS relevan dengan skala penilaian.
 
 Berikan respons HANYA dalam format JSON dengan struktur ini (tanpa markdown blok):
 {
+  "reasoning": "Analisis mendalam mengapa soal-soal ini dibuat, mengapa tipe komponen ini dipilih, dan bagaimana ini secara efektif menguji kompetensi sesuai blueprint.",
   "title": "Judul dari blueprint",
   "summary": "Ringkasan dari blueprint",
   "description": "Deskripsi dari blueprint (Markdown dibolehkan)",

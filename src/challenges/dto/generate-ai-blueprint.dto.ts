@@ -1,4 +1,4 @@
-import { IsEnum, IsNotEmpty, IsString } from 'class-validator';
+import { IsEnum, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 import { ChallengeCategory, ChallengeDifficulty } from '@prisma/client';
 
 export class GenerateAiBlueprintDto {
@@ -11,4 +11,7 @@ export class GenerateAiBlueprintDto {
 
   @IsEnum(ChallengeDifficulty)
   difficulty: ChallengeDifficulty;
+
+  @IsOptional()
+  previousBlueprint?: any;
 }
