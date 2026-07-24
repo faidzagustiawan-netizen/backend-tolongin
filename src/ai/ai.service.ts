@@ -234,7 +234,7 @@ Berikan penilaian akhir berupa objek JSON dengan struktur persis berikut:
     if (this.gemini) {
       try {
         const model = this.gemini.getGenerativeModel({
-          model: 'gemini-1.5-flash-latest',
+          model: 'gemini-1.5-flash',
           generationConfig: { responseMimeType: 'application/json' },
         });
 
@@ -361,7 +361,7 @@ Berikan penilaian akhir berupa objek JSON dengan struktur persis berikut:
     if (this.gemini) {
       try {
         const model = this.gemini.getGenerativeModel({
-          model: 'gemini-1.5-flash-latest',
+          model: 'gemini-1.5-flash',
           generationConfig: { responseMimeType: 'application/json' },
         });
 
@@ -461,7 +461,7 @@ Berikan respons dalam format JSON persis dengan struktur ini:
     if (this.gemini) {
       try {
         const model = this.gemini.getGenerativeModel({
-          model: 'gemini-1.5-flash-latest',
+          model: 'gemini-1.5-flash',
           generationConfig: { responseMimeType: 'application/json' },
         });
 
@@ -547,7 +547,7 @@ Tipe komponen (type) yang valid adalah: MULTIPLE_CHOICE, ESSAY, FILE_UPLOAD, VID
     if (this.gemini) {
       try {
         const model = this.gemini.getGenerativeModel({
-          model: 'gemini-1.5-flash-latest',
+          model: 'gemini-1.5-flash',
           generationConfig: { responseMimeType: 'application/json' },
         });
 
@@ -673,7 +673,7 @@ Berikan hasil akhir dalam format JSON persis dengan struktur berikut:
     if (this.gemini) {
       try {
         const model = this.gemini.getGenerativeModel({
-          model: 'gemini-1.5-flash-latest',
+          model: 'gemini-1.5-flash',
           generationConfig: { responseMimeType: 'application/json' },
         });
 

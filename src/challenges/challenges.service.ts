@@ -447,8 +447,11 @@ export class ChallengesService {
       dto.blueprint
     );
 
+    const challengeId = crypto.randomUUID();
+
     const newChallenge = await this.prisma.challenge.create({
       data: {
+        id: challengeId,
         companyId,
         title: aiContent.title,
         slug: this.generateSlug(aiContent.title),
@@ -477,6 +480,7 @@ export class ChallengesService {
                     s.components && s.components.length > 0
                       ? {
                           create: s.components.map((c: any, cIdx: number) => ({
+                            challengeId: challengeId,
                             type: c.type || 'TEXT',
                             question: c.question,
                             points: c.points ?? 10,
