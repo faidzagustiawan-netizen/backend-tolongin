@@ -441,6 +441,7 @@ Berikan penilaian akhir berupa objek JSON dengan struktur persis berikut:
 
 Fokuslah pada skenario, objektif, dan silabus (tanpa membuat detail soal kodenya).
 Lakukan penalaran (Chain-of-Thought) terlebih dahulu. Pikirkan secara mendalam tentang skenario bisnis, kesulitan, dan apa saja yang diuji sebelum merancang struktur blueprint.
+PENTING: Seluruh teks (title, summary, description, sections_outline, reasoning, dll) WAJIB dalam Bahasa Indonesia.
 PENTING: Deskripsi setiap 'sections_outline' WAJIB detail (3-5 kalimat) menjelaskan tugas kandidat dan metrik tahap tersebut. 
 PENTING: Jika prompt mengimplikasikan adanya data eksternal (dataset, dokumentasi, UI design) masukkan ke dalam array 'requiredAssets'.
 
