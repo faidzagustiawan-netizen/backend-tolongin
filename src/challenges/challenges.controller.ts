@@ -19,6 +19,7 @@ import {
 import { ChallengesService } from './challenges.service';
 import { CreateChallengeDto } from './dto/create-challenge.dto';
 import { GenerateAiChallengeDto } from './dto/generate-ai-challenge.dto';
+import { GenerateAiBlueprintDto } from './dto/generate-ai-blueprint.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -149,7 +150,35 @@ export class ChallengesController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
     summary:
-      'Membuat studi kasus otomatis menggunakan AI Generatif (Prompt-to-Challenge)',
+      'Fase 1: Membuat kerangka (blueprint) studi kasus otomatis menggunakan AI',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Blueprint studi kasus berhasil dirumuskan oleh AI.',
+  })
+  @ApiResponse({ status: 403, description: 'Akses ditolak.' })
+  @UseGuards(JwtAuthGuard, RolesGuard, VerifiedCompanyGuard)
+  @Roles(Role.COMPANY, Role.ADMIN, Role.TALENT)
+  @Post('ai-generate-blueprint')
+  async generateAiBlueprint(
+    @Request() req: any,
+    @Body() dto: GenerateAiBlueprintDto,
+  ) {
+    if (req.user.role === Role.TALENT) {
+      return this.challengesService.generateAiPublicBlueprint(
+        req.user.sub,
+        dto,
+      );
+    } else {
+      const companyId = req.user.profileId;
+      return this.challengesService.generateAiBlueprint(companyId, dto);
+    }
+  }
+
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary:
+      'Fase 2: Menyelesaikan pembuatan studi kasus berdasarkan blueprint yang disetujui',
   })
   @ApiResponse({
     status: 201,

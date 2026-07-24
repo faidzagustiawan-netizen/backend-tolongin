@@ -11,6 +11,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { CompaniesService } from '../companies/companies.service';
 import { CreateChallengeDto } from './dto/create-challenge.dto';
 import { GenerateAiChallengeDto } from './dto/generate-ai-challenge.dto';
+import { GenerateAiBlueprintDto } from './dto/generate-ai-blueprint.dto';
 import {
   ChallengeCategory,
   ChallengeDifficulty,
@@ -357,6 +358,63 @@ export class ChallengesService {
     return challenge;
   }
 
+  async generateAiBlueprint(companyId: string, dto: GenerateAiBlueprintDto) {
+    const company = await this.prisma.companyProfile.findUnique({
+      where: { id: companyId },
+    });
+
+    if (!company) {
+      throw new NotFoundException('Profil Perusahaan tidak ditemukan');
+    }
+
+    if (company.subscriptionTier === 'STARTUP') {
+      throw new ForbiddenException(
+        'Fitur AI Generator dikunci pada Paket Murah. Silakan tingkatkan langganan Anda.',
+      );
+    }
+
+    const activeCount = await this.prisma.challenge.count({
+      where: {
+        companyId,
+        status: { in: [ChallengeStatus.DRAFT, ChallengeStatus.PUBLISHED] },
+      },
+    });
+
+    if (company.subscriptionTier === 'KONGLOMERAT' && activeCount >= 5) {
+      throw new ForbiddenException(
+        'Paket Pro hanya mengizinkan 5 studi kasus aktif/draf. Silakan tingkatkan langganan Anda.',
+      );
+    }
+
+    const blueprint = await this.aiService.generateChallengeBlueprint(
+      dto.prompt,
+      dto.category,
+      dto.difficulty,
+      company.companyName,
+    );
+
+    return blueprint;
+  }
+
+  async generateAiPublicBlueprint(userId: string, dto: GenerateAiBlueprintDto) {
+    const talent = await this.prisma.talentProfile.findUnique({
+      where: { userId },
+    });
+
+    if (!talent) {
+      throw new NotFoundException('Profil Talenta tidak ditemukan');
+    }
+
+    const blueprint = await this.aiService.generateChallengeBlueprint(
+      dto.prompt,
+      dto.category,
+      dto.difficulty,
+      'Komunitas / Public',
+    );
+
+    return blueprint;
+  }
+
   async generateAiChallenge(companyId: string, dto: GenerateAiChallengeDto) {
     const company = await this.prisma.companyProfile.findUnique({
       where: { id: companyId },
@@ -386,10 +444,7 @@ export class ChallengesService {
     }
 
     const aiContent = await this.aiService.generateChallengeContent(
-      dto.prompt,
-      dto.category,
-      dto.difficulty,
-      company.companyName,
+      dto.blueprint
     );
 
     const newChallenge = await this.prisma.challenge.create({
@@ -440,7 +495,7 @@ export class ChallengesService {
         userId: company.userId,
         title: 'Draft AI Selesai',
         content: `Sistem AI telah selesai membuat draf studi kasus "${newChallenge.title}". Silakan periksa dan terbitkan.`,
-        linkUrl: `/workspace/edit/${newChallenge.id}`,
+        linkUrl: `/challenges/${newChallenge.id}/edit`,
       },
     });
 
@@ -466,10 +521,7 @@ export class ChallengesService {
     }
 
     const aiContent = await this.aiService.generateChallengeContent(
-      dto.prompt,
-      dto.category,
-      dto.difficulty,
-      'Komunitas / Public',
+      dto.blueprint
     );
 
     const newChallenge = await this.prisma.challenge.create({
@@ -520,7 +572,7 @@ export class ChallengesService {
         userId: talent.userId,
         title: 'Draft AI Selesai',
         content: `Sistem AI telah selesai membuat draf Public Challenge "${newChallenge.title}". Silakan periksa dan terbitkan.`,
-        linkUrl: `/workspace/edit/${newChallenge.id}`,
+        linkUrl: `/challenges/${newChallenge.id}/edit`,
       },
     });
 

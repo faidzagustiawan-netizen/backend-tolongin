@@ -55,7 +55,10 @@ export class AiService {
     // 2. Inisialisasi OpenAI Client (Sebagai fallback sekunder)
     const apiKey = this.configService.get<string>('OPENAI_API_KEY');
     if (apiKey && !apiKey.startsWith('sk-mock-')) {
-      this.openai = new OpenAI({ apiKey });
+      this.openai = new OpenAI({ 
+        apiKey,
+        baseURL: 'https://ai.sumopod.com/v1'
+      });
       this.logger.log(
         'OpenAI Client berhasil diinisialisasi sebagai mesin evaluasi cadangan.',
       );
@@ -423,26 +426,19 @@ Berikan penilaian akhir berupa objek JSON dengan struktur persis berikut:
     throw new Error('AI_EVALUATION_FAILED');
   }
 
-  async generateChallengeContent(
+  async generateChallengeBlueprint(
     promptStr: string,
     category: string,
     difficulty: string,
     companyName: string,
-  ): Promise<{
-    title: string;
-    summary: string;
-    description: string;
-    rubric: Record<string, number>;
-    startsAt?: string;
-    deadlineAt?: string;
-    sections: any[];
-  }> {
-    const prompt = `Anda adalah AI Technical Recruiter Senior. Buatlah rancangan studi kasus (challenge) rekrutmen IT berdasarkan kebutuhan berikut:
+  ): Promise<any> {
+    const prompt = `Anda adalah AI Technical Recruiter Senior. Buatlah KERANGKA (blueprint) studi kasus (challenge) rekrutmen IT berdasarkan kebutuhan berikut:
 Perusahaan: ${companyName}
 Kategori Pekerjaan: ${category}
 Tingkat Kesulitan: ${difficulty}
 Kebutuhan Khusus / Prompt: "${promptStr}"
 
+Fokuslah pada skenario, objektif, dan silabus (tanpa membuat detail soal kodenya).
 Berikan respons dalam format JSON persis dengan struktur ini:
 {
   "title": "Judul studi kasus yang menarik dan profesional (maks 60 karakter)",
@@ -453,8 +449,85 @@ Berikan respons dalam format JSON persis dengan struktur ini:
     "kriteria_2": 30,
     "kriteria_3": 30
   },
-  "startsAt": "YYYY-MM-DDTHH:mm:ssZ (Opsional, waktu mulai challenge)",
-  "deadlineAt": "YYYY-MM-DDTHH:mm:ssZ (Opsional, batas waktu challenge)",
+  "sections_outline": [
+    {
+      "title": "Tahap 1: Analisis",
+      "description": "Tahap awal pemahaman masalah",
+      "competencies": ["Sistem Arsitektur", "Database Design"]
+    }
+  ]
+}`;
+
+    if (this.gemini) {
+      try {
+        const model = this.gemini.getGenerativeModel({
+          model: 'gemini-1.5-flash-latest',
+          generationConfig: { responseMimeType: 'application/json' },
+        });
+
+        const result = await model.generateContent(prompt);
+        const resultJson = JSON.parse(result.response.text());
+        this.logger.log(`Berhasil men-generate blueprint via Gemini.`);
+        return resultJson;
+      } catch (geminiErr: any) {
+        this.logger.error(
+          'Gemini generate blueprint gagal: ' + geminiErr.message,
+        );
+      }
+    }
+
+    if (this.openai) {
+      try {
+        const response = await this.openai.chat.completions.create({
+          model: 'gpt-4o',
+          messages: [{ role: 'system', content: prompt }],
+          response_format: { type: 'json_object' },
+        });
+
+        const resultJson = JSON.parse(
+          response.choices[0].message.content || '{}',
+        );
+        this.logger.log(`Berhasil men-generate blueprint via OpenAI.`);
+        return resultJson;
+      } catch (error: any) {
+        this.logger.error('OpenAI generate blueprint gagal: ' + error.message);
+      }
+    }
+
+    return {
+      title: `Draft: ${category} - ${difficulty}`,
+      summary: `Kerangka studi kasus untuk ${category}`,
+      description: `### Latar Belakang\nDraft blueprint.`,
+      rubric: { code: 50, logic: 50 },
+      sections_outline: [
+        { title: 'Bagian Utama', description: 'Deskripsi bagian', competencies: ['Coding'] }
+      ]
+    };
+  }
+
+  async generateChallengeContent(
+    blueprint: any,
+  ): Promise<{
+    title: string;
+    summary: string;
+    description: string;
+    rubric: Record<string, number>;
+    startsAt?: string;
+    deadlineAt?: string;
+    sections: any[];
+  }> {
+    const prompt = `Anda adalah AI Technical Assessor Master. Anda diberikan sebuah blueprint kerangka studi kasus rekrutmen. Tugas Anda adalah mengembangkan blueprint tersebut menjadi sekumpulan soal teknis (components) yang SANGAT KOMPREHENSIF, MENDALAM, SULIT, dan MENGUJI EDGE-CASES.
+
+Blueprint:
+${JSON.stringify(blueprint, null, 2)}
+
+Buatlah soal yang jauh lebih dalam dari sekadar teori dasar. Uji kemampuan kandidat dalam memecahkan masalah nyata, optimasi performa, atau bug-fixing yang kompleks.
+Berikan respons dalam format JSON persis dengan struktur ini:
+{
+  "title": "${blueprint.title || ''}",
+  "summary": "${blueprint.summary || ''}",
+  "description": "${(blueprint.description || '').replace(/\n/g, '\\n')}",
+  "rubric": ${JSON.stringify(blueprint.rubric || {})},
   "sections": [
     {
       "title": "Tahap 1: Analisis",
@@ -462,20 +535,14 @@ Berikan respons dalam format JSON persis dengan struktur ini:
       "components": [
         {
           "type": "TEXT",
-          "question": "Jelaskan arsitektur yang akan Anda gunakan.",
-          "points": 50
-        },
-        {
-          "type": "URL",
-          "question": "Kirimkan link repositori GitHub Anda.",
+          "question": "Jelaskan secara mendalam bagaimana Anda mengoptimasi X pada kasus Y dengan load Z.",
           "points": 50
         }
       ]
     }
   ]
 }
-Pastikan total nilai pada rubric persis 100.
-Tipe komponen yang valid (type) adalah: MULTIPLE_CHOICE, ESSAY, FILE_UPLOAD, VIDEO_UPLOAD, URL_SUBMISSION, LIVE_CODING, TEXT. (Catatan: gunakan tipe yang sesuai dengan Prisma schema, misalnya ESSAY atau URL_SUBMISSION).`;
+Tipe komponen (type) yang valid adalah: MULTIPLE_CHOICE, ESSAY, FILE_UPLOAD, VIDEO_UPLOAD, URL_SUBMISSION, LIVE_CODING, TEXT. (Catatan: gunakan tipe yang sesuai).`;
 
     if (this.gemini) {
       try {
@@ -515,16 +582,10 @@ Tipe komponen yang valid (type) adalah: MULTIPLE_CHOICE, ESSAY, FILE_UPLOAD, VID
 
     // Deterministic fallback if API fails
     return {
-      title: `Studi Kasus Otomatis: ${category} - ${difficulty}`,
-      summary: `Tantangan penyelesaian studi kasus otomatis untuk menguji keahlian ${difficulty} di bidang ${category}. Berdasarkan kebutuhan: "${promptStr}".`,
-      description: `### Latar Belakang Bisnis\n${companyName} sedang menghadapi tantangan terkait: ${promptStr}.\n\n### Objektif & Target\nKandidat diharapkan mampu merancang dan mendemonstrasikan solusi nyata yang efisien, skalabel, dan siap diimplementasikan.\n\n### Batasan & Persyaratan\n- Harus mengikuti arsitektur modern.\n- Performa tinggi dengan latensi minimal.\n- Kode terdokumentasi dengan baik.`,
-      rubric: {
-        code_architecture: 40,
-        problem_solving: 35,
-        system_scalability: 25,
-      },
-      startsAt: new Date().toISOString(),
-      deadlineAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      title: blueprint.title,
+      summary: blueprint.summary,
+      description: blueprint.description,
+      rubric: blueprint.rubric,
       sections: [
         {
           title: 'Bagian Utama',
@@ -534,13 +595,7 @@ Tipe komponen yang valid (type) adalah: MULTIPLE_CHOICE, ESSAY, FILE_UPLOAD, VID
               type: 'URL_SUBMISSION',
               question:
                 'Kirimkan tautan repositori GitHub Anda yang berisi solusi teknis.',
-              points: 50,
-            },
-            {
-              type: 'ESSAY',
-              question:
-                'Jelaskan cara Anda merancang skema database untuk proyek ini.',
-              points: 50,
+              points: 100,
             },
           ],
         },
