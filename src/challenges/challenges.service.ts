@@ -443,13 +443,21 @@ export class ChallengesService {
                   order: sIdx,
                   components: s.components && s.components.length > 0
                     ? {
-                        create: s.components.map((c: any, cIdx: number) => ({
-                          challengeId: challengeId,
-                          type: c.type === 'TEXT' ? 'ESSAY' : (c.type || 'ESSAY'),
-                          question: c.question,
-                          points: c.points ?? 10,
-                          order: cIdx,
-                        })),
+                        create: s.components.map((c: any, cIdx: number) => {
+                          let mappedType = c.type === 'TEXT' ? 'ESSAY' : (c.type || 'ESSAY');
+                          if (mappedType === 'VIDEO_RECORDING') mappedType = 'VIDEO_UPLOAD';
+                          if (mappedType === 'URL_LINK') mappedType = 'URL_SUBMISSION';
+
+                          return {
+                            challengeId: challengeId,
+                            type: mappedType,
+                            question: c.question,
+                            points: c.points ?? 10,
+                            order: cIdx,
+                            options: c.options || undefined,
+                            metadata: (c.language || c.starterCode) ? { language: c.language, starterCode: c.starterCode } : undefined,
+                          };
+                        }),
                       }
                     : undefined,
                 })),

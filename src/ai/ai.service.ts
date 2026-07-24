@@ -531,6 +531,8 @@ Berikan respons HANYA dalam format JSON persis dengan struktur ini:
 
     const prompt = `Anda adalah AI Technical Assessor Master. Anda diberikan sebuah blueprint kerangka studi kasus rekrutmen. Tugas Anda adalah mengembangkan blueprint tersebut menjadi sekumpulan soal teknis (components) yang SANGAT KOMPREHENSIF dan MENDALAM.
 
+PENTING: Seluruh teks (title, summary, description, sections_outline, reasoning, dll) WAJIB dalam Bahasa Indonesia.
+
 ${difficultyInstruction}
 
 Blueprint Awal:
@@ -540,9 +542,11 @@ INSTRUKSI WAJIB:
 1. PENTING: Kembangkan "sections_outline" dari blueprint menjadi "sections" yang berisi daftar pertanyaan aktual ("components").
 2. Lakukan penalaran (Chain-of-Thought) terlebih dahulu. Analisis objektif dari section tersebut, lalu tentukan tipe soal apa yang PALING RELEVAN dan MENDALAM.
 3. Anda BEBAS memilih tipe soal (ESSAY, MULTIPLE_CHOICE, LIVE_CODING, FILE_UPLOAD, VIDEO_UPLOAD, URL_SUBMISSION) secara organik sesuai dengan skenario. JANGAN PERNAH memberikan array components yang kosong.
-4. Jika menggunakan MULTIPLE_CHOICE, sediakan array 'options' dengan jawaban yang menjebak. Jika LIVE_CODING, berikan starter code.
-5. WAJIB lengkapi atau buat "rubric" (Kriteria dan Bobot Penilaian) secara proporsional.
-6. Total points dari seluruh components HARUS relevan dengan skala penilaian.
+4. PENTING TENTANG LIVE_CODING vs MACHINE LEARNING: Fitur LIVE_CODING hanya untuk algoritma dasar satu file. Jika tantangannya melibatkan Machine Learning, Jupyter Notebook, Dataset CSV, atau library berat (XGBoost, Scikit-Learn, dll), JANGAN gunakan LIVE_CODING. Wajib gunakan FILE_UPLOAD (upload .ipynb) atau URL_SUBMISSION (link Google Colab/Github).
+5. Jika menggunakan MULTIPLE_CHOICE, sediakan array 'options' yang berisi objek jawaban: [{ "id": "A", "text": "opsi 1", "isCorrect": false }, ...]. Pastikan salah satu bernilai true.
+6. Jika menggunakan LIVE_CODING, WAJIB isi property 'language' (contoh: "python", "javascript") dan 'starterCode' (kode awal).
+7. WAJIB lengkapi atau buat "rubric" (Kriteria dan Bobot Penilaian) secara proporsional.
+8. Total points dari seluruh components HARUS relevan dengan skala penilaian.
 
 Berikan respons HANYA dalam format JSON dengan struktur ini (tanpa markdown blok):
 {
@@ -563,6 +567,22 @@ Berikan respons HANYA dalam format JSON dengan struktur ini (tanpa markdown blok
           "type": "ESSAY",
           "question": "Pertanyaan yang sangat mendalam terkait skenario...",
           "points": 50
+        },
+        {
+          "type": "MULTIPLE_CHOICE",
+          "question": "Pertanyaan pilihan ganda...",
+          "points": 10,
+          "options": [
+            { "id": "A", "text": "Jawaban A", "isCorrect": true },
+            { "id": "B", "text": "Jawaban B", "isCorrect": false }
+          ]
+        },
+        {
+          "type": "LIVE_CODING",
+          "question": "Buat fungsi XYZ",
+          "points": 30,
+          "language": "python",
+          "starterCode": "def xyz():\\n  pass"
         }
       ]
     }
