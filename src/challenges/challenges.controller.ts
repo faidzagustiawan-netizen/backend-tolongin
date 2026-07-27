@@ -62,22 +62,48 @@ export class ChallengesController {
     required: false,
     description: 'Filter berdasarkan ID perusahaan',
   })
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    description: 'Halaman (mulai dari 1)',
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    description: 'Jumlah item per halaman (maks 100, default 24)',
+  })
   @ApiResponse({ status: 200, description: 'Daftar challenge aktif.' })
+  // Guard opsional: tamu tetap boleh melihat daftar publik, tetapi identitas
+  // pemanggil yang membawa token dipakai untuk memutuskan apakah challenge
+  // privat/draft miliknya boleh ikut ditampilkan.
+  @UseGuards(OptionalJwtAuthGuard)
   @Get()
   async findAll(
-    @Query('category') category?: ChallengeCategory,
-    @Query('difficulty') difficulty?: ChallengeDifficulty,
+    @Request() req: any,
+    @Query('category') category?: string,
+    @Query('difficulty') difficulty?: string,
+    @Query('challengeType') challengeType?: string,
     @Query('search') search?: string,
     @Query('companyId') companyId?: string,
     @Query('includeDrafts') includeDrafts?: string,
+    @Query('sort') sort?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
   ) {
-    return this.challengesService.findAll({
-      category,
-      difficulty,
-      search,
-      companyId,
-      includeDrafts,
-    });
+    return this.challengesService.findAll(
+      {
+        category,
+        difficulty,
+        challengeType,
+        search,
+        companyId,
+        includeDrafts,
+        sort,
+        page: page ? Number(page) : undefined,
+        limit: limit ? Number(limit) : undefined,
+      },
+      req.user,
+    );
   }
 
   @ApiOperation({

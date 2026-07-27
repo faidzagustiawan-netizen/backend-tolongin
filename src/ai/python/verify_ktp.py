@@ -19,6 +19,76 @@ def resize_image_if_needed(img_path, max_dim=1024):
         img_resized = cv2.resize(img, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
         cv2.imwrite(img_path, img_resized)
 
+def build_reader():
+    """
+    Membuat pembaca EasyOCR.
+
+    Pemuatan model berlangsung beberapa detik, jadi pemanggil yang berumur
+    panjang (face_worker.py) membuatnya sekali lalu mengoperkannya ke setiap
+    permintaan lewat parameter `reader` di analyze_ktp_image.
+    """
+    import easyocr  # type: ignore
+    return easyocr.Reader(['id', 'en'], gpu=False)
+
+
+def analyze_ktp_image(k_path, reader=None):
+    """
+    Menjalankan OCR pada berkas KTP dan mengembalikan dict hasil.
+
+    Dipisahkan dari main() agar bisa dipakai ulang oleh worker persisten tanpa
+    memuat ulang model OCR pada setiap panggilan.
+    """
+    result = {
+        "isKtpValid": False,
+        "ktpNik": None,
+        "ktpName": None,
+        "reason": ""
+    }
+
+    resize_image_if_needed(k_path, max_dim=1200)  # Slightly larger for OCR
+
+    if reader is None:
+        reader = build_reader()
+
+    detections = reader.readtext(k_path, detail=0)
+    full_text = " ".join(detections)
+
+    cleaned_text = full_text.upper().replace(" ", "")
+    cleaned_text = cleaned_text.replace("O", "0").replace("I", "1").replace("L", "1").replace("S", "5").replace("B", "8").replace("D", "0")
+
+    ocr_nik = None
+    ocr_name = None
+
+    nik_match = re.search(r'\d{16}', cleaned_text)
+    if nik_match:
+        ocr_nik = nik_match.group(0)
+    else:
+        nums = re.findall(r'\d+', cleaned_text)
+        for n in nums:
+            if len(n) >= 16:
+                ocr_nik = n[:16]
+                break
+
+    for line in detections:
+        if "NAMA" in line.upper():
+            ocr_name = line.replace("NAMA", "").replace("Nama", "").replace(":", "").strip()
+            break
+    if not ocr_name and len(detections) > 2:
+        ocr_name = detections[2]
+
+    is_ktp_valid = bool(ocr_nik)
+    if not is_ktp_valid:
+        result["reason"] = "Verifikasi Gagal: NIK KTP resmi 16-digit tidak terdeteksi pada foto KTP yang diunggah. Pastikan KTP asli, difoto lurus, dan tidak buram."
+    else:
+        result["reason"] = "OCR KTP Sukses."
+
+    result["isKtpValid"] = is_ktp_valid
+    result["ktpNik"] = ocr_nik
+    result["ktpName"] = ocr_name if ocr_name else ("Kandidat Terverifikasi" if is_ktp_valid else None)
+
+    return result
+
+
 def main():
     try:
         input_data = sys.stdin.read()
@@ -28,13 +98,6 @@ def main():
 
         payload = json.loads(input_data)
         ktp_b64 = payload.get("idCardPhotoUrl", "")
-
-        result = {
-            "isKtpValid": False,
-            "ktpNik": None,
-            "ktpName": None,
-            "reason": ""
-        }
 
         clean_ktp = ktp_b64.split(",")[-1].strip()
         clean_ktp += "=" * ((4 - len(clean_ktp) % 4) % 4)
@@ -48,45 +111,7 @@ def main():
             if img_k is None:
                 raise ValueError(f"OpenCV gagal membaca file KTP. Base64 info: len={len(ktp_b64)}, start={ktp_b64[:30]}")
 
-            resize_image_if_needed(k_path, max_dim=1200) # Slightly larger for OCR
-
-            import easyocr  # type: ignore
-            reader = easyocr.Reader(['id', 'en'], gpu=False)
-            detections = reader.readtext(k_path, detail=0)
-            full_text = " ".join(detections)
-            
-            cleaned_text = full_text.upper().replace(" ", "")
-            cleaned_text = cleaned_text.replace("O", "0").replace("I", "1").replace("L", "1").replace("S", "5").replace("B", "8").replace("D", "0")
-            
-            ocr_nik = None
-            ocr_name = None
-
-            nik_match = re.search(r'\d{16}', cleaned_text)
-            if nik_match:
-                ocr_nik = nik_match.group(0)
-            else:
-                nums = re.findall(r'\d+', cleaned_text)
-                for n in nums:
-                    if len(n) >= 16:
-                        ocr_nik = n[:16]
-                        break
-
-            for line in detections:
-                if "NAMA" in line.upper():
-                    ocr_name = line.replace("NAMA", "").replace("Nama", "").replace(":", "").strip()
-                    break
-            if not ocr_name and len(detections) > 2:
-                ocr_name = detections[2]
-
-            is_ktp_valid = bool(ocr_nik)
-            if not is_ktp_valid:
-                result["reason"] = "Verifikasi Gagal: NIK KTP resmi 16-digit tidak terdeteksi pada foto KTP yang diunggah. Pastikan KTP asli, difoto lurus, dan tidak buram."
-            else:
-                result["reason"] = "OCR KTP Sukses."
-
-            result["isKtpValid"] = is_ktp_valid
-            result["ktpNik"] = ocr_nik
-            result["ktpName"] = ocr_name if ocr_name else ("Kandidat Terverifikasi" if is_ktp_valid else None)
+            result = analyze_ktp_image(k_path)
 
         finally:
             if os.path.exists(k_path): os.remove(k_path)

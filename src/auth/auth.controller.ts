@@ -1,4 +1,5 @@
 import { Body, Controller, Post, HttpCode, HttpStatus } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { CreateUserDto } from '../users/dto/create-user.dto';
@@ -15,6 +16,8 @@ export class AuthController {
     description: 'Akun berhasil didaftarkan dan JWT diterbitkan.',
   })
   @ApiResponse({ status: 409, description: 'Email sudah terdaftar.' })
+  // Batas global 100/menit terlalu longgar untuk pembuatan akun massal.
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post('register')
   async register(@Body() createUserDto: CreateUserDto) {
     return this.authService.register(createUserDto);
@@ -25,6 +28,8 @@ export class AuthController {
     status: 201,
     description: 'Akun tim berhasil didaftarkan dan JWT diterbitkan.',
   })
+  // Dibatasi ketat agar kode undangan tidak bisa ditebak lewat percobaan beruntun.
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post('register-team')
   async registerTeam(
     @Body() createUserDto: CreateUserDto,
@@ -39,6 +44,8 @@ export class AuthController {
     status: 401,
     description: 'Kredensial salah atau tidak valid.',
   })
+  // Pertahanan utama terhadap penebakan kata sandi beruntun.
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @HttpCode(HttpStatus.OK)
   @Post('login')
   async login(@Body() loginDto: LoginDto) {

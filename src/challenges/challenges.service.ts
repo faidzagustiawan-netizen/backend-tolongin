@@ -240,34 +240,85 @@ export class ChallengesService {
     return newChallenge;
   }
 
-  async findAll(query: {
-    category?: ChallengeCategory;
-    difficulty?: ChallengeDifficulty;
-    search?: string;
-    companyId?: string;
-    includeDrafts?: string;
-  }) {
-    const where: Prisma.ChallengeWhereInput = {
-      isPrivate: false,
-    };
+  /**
+   * Menerima nilai enum tunggal atau daftar dipisah koma ("UI_UX,BACKEND").
+   * Nilai yang tidak dikenal dibuang diam-diam agar filter dari klien tidak
+   * bisa dipakai menyuntik kondisi yang tidak diharapkan.
+   */
+  private parseEnumList<T extends string>(
+    raw: string | undefined,
+    allowed: readonly T[],
+  ): T[] | undefined {
+    if (!raw) return undefined;
+    const values = raw
+      .split(',')
+      .map((v) => v.trim().toUpperCase())
+      .filter((v): v is T => (allowed as readonly string[]).includes(v));
+    return values.length > 0 ? values : undefined;
+  }
 
-    if (query.includeDrafts === 'true' && query.companyId) {
+  async findAll(
+    query: {
+      category?: string;
+      difficulty?: string;
+      challengeType?: string;
+      search?: string;
+      companyId?: string;
+      includeDrafts?: string;
+      sort?: string;
+      page?: number;
+      limit?: number;
+    },
+    requester?: { sub?: string; role?: Role; profileId?: string },
+  ) {
+    // Hanya pemilik perusahaan yang bersangkutan (atau admin) yang boleh melihat
+    // challenge privat dan draft. Tanpa pemeriksaan ini, siapa pun cukup
+    // menebak/menyalin companyId untuk membaca soal yang belum terbit.
+    const isAdmin = requester?.role === Role.ADMIN;
+    const isOwner =
+      !!query.companyId &&
+      !!requester?.profileId &&
+      requester.profileId === query.companyId;
+    const canSeeRestricted = isAdmin || isOwner;
+
+    const where: Prisma.ChallengeWhereInput = {};
+
+    if (!canSeeRestricted) {
+      where.isPrivate = false;
+    }
+
+    if (query.includeDrafts === 'true' && canSeeRestricted) {
       where.status = { in: [ChallengeStatus.PUBLISHED, ChallengeStatus.DRAFT] };
     } else {
       where.status = ChallengeStatus.PUBLISHED;
     }
 
-    if (query.category) {
-      where.category = query.category;
+    const categories = this.parseEnumList(
+      query.category,
+      Object.values(ChallengeCategory),
+    );
+    if (categories) {
+      where.category = { in: categories };
     }
 
-    if (query.difficulty) {
-      where.difficulty = query.difficulty;
+    const difficulties = this.parseEnumList(
+      query.difficulty,
+      Object.values(ChallengeDifficulty),
+    );
+    if (difficulties) {
+      where.difficulty = { in: difficulties };
+    }
+
+    const challengeTypes = this.parseEnumList(
+      query.challengeType,
+      Object.values(ChallengeType),
+    );
+    if (challengeTypes) {
+      where.challengeType = { in: challengeTypes };
     }
 
     if (query.companyId) {
       where.companyId = query.companyId;
-      delete where.isPrivate;
     }
 
     if (query.search) {
@@ -278,23 +329,52 @@ export class ChallengesService {
       ];
     }
 
-    return this.prisma.challenge.findMany({
-      where,
-      include: {
-        company: {
-          select: {
-            companyName: true,
-            logoUrl: true,
-            industry: true,
-            trustScore: true,
+    const page = Math.max(1, Number(query.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(query.limit) || 24));
+    const sortDirection: Prisma.SortOrder =
+      query.sort === 'TERLAMA' ? 'asc' : 'desc';
+
+    const [data, total] = await this.prisma.$transaction([
+      this.prisma.challenge.findMany({
+        where,
+        // Daftar sengaja tidak memuat description, gradingRubric,
+        // briefAttachments, dan aiPromptUsed: kolom-kolom itu berat dan hanya
+        // dibutuhkan di halaman detail.
+        select: {
+          id: true,
+          slug: true,
+          title: true,
+          summary: true,
+          category: true,
+          difficulty: true,
+          challengeType: true,
+          status: true,
+          isPrivate: true,
+          rewardDescription: true,
+          startsAt: true,
+          deadlineAt: true,
+          createdAt: true,
+          createdByAi: true,
+          company: {
+            select: {
+              companyName: true,
+              logoUrl: true,
+              industry: true,
+              trustScore: true,
+            },
+          },
+          creator: {
+            select: { fullName: true, avatarUrl: true },
           },
         },
-        creator: {
-          select: { fullName: true, avatarUrl: true },
-        },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+        orderBy: { createdAt: sortDirection },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.challenge.count({ where }),
+    ]);
+
+    return { data, total, page, limit };
   }
 
   async findOne(slugOrId: string, userReq?: any) {

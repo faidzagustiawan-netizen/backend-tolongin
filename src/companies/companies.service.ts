@@ -1,6 +1,32 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { ChallengeStatus } from '@prisma/client';
+import { ChallengeStatus, Prisma } from '@prisma/client';
+import * as crypto from 'crypto';
+
+/**
+ * Kolom yang aman ditampilkan ke publik.
+ * Sengaja memakai daftar putih, bukan mengecualikan kolom: setiap kolom baru
+ * di CompanyProfile harus lolos peninjauan sebelum ikut terekspos.
+ * Yang TIDAK boleh ikut: inviteCode (kunci gabung tim), userId (ID akun PIC),
+ * dan kybStatus (status internal verifikasi bisnis).
+ */
+const PUBLIC_COMPANY_SELECT = {
+  id: true,
+  slug: true,
+  companyName: true,
+  logoUrl: true,
+  description: true,
+  websiteUrl: true,
+  industry: true,
+  companySize: true,
+  location: true,
+  linkedinUrl: true,
+  trustScore: true,
+  subscriptionTier: true,
+  createdAt: true,
+} satisfies Prisma.CompanyProfileSelect;
+
+const INVITE_CODE_TTL_HOURS = 48;
 
 @Injectable()
 export class CompaniesService {
@@ -8,7 +34,8 @@ export class CompaniesService {
 
   async findAll() {
     return this.prisma.companyProfile.findMany({
-      include: {
+      select: {
+        ...PUBLIC_COMPANY_SELECT,
         _count: {
           select: { challenges: true },
         },
@@ -22,7 +49,8 @@ export class CompaniesService {
 
     const company = await this.prisma.companyProfile.findFirst({
       where: isUuid ? { id: idOrSlug } : { slug: idOrSlug },
-      include: {
+      select: {
+        ...PUBLIC_COMPANY_SELECT,
         challenges: {
           where: { isPrivate: false },
           orderBy: { createdAt: 'desc' },
@@ -78,14 +106,20 @@ export class CompaniesService {
   // --- Team Management & Audit Trail ---
 
   async generateInviteCode(companyId: string) {
-    const inviteCode = Math.random()
-      .toString(36)
-      .substring(2, 10)
-      .toUpperCase();
-    return this.prisma.companyProfile.update({
+    // Math.random() adalah PRNG non-kriptografis dan bisa diprediksi. Kode ini
+    // memberi akses penuh ke ruang kerja perusahaan, jadi wajib dari CSPRNG.
+    const inviteCode = crypto.randomBytes(16).toString('base64url').toUpperCase();
+    const inviteCodeExpiresAt = new Date(
+      Date.now() + INVITE_CODE_TTL_HOURS * 60 * 60 * 1000,
+    );
+
+    const updated = await this.prisma.companyProfile.update({
       where: { id: companyId },
-      data: { inviteCode },
+      data: { inviteCode, inviteCodeExpiresAt },
+      select: { id: true, inviteCode: true, inviteCodeExpiresAt: true },
     });
+
+    return updated;
   }
 
   async getTeamMembers(companyId: string) {

@@ -66,8 +66,30 @@ model TalentProfile {
   // AI Identity & Security
   faceVerificationStatus VerificationStatus @default(UNVERIFIED)
   ktpNik                 String?            @unique // Untuk memastikan 1 identitas KTP 1 akun
-  biometricDataHash      String?            @unique // Untuk verifikasi wajah anti-joki & memastikan 1 wajah 1 akun
-  biometricFeatureVector Json? // Vektor fitur biometrik 64-dimensi untuk deteksi real-time anti-joki
+  // Hash berkas selfie. Hanya menangkap unggahan gambar yang identik byte-per-byte,
+  // jadi perannya sebatas saringan awal yang murah. Pemeriksaan "1 wajah 1 akun"
+  // yang sebenarnya memakai biometricFeatureVector di bawah.
+  biometricDataHash      String?            @unique
+  // Embedding wajah Facenet 128 dimensi, sudah di-L2-normalize sehingga jarak
+  // cosine antar-baris sebanding. Ditulis HANYA oleh VerificationService dari
+  // selfie yang sudah ter-align dan cocok dengan KTP.
+  //
+  // Tipe `vector` berasal dari extension pgvector dan tidak dikenali Prisma
+  // Client — itu disengaja: kolom ini tidak boleh ikut terbawa ke respons API
+  // mana pun, dan seluruh akses dilakukan lewat $queryRaw di IdentityDedupeService.
+  biometricFeatureVector Unsupported("vector(128)")?
+
+  // Selfie atau KTP gagal diluruskan (wajah tidak terdeteksi). Verifikasi tetap
+  // bisa lolos dengan ambang lebih ketat, tetapi embedding-nya tidak disimpan
+  // karena tidak layak dijadikan acuan pembanding.
+  faceAlignmentDegraded  Boolean            @default(false)
+
+  // Hasil pemeriksaan duplikat wajah saat verifikasi.
+  needsIdentityReview    Boolean            @default(false)
+  duplicateCheckDistance Float?
+  duplicateCheckMatchId  String?
+  identityReviewedAt     DateTime?
+  identityReviewedBy     String?
 
   // Leaderboard & Demographics
   location     String?
@@ -96,6 +118,10 @@ model TalentProfile {
   experiences       Experience[]
   educations        Education[]
 
+  // Leaderboard mengurutkan berdasarkan XP menurun.
+  @@index([xp(sort: Desc)])
+  // Antrean tinjau identitas untuk admin.
+  @@index([needsIdentityReview])
   @@map("talent_profiles")
 }
 
@@ -177,7 +203,10 @@ model CompanyProfile {
 
   // Accountability & Team
   trustScore Int     @default(100)
-  inviteCode String? @unique
+  // Kode undangan sekali-pakai dan berumur pendek. Dikosongkan setelah dipakai
+  // atau setelah inviteCodeExpiresAt terlewat.
+  inviteCode           String?   @unique
+  inviteCodeExpiresAt  DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -186,6 +215,9 @@ model CompanyProfile {
   teamMembers  CompanyMember[]
   activityLogs CompanyActivityLog[]
 
+  // Direktori perusahaan diurutkan berdasarkan trustScore menurun.
+  @@index([trustScore(sort: Desc)])
+  @@index([subscriptionExpiresAt])
   @@map("company_profiles")
 }
 
@@ -294,6 +326,12 @@ model Challenge {
   components  ChallengeComponent[]
   sections    ChallengeSection[]
 
+  // Direktori publik selalu menyaring status + isPrivate lalu mengurutkan
+  // berdasarkan createdAt menurun.
+  @@index([status, isPrivate, createdAt(sort: Desc)])
+  @@index([companyId])
+  @@index([category])
+  @@index([difficulty])
   @@map("challenges")
 }
 
@@ -378,6 +416,8 @@ model ChallengeEnrollment {
   submissions Submission[]
 
   @@unique([talentId, challengeId])
+  @@index([talentId, updatedAt(sort: Desc)])
+  @@index([challengeId])
   @@map("challenge_enrollments")
 }
 
@@ -438,6 +478,13 @@ model Submission {
   portfolio          Portfolio?
   componentResponses ComponentResponse[]
 
+  // Cron evaluasi AI berjalan tiap 30 detik dan menyaring status PENDING_AI
+  // lalu mengurutkan createdAt menaik. Tanpa indeks ini seluruh tabel dipindai
+  // dua kali per menit.
+  @@index([status, createdAt])
+  @@index([challengeId, status])
+  @@index([talentId])
+  @@index([enrollmentId])
   @@map("submissions")
 }
 
@@ -478,6 +525,8 @@ model Discussion {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@index([challengeId, createdAt])
+  @@index([parentId])
   @@map("discussions")
 }
 
@@ -543,6 +592,8 @@ model Notification {
   linkUrl   String?
   createdAt DateTime @default(now())
 
+  // Lonceng notifikasi menghitung yang belum dibaca per pengguna.
+  @@index([userId, isRead, createdAt(sort: Desc)])
   @@map("notifications")
 }
 
@@ -564,11 +615,12 @@ model TokenTransaction {
   description String
   createdAt   DateTime  @default(now())
 
+  @@index([userId, createdAt(sort: Desc)])
   @@map("token_transactions")
 }
 
 // ==========================================
-// 9. PAYMENT GATEWAY (XENDIT)
+// 9. PAYMENT GATEWAY (MIDTRANS)
 // ==========================================
 
 enum PaymentStatus {
@@ -588,8 +640,8 @@ model PaymentTransaction {
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  externalId  String        @unique // Xendit external_id
-  checkoutUrl String? // Xendit invoice_url
+  externalId  String        @unique // Midtrans order_id
+  checkoutUrl String? // Midtrans redirect_url
   amount      Int
   status      PaymentStatus @default(PENDING)
   paymentType PaymentType
@@ -599,6 +651,8 @@ model PaymentTransaction {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([status])
   @@map("payment_transactions")
 }
 
