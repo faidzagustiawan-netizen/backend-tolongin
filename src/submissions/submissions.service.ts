@@ -484,10 +484,20 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
           include: {
             company: { select: { companyName: true, logoUrl: true } },
             components: { orderBy: { order: 'asc' } },
+            sections: {
+              orderBy: { order: 'asc' },
+              include: {
+                components: { orderBy: { order: 'asc' } },
+              },
+            },
           },
         },
         submissions: {
-          include: { componentResponses: true },
+          include: {
+            componentResponses: {
+              include: { component: true },
+            },
+          },
         },
       },
       orderBy: { updatedAt: 'desc' },
