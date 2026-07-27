@@ -33,15 +33,34 @@ MODEL_NAME = "Facenet"
 # dipakai bila yang pertama gagal menemukan wajah.
 DETECTOR_CHAIN = ["opencv", "mtcnn"]
 
-# Ambang jarak cosine untuk Facenet. Nilai baku DeepFace untuk pasangan
-# selfie-vs-KTP yang sudah ter-align. Dipakai apa adanya sekarang karena
-# wajah sudah diluruskan — tidak perlu lagi dilonggarkan seperti versi lama.
-FACENET_COSINE_THRESHOLD = 0.40
+# Ambang jarak cosine untuk pasangan selfie-vs-KTP.
+#
+# CATATAN PENTING soal angka ini. DeepFace menganjurkan 0.40 untuk Facenet
+# cosine, tetapi angka itu dikalibrasi pada pasangan foto-vs-foto berkualitas
+# wajar (misal LFW). Selfie-vs-KTP adalah domain yang jauh lebih sulit: foto
+# pada KTP adalah foto dari hasil cetak, beresolusi rendah, pencahayaan
+# berbeda, dan sering berusia bertahun-tahun. Pengukuran pada pasangan asli
+# di sini menghasilkan jarak 0,66-0,69 untuk orang yang SAMA — jauh di atas
+# 0,40. Memakai 0,40 berarti menolak pemilik KTP yang sah.
+#
+# Karena itu keputusannya dibuat tiga zona, bukan lolos/tolak. Zona tengah
+# diteruskan ke peninjauan manusia: salah menolak pencari kerja yang sah jauh
+# lebih mahal daripada meloloskan satu kasus untuk diperiksa petugas.
+#
+# Angka di bawah adalah titik awal yang bisa ditimpa lewat variabel
+# lingkungan, dan HARUS dikalibrasi ulang begitu ada cukup pasangan asli
+# maupun pasangan berbeda-orang.
+FACE_MATCH_DISTANCE = float(os.environ.get('FACE_MATCH_DISTANCE', '0.55'))
+FACE_REVIEW_DISTANCE = float(os.environ.get('FACE_REVIEW_DISTANCE', '0.80'))
 
-# Pasangan yang tidak ter-align dinilai jauh lebih ketat: jarak pada wajah
-# mentah menyebar lebar, sehingga hanya kecocokan yang sangat kuat yang
-# diterima. Sisanya dikembalikan sebagai "tidak yakin" agar ditinjau manusia.
-DEGRADED_COSINE_THRESHOLD = 0.25
+# Pasangan yang gagal diluruskan dinilai lebih ketat: jarak pada wajah mentah
+# menyebar lebih lebar sehingga kurang bisa dipercaya.
+DEGRADED_MATCH_DISTANCE = float(
+    os.environ.get('FACE_DEGRADED_MATCH_DISTANCE', '0.45')
+)
+DEGRADED_REVIEW_DISTANCE = float(
+    os.environ.get('FACE_DEGRADED_REVIEW_DISTANCE', '0.70')
+)
 
 
 class FaceEngineUnavailable(RuntimeError):
@@ -154,12 +173,12 @@ def compare_faces(s_path, k_path):
     """
     Membandingkan selfie dengan foto pada KTP.
 
-    Mengembalikan (is_match, confidence, reason, selfie_vector, degraded).
+    Mengembalikan (is_match, confidence, reason, selfie_vector, degraded,
+    distance, needs_review).
 
-    Versi sebelumnya memakai detector_backend="skip" sehingga wajah tidak
-    pernah diluruskan, lalu menambal akibatnya dengan menerima apa pun yang
-    skornya di atas 45. Di sini wajah diluruskan lebih dulu, sehingga ambang
-    yang wajar bisa dipakai tanpa tambalan.
+    `needs_review` menandai zona tengah: cukup mirip untuk diloloskan, tetapi
+    belum cukup meyakinkan untuk dinyatakan otomatis. Kasus seperti itu tetap
+    lolos agar pengguna tidak terhalang, lalu ditandai untuk diperiksa petugas.
     """
     try:
         selfie_vec, _selfie_backend, selfie_degraded = represent_face(
@@ -170,6 +189,8 @@ def compare_faces(s_path, k_path):
                 False,
                 0,
                 "Wajah tidak terdeteksi pada foto selfie. Pastikan wajah menghadap kamera, pencahayaan cukup, dan tidak tertutup masker atau kacamata gelap.",
+                None,
+                False,
                 None,
                 False,
             )
@@ -184,40 +205,68 @@ def compare_faces(s_path, k_path):
                 "Wajah tidak terdeteksi pada foto KTP. Pastikan kartu difoto tegak lurus, tidak buram, dan tidak terkena pantulan cahaya.",
                 selfie_vec,
                 False,
+                None,
+                False,
             )
 
         degraded = selfie_degraded or ktp_degraded
         distance = cosine_distance(selfie_vec, ktp_vec)
-        threshold = DEGRADED_COSINE_THRESHOLD if degraded else FACENET_COSINE_THRESHOLD
 
-        # Kepercayaan dipetakan terhadap ambang yang berlaku, sehingga tepat di
-        # ambang bernilai 50% dan jarak nol bernilai 100%.
-        confidence = max(0, min(100, round((1.0 - distance / (threshold * 2)) * 100)))
-        is_match = distance <= threshold
+        match_at = DEGRADED_MATCH_DISTANCE if degraded else FACE_MATCH_DISTANCE
+        review_at = DEGRADED_REVIEW_DISTANCE if degraded else FACE_REVIEW_DISTANCE
 
-        if is_match:
-            note = " (kualitas foto KTP rendah, dinilai dengan ambang lebih ketat)" if degraded else ""
+        # Kepercayaan dipetakan terhadap batas peninjauan, sehingga tepat di
+        # batas bernilai 0% dan jarak nol bernilai 100%.
+        confidence = max(0, min(100, round((1.0 - distance / review_at) * 100)))
+
+        note = " (kualitas foto rendah, dinilai dengan ambang lebih ketat)" if degraded else ""
+
+        if distance <= match_at:
             return (
                 True,
                 confidence,
                 f"Wajah cocok dengan foto pada KTP (jarak biometrik {distance:.3f}){note}.",
                 selfie_vec,
                 degraded,
+                distance,
+                False,
+            )
+
+        if distance <= review_at:
+            return (
+                True,
+                confidence,
+                f"Wajah cukup mirip dengan foto pada KTP (jarak biometrik {distance:.3f}), "
+                f"namun berada di zona yang perlu diperiksa petugas{note}.",
+                selfie_vec,
+                degraded,
+                distance,
+                True,
             )
 
         return (
             False,
             confidence,
-            f"Wajah pada selfie tidak cocok dengan foto pada KTP (jarak biometrik {distance:.3f}, ambang {threshold:.2f}).",
+            f"Wajah pada selfie tidak cocok dengan foto pada KTP (jarak biometrik {distance:.3f}, batas {review_at:.2f}){note}.",
             selfie_vec,
             degraded,
+            distance,
+            False,
         )
     except FaceEngineUnavailable:
         # Diteruskan ke atas: pemanggil harus membedakannya dari ketidakcocokan
         # dan tidak boleh menandai verifikasi pengguna sebagai gagal.
         raise
     except Exception as e:
-        return False, 0, f"Gagal mengekstrak fitur wajah: {str(e)}", None, False
+        return (
+            False,
+            0,
+            f"Gagal mengekstrak fitur wajah: {str(e)}",
+            None,
+            False,
+            None,
+            False,
+        )
 
 def main():
     try:
@@ -236,7 +285,9 @@ def main():
             "reason": "",
             "biometricHash": None,
             "featureVector": None,
-            "alignmentDegraded": False
+            "alignmentDegraded": False,
+            "faceDistance": None,
+            "needsReview": False
         }
 
         bio_hash = extract_hash_from_base64(selfie_b64)
@@ -267,14 +318,22 @@ def main():
             resize_image_if_needed(s_path)
             resize_image_if_needed(k_path)
 
-            face_match, conf_score, face_msg, selfie_vec, degraded = compare_faces(
-                s_path, k_path
-            )
+            (
+                face_match,
+                conf_score,
+                face_msg,
+                selfie_vec,
+                degraded,
+                distance,
+                needs_review,
+            ) = compare_faces(s_path, k_path)
 
             result["isMatch"] = face_match
             result["confidenceScore"] = conf_score if face_match else 0
             result["reason"] = face_msg
             result["alignmentDegraded"] = degraded
+            result["faceDistance"] = distance
+            result["needsReview"] = needs_review
 
             # Vektor hanya disimpan bila wajah cocok dengan KTP DAN selfie-nya
             # benar-benar ter-align. Embedding dari wajah mentah tidak layak

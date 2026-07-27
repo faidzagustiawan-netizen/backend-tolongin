@@ -147,6 +147,18 @@ export class VerificationService {
       const encryptedFace = EncryptionUtil.encrypt(dto.selfiePhotoUrl);
       const encryptedKtp = EncryptionUtil.encrypt(dto.idCardPhotoUrl);
 
+      // Kecocokan di zona tengah tetap diloloskan, tetapi ditandai agar
+      // diperiksa petugas. Jarak selfie-vs-KTP menyebar lebar karena foto pada
+      // kartu adalah hasil cetak beresolusi rendah, sehingga menolak otomatis
+      // di zona ini akan mengunci banyak pemilik KTP yang sah.
+      const faceNeedsReview = !!visionResult.needsReview;
+
+      if (faceNeedsReview) {
+        this.logger.warn(
+          `Verifikasi ${talentId} lolos di zona tinjau (jarak wajah ${visionResult.faceDistance}). Ditandai untuk diperiksa petugas.`,
+        );
+      }
+
       await this.prisma.talentProfile.update({
         where: { id: talentId },
         data: {
@@ -156,6 +168,12 @@ export class VerificationService {
           encryptedPrivateFace: encryptedFace,
           encryptedKtpData: encryptedKtp,
           faceAlignmentDegraded: !embedding,
+          ...(faceNeedsReview
+            ? {
+                needsIdentityReview: true,
+                duplicateCheckDistance: visionResult.faceDistance ?? null,
+              }
+            : {}),
           // avatarUrl tidak lagi otomatis diubah di sini, biarkan public
         } as any,
       });
@@ -170,7 +188,7 @@ export class VerificationService {
       }
 
       const reviewNote =
-        dedupe?.decision === 'REVIEW'
+        dedupe?.decision === 'REVIEW' || faceNeedsReview
           ? ' Catatan: identitas Anda sedang ditinjau ulang oleh tim kami sebagai prosedur standar. Anda tetap dapat menggunakan akun seperti biasa.'
           : '';
 

@@ -35,6 +35,13 @@ export interface KycVerificationResult {
    * berkelanjutan sebagai acuan pembanding saat ujian berlangsung.
    */
   featureVector?: number[] | null;
+  /** Jarak cosine antara selfie dan foto KTP. Dicatat untuk kalibrasi ambang. */
+  faceDistance?: number | null;
+  /**
+   * Cukup mirip untuk diloloskan, tetapi berada di zona yang belum meyakinkan
+   * sehingga perlu diperiksa petugas.
+   */
+  needsReview?: boolean;
 }
 
 /**
@@ -133,6 +140,7 @@ export class AiService {
           ktpName: null,
           reason: faceResult.reason || 'Wajah tidak cocok.',
           biometricHash: faceResult.biometricHash,
+          faceDistance: faceResult.faceDistance ?? null,
         };
       }
 
@@ -164,6 +172,8 @@ export class AiService {
           : ktpResult.reason,
         biometricHash: faceResult.biometricHash,
         featureVector: faceResult.featureVector ?? null,
+        faceDistance: faceResult.faceDistance ?? null,
+        needsReview: !!faceResult.needsReview,
       };
     } catch (e: any) {
       this.logger.error('Python Engine Error: ' + e.message);

@@ -193,20 +193,27 @@ export class IdentityDedupeService {
     };
   }
 
-  /** Mencatat hasil pemeriksaan ke profil agar bisa ditinjau admin. */
+  /**
+   * Mencatat hasil pemeriksaan ke profil agar bisa ditinjau admin.
+   *
+   * Tanda `needsIdentityReview` hanya pernah dinyalakan di sini, tidak pernah
+   * dimatikan: pemeriksaan kecocokan wajah-vs-KTP bisa sudah menyalakannya
+   * lebih dulu, dan hasil duplikat yang bersih bukan alasan untuk membatalkan
+   * temuan itu. Hanya admin yang boleh menutup tinjauan.
+   */
   async recordOutcome(
     talentId: string,
     evaluation: DedupeEvaluation,
     tx: Prisma.TransactionClient | PrismaService = this.prisma,
   ): Promise<void> {
+    const needsReview = evaluation.decision === 'REVIEW';
+
     await tx.talentProfile.update({
       where: { id: talentId },
       data: {
-        needsIdentityReview: evaluation.decision === 'REVIEW',
+        ...(needsReview ? { needsIdentityReview: true } : {}),
         duplicateCheckDistance: evaluation.distance,
         duplicateCheckMatchId: evaluation.matchTalentId,
-        identityReviewedAt: null,
-        identityReviewedBy: null,
       },
     });
   }

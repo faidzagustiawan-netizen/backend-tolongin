@@ -87,6 +87,8 @@ def op_verify_face(payload):
         "biometricHash": extract_hash_from_base64(selfie_b64),
         "featureVector": None,
         "alignmentDegraded": False,
+        "faceDistance": None,
+        "needsReview": False,
     }
 
     s_path = decode_to_tempfile(selfie_b64)
@@ -101,14 +103,22 @@ def op_verify_face(payload):
         resize_image_if_needed(s_path)
         resize_image_if_needed(k_path)
 
-        is_match, confidence, reason, selfie_vec, degraded = compare_faces(
-            s_path, k_path
-        )
+        (
+            is_match,
+            confidence,
+            reason,
+            selfie_vec,
+            degraded,
+            distance,
+            needs_review,
+        ) = compare_faces(s_path, k_path)
 
         result["isMatch"] = is_match
         result["confidenceScore"] = confidence if is_match else 0
         result["reason"] = reason
         result["alignmentDegraded"] = degraded
+        result["faceDistance"] = distance
+        result["needsReview"] = needs_review
 
         # Sama seperti jalur skrip mandiri: vektor hanya disimpan bila wajah
         # cocok DAN selfie benar-benar ter-align.
