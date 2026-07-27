@@ -201,44 +201,75 @@ export class UsersService {
     });
   }
 
-  async findById(idOrSlug: string) {
-    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrSlug);
-    let userId = idOrSlug;
+  private static readonly PROFILE_INCLUDE = {
+    talentProfile: {
+      include: {
+        earnedBadges: {
+          include: { badge: true },
+        },
+        submissions: {
+          include: { challenge: true },
+        },
+        experiences: true,
+        educations: true,
+      },
+    },
+    companyProfile: true,
+    teamMemberships: {
+      include: {
+        company: true,
+      },
+    },
+  } as const;
 
-    if (!isUuid) {
-      // Find the user ID based on slug
-      const talent = await this.prisma.talentProfile.findUnique({ where: { slug: idOrSlug } });
-      if (talent) {
-        userId = talent.userId;
-      } else {
-        const company = await this.prisma.companyProfile.findUnique({ where: { slug: idOrSlug } });
-        if (company) userId = company.userId;
+  /**
+   * Mencari pengguna berdasarkan id akun ATAU slug profil.
+   *
+   * Bentuk UUID tidak bisa dipakai untuk membedakan keduanya: `slug` pada
+   * TalentProfile dan CompanyProfile memakai `@default(uuid())`, sehingga
+   * profil yang belum mengubah slug-nya punya slug yang persis berbentuk
+   * UUID. Versi sebelumnya langsung menganggap semua UUID sebagai id akun
+   * dan tidak pernah mencoba mencocokkannya sebagai slug, sehingga profil
+   * seperti itu selalu berakhir "Pengguna tidak ditemukan".
+   *
+   * Karena itu pencocokan dilakukan berurutan, bukan berdasarkan bentuk:
+   * coba sebagai id akun lebih dulu (jalur tersering), lalu sebagai slug.
+   */
+  async findById(idOrSlug: string) {
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        idOrSlug,
+      );
+
+    let user = isUuid
+      ? await this.prisma.user.findUnique({
+          where: { id: idOrSlug },
+          include: UsersService.PROFILE_INCLUDE,
+        })
+      : null;
+
+    if (!user) {
+      const talent = await this.prisma.talentProfile.findUnique({
+        where: { slug: idOrSlug },
+        select: { userId: true },
+      });
+
+      const resolvedUserId =
+        talent?.userId ??
+        (
+          await this.prisma.companyProfile.findUnique({
+            where: { slug: idOrSlug },
+            select: { userId: true },
+          })
+        )?.userId;
+
+      if (resolvedUserId) {
+        user = await this.prisma.user.findUnique({
+          where: { id: resolvedUserId },
+          include: UsersService.PROFILE_INCLUDE,
+        });
       }
     }
-
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      include: {
-        talentProfile: {
-          include: {
-            earnedBadges: {
-              include: { badge: true },
-            },
-            submissions: {
-              include: { challenge: true },
-            },
-            experiences: true,
-            educations: true,
-          },
-        },
-        companyProfile: true,
-        teamMemberships: {
-          include: {
-            company: true,
-          },
-        },
-      },
-    });
 
     if (!user) {
       throw new NotFoundException('Pengguna tidak ditemukan');

@@ -45,10 +45,11 @@ export class CompaniesService {
   }
 
   async findOne(idOrSlug: string) {
-    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrSlug);
-
+    // Tidak memakai tebakan berdasarkan bentuk: `slug` memakai
+    // @default(uuid()), jadi slug bawaan berbentuk UUID dan tidak bisa
+    // dibedakan dari id. Dicocokkan ke dua kolom sekaligus.
     const company = await this.prisma.companyProfile.findFirst({
-      where: isUuid ? { id: idOrSlug } : { slug: idOrSlug },
+      where: { OR: [{ id: idOrSlug }, { slug: idOrSlug }] },
       select: {
         ...PUBLIC_COMPANY_SELECT,
         challenges: {
