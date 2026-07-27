@@ -1,9 +1,16 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { VerificationStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { IdentityDedupeService } from '../verification/identity-dedupe.service';
 
 @Injectable()
 export class AdminService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationsService: NotificationsService,
+    private readonly identityDedupe: IdentityDedupeService,
+  ) {}
 
   async getOverviewStats() {
     const totalUsers = await this.prisma.user.count();
@@ -227,6 +234,131 @@ export class AdminService {
     return this.prisma.systemAuditLog.create({
       data: { userId, action, entityType, entityId, details: details || {} },
     });
+  }
+
+  // --- 3b. Antrean Tinjau Identitas ---
+
+  /**
+   * Profil yang ditandai pemeriksaan duplikat wajah sebagai "mirip dengan
+   * identitas lain" tetapi tidak cukup mirip untuk ditolak otomatis.
+   *
+   * Zona ini sengaja ditinjau manusia: menolak pencari kerja yang sah karena
+   * kemiripan wajah adalah kesalahan yang tidak bisa mereka perbaiki sendiri
+   * (dan kembar identik itu nyata).
+   */
+  async getIdentityReviewQueue() {
+    const flagged = await this.prisma.talentProfile.findMany({
+      where: { needsIdentityReview: true },
+      select: {
+        id: true,
+        slug: true,
+        fullName: true,
+        ktpNik: true,
+        duplicateCheckDistance: true,
+        duplicateCheckMatchId: true,
+        faceAlignmentDegraded: true,
+        createdAt: true,
+        user: { select: { id: true, email: true, isBanned: true } },
+      },
+      orderBy: { duplicateCheckDistance: 'asc' },
+      take: 100,
+    });
+
+    // Profil pembanding diambil sekaligus agar admin bisa menilai keduanya
+    // berdampingan tanpa permintaan tambahan per baris.
+    const matchIds = flagged
+      .map((p) => p.duplicateCheckMatchId)
+      .filter((id): id is string => !!id);
+
+    const matches = matchIds.length
+      ? await this.prisma.talentProfile.findMany({
+          where: { id: { in: matchIds } },
+          select: {
+            id: true,
+            slug: true,
+            fullName: true,
+            ktpNik: true,
+            user: { select: { email: true } },
+          },
+        })
+      : [];
+
+    const matchById = new Map(matches.map((m) => [m.id, m]));
+
+    return flagged.map((profile) => ({
+      ...profile,
+      matchedProfile: profile.duplicateCheckMatchId
+        ? (matchById.get(profile.duplicateCheckMatchId) ?? null)
+        : null,
+    }));
+  }
+
+  /**
+   * Menuntaskan satu tinjauan identitas.
+   * `approve` berarti dua profil dinyatakan orang yang berbeda.
+   */
+  async resolveIdentityReview(
+    adminUserId: string,
+    talentId: string,
+    approve: boolean,
+    note?: string,
+  ) {
+    const profile = await this.prisma.talentProfile.findUnique({
+      where: { id: talentId },
+      select: {
+        id: true,
+        userId: true,
+        duplicateCheckDistance: true,
+        duplicateCheckMatchId: true,
+      },
+    });
+
+    if (!profile) {
+      throw new NotFoundException('Profil talenta tidak ditemukan');
+    }
+
+    const updated = await this.prisma.talentProfile.update({
+      where: { id: talentId },
+      data: {
+        needsIdentityReview: false,
+        identityReviewedAt: new Date(),
+        identityReviewedBy: adminUserId,
+        ...(approve
+          ? {}
+          : { faceVerificationStatus: VerificationStatus.FAILED }),
+      },
+    });
+
+    // Bila dinyatakan duplikat, acuan biometriknya dibuang supaya tidak ikut
+    // dibandingkan lagi dan tidak menandai profil sah berikutnya.
+    if (!approve) {
+      await this.identityDedupe.clearVector(talentId);
+    }
+
+    await this.createAuditLog(
+      adminUserId,
+      approve ? 'IDENTITY_REVIEW_APPROVED' : 'IDENTITY_REVIEW_REJECTED',
+      'TALENT_PROFILE',
+      talentId,
+      {
+        distance: profile.duplicateCheckDistance,
+        matchedTalentId: profile.duplicateCheckMatchId,
+        note: note ?? null,
+      },
+    );
+
+    await this.notificationsService.sendNotification(
+      profile.userId,
+      approve
+        ? 'Tinjauan Identitas Selesai ✅'
+        : 'Verifikasi Identitas Dibatalkan',
+      approve
+        ? 'Tinjauan identitas Anda telah selesai dan akun Anda dinyatakan sah.'
+        : `Verifikasi identitas Anda dibatalkan karena terindikasi duplikat.${note ? ` Catatan: ${note}` : ''} Hubungi dukungan bila Anda merasa ini keliru.`,
+      '/settings/kyc',
+    );
+
+    return updated;
   }
 
   // --- 4. Announcements (CMS) ---

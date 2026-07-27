@@ -20,6 +20,11 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { StorageService } from './storage.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import {
+  ALLOWED_MIME_TYPES,
+  MAX_UPLOAD_BYTES,
+  isAllowedMimeType,
+} from './upload-policy';
 
 @ApiTags('Cloudflare R2 Object Storage')
 @ApiBearerAuth('JWT-auth')
@@ -51,6 +56,20 @@ export class StorageController {
     @Query('fileName') fileName: string,
     @Query('contentType') contentType: string,
   ) {
+    if (!fileName || fileName.trim() === '') {
+      throw new BadRequestException('Nama berkas wajib diisi.');
+    }
+
+    // contentType ikut ditandatangani ke dalam presigned URL, jadi harus
+    // divalidasi di sini. Tanpa ini penyerang bisa meminta URL untuk
+    // mengunggah text/html dan mendapat halaman aktif di domain penyimpanan.
+    if (!isAllowedMimeType(contentType)) {
+      throw new BadRequestException(
+        `Tipe berkas "${contentType || 'tidak diketahui'}" tidak diizinkan. ` +
+          `Tipe yang didukung: ${ALLOWED_MIME_TYPES.join(', ')}`,
+      );
+    }
+
     return this.storageService.getPresignedUploadUrl(fileName, contentType);
   }
 
@@ -69,7 +88,22 @@ export class StorageController {
   })
   @ApiResponse({ status: 201, description: 'Berkas berhasil diunggah.' })
   @Post('upload')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 },
+      fileFilter: (_req, file, callback) => {
+        if (!isAllowedMimeType(file.mimetype)) {
+          return callback(
+            new BadRequestException(
+              `Tipe berkas "${file.mimetype}" tidak diizinkan.`,
+            ),
+            false,
+          );
+        }
+        callback(null, true);
+      },
+    }),
+  )
   async uploadFile(@UploadedFile() file: Express.Multer.File) {
     if (!file) {
       throw new BadRequestException(

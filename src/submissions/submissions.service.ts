@@ -21,6 +21,7 @@ import {
   HiringStatus,
   ChallengeDifficulty,
   Role,
+  Prisma,
 } from '@prisma/client';
 
 @Injectable()
@@ -242,10 +243,38 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
       throw new BadRequestException('Bukan pemilik enrollment ini');
     }
 
+    // Angka pengawasan datang dari peramban, jadi tidak boleh dipercaya apa
+    // adanya. Nilai lama dipertahankan bila klien mengirim angka yang lebih
+    // kecil, dan status terkunci tidak bisa dibatalkan dari sisi klien.
+    // Ini tidak membuat pengawasan sisi klien menjadi anti-rusak, tetapi
+    // menutup pengelakan sepele seperti memuat ulang halaman.
+    const incoming = (dto.draftData ?? {}) as Record<string, any>;
+    const previous = (enrollment.draftData ?? {}) as Record<string, any>;
+
+    const previousCount = Number(previous.tabSwitchCount) || 0;
+    const incomingCount = Number(incoming.tabSwitchCount) || 0;
+
+    const previousEvents: string[] = Array.isArray(previous.proctoringEvents)
+      ? previous.proctoringEvents.map(String)
+      : [];
+    const incomingEvents: string[] = Array.isArray(incoming.proctoringEvents)
+      ? incoming.proctoringEvents.map(String)
+      : [];
+
+    const draftData: Prisma.InputJsonObject = {
+      ...incoming,
+      tabSwitchCount: Math.max(previousCount, incomingCount),
+      proctoringEvents:
+        incomingEvents.length >= previousEvents.length
+          ? incomingEvents
+          : previousEvents,
+      isLockedOut: !!previous.isLockedOut || !!incoming.isLockedOut,
+    };
+
     return this.prisma.challengeEnrollment.update({
       where: { id: enrollmentId },
       data: {
-        draftData: dto.draftData,
+        draftData,
       },
     });
   }

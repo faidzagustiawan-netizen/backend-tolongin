@@ -12,6 +12,8 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { Role } from '@prisma/client';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { CreateTopupDto } from './dto/create-topup.dto';
+import { CreateSubscriptionDto } from './dto/create-subscription.dto';
 
 @ApiTags('Payment Gateway (Midtrans)')
 @Controller('payments')
@@ -23,14 +25,11 @@ export class PaymentsController {
   @Roles(Role.TALENT)
   @ApiOperation({ summary: 'Top-up token untuk Talent' })
   @Post('topup')
-  async createTopup(
-    @Request() req: any,
-    @Body('tokenAmount') tokenAmount: number,
-  ) {
+  async createTopup(@Request() req: any, @Body() dto: CreateTopupDto) {
     return this.paymentsService.createTokenTopup(
       req.user.sub,
       req.user.email,
-      tokenAmount,
+      dto.tokenAmount,
     );
   }
 
@@ -39,10 +38,14 @@ export class PaymentsController {
   @Roles(Role.COMPANY)
   @ApiOperation({ summary: 'Berlangganan paket Premium untuk Company' })
   @Post('subscribe')
-  async createSubscription(@Request() req: any) {
+  async createSubscription(
+    @Request() req: any,
+    @Body() dto: CreateSubscriptionDto,
+  ) {
     return this.paymentsService.createSubscription(
       req.user.sub,
       req.user.email,
+      dto,
     );
   }
 

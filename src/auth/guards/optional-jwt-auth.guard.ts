@@ -1,31 +1,30 @@
-import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
-import { Request } from 'express';
+import { ExecutionContext, Injectable } from '@nestjs/common';
+import { JwtAuthGuard } from './jwt-auth.guard';
 
+/**
+ * Versi longgar dari JwtAuthGuard: permintaan tanpa token tetap diizinkan,
+ * tetapi permintaan yang MEMBAWA token melalui pemeriksaan yang sama persis
+ * (tanda tangan, akun ada, tidak di-ban, peran diambil dari basis data).
+ *
+ * Sebelumnya guard ini hanya memverifikasi tanda tangan, sehingga akun yang
+ * sudah di-ban masih dianggap terautentikasi pada endpoint semi-publik.
+ */
 @Injectable()
-export class OptionalJwtAuthGuard implements CanActivate {
-  constructor(private readonly jwtService: JwtService) {}
-
+export class OptionalJwtAuthGuard extends JwtAuthGuard {
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const request = context.switchToHttp().getRequest<Request>();
-    const token = this.extractTokenFromHeader(request);
+    const request = context.switchToHttp().getRequest();
+    const hasToken = request.headers?.authorization?.startsWith('Bearer ');
 
-    if (token) {
-      try {
-        const payload = await this.jwtService.verifyAsync(token, {
-          secret: process.env.JWT_SECRET,
-        });
-        request['user'] = payload;
-      } catch {
-        // Abaikan error jika token tidak valid (optional)
-      }
+    if (!hasToken) {
+      return true;
     }
 
-    return true;
-  }
-
-  private extractTokenFromHeader(request: Request): string | undefined {
-    const [type, token] = request.headers.authorization?.split(' ') ?? [];
-    return type === 'Bearer' ? token : undefined;
+    try {
+      return await super.canActivate(context);
+    } catch {
+      // Token bermasalah diperlakukan sebagai tamu, bukan sebagai galat.
+      delete request.user;
+      return true;
+    }
   }
 }

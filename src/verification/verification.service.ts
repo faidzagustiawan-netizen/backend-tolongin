@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
@@ -7,18 +8,22 @@ import { PrismaService } from '../prisma/prisma.service';
 import { VerifyFaceDto } from './dto/verify-face.dto';
 import { VerifyKybDto } from './dto/verify-kyb.dto';
 import { VerifyExecutionDto } from './dto/verify-execution.dto';
-import { AiService } from '../ai/ai.service';
+import { AiService, FaceEngineUnavailableError } from '../ai/ai.service';
 import { VerificationStatus } from '@prisma/client';
 import { NotificationsService } from '../notifications/notifications.service';
 import * as crypto from 'crypto';
 import { EncryptionUtil } from '../utils/encryption.util';
+import { IdentityDedupeService } from './identity-dedupe.service';
 
 @Injectable()
 export class VerificationService {
+  private readonly logger = new Logger(VerificationService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly aiService: AiService,
     private readonly notificationsService: NotificationsService,
+    private readonly identityDedupe: IdentityDedupeService,
   ) {}
 
   async verifyTalentFace(talentId: string, dto: VerifyFaceDto) {
@@ -109,13 +114,33 @@ export class VerificationService {
         visionResult.biometricHash ||
         crypto.createHash('sha256').update(cleanSelfie).digest('hex');
 
+      // Saringan awal yang murah: hanya menangkap unggahan berkas yang persis
+      // sama. Perbandingan wajah yang sebenarnya dilakukan lewat embedding
+      // beberapa baris di bawah.
       const existingFace = await this.prisma.talentProfile.findFirst({
         where: { biometricDataHash: biometricHash, id: { not: talentId } },
       });
       if (existingFace) {
         throw new Error(
-          'Verifikasi Ditolak: Wajah (data biometrik) ini sudah terdaftar pada akun lain. Aturan ketat: 1 wajah hanya untuk 1 akun!',
+          'Verifikasi Ditolak: Foto yang sama persis sudah pernah digunakan pada akun lain. Harap ambil selfie baru.',
         );
+      }
+
+      // Pemeriksaan "1 wajah 1 akun" berbasis embedding.
+      const embedding = visionResult.featureVector ?? null;
+      let dedupe: Awaited<
+        ReturnType<IdentityDedupeService['evaluate']>
+      > | null = null;
+
+      if (embedding) {
+        dedupe = await this.identityDedupe.evaluate(talentId, embedding);
+
+        if (dedupe.decision === 'REJECT') {
+          throw new Error(
+            'Verifikasi Ditolak: Wajah ini sangat mirip dengan identitas yang sudah terdaftar pada akun lain. ' +
+              'Jika Anda merasa ini keliru, hubungi dukungan agar ditinjau petugas kami.',
+          );
+        }
       }
 
       // Enkripsi data sensitif (Wajah & KTP) agar tidak bisa dibaca langsung dari database
@@ -130,28 +155,64 @@ export class VerificationService {
           biometricDataHash: biometricHash,
           encryptedPrivateFace: encryptedFace,
           encryptedKtpData: encryptedKtp,
+          faceAlignmentDegraded: !embedding,
           // avatarUrl tidak lagi otomatis diubah di sini, biarkan public
         } as any,
       });
 
-      await this.notificationsService.sendNotification(
-        profile.userId,
-        'Verifikasi Identitas AI Berhasil ✅',
-        `Selamat! Verifikasi KTP & Wajah Anda telah terverifikasi dengan tingkat kecocokan ${finalConfidence}%. Catatan: ${verificationDetail}`,
-        '/profile',
-      );
-    } catch (error: any) {
-      await this.prisma.talentProfile.update({
-        where: { id: talentId },
-        data: { faceVerificationStatus: 'FAILED' } as any,
-      });
+      // Vektor ditulis terpisah lewat raw SQL karena kolomnya bertipe pgvector
+      // yang tidak dikenali Prisma Client.
+      if (embedding) {
+        await this.identityDedupe.saveVector(talentId, embedding);
+        if (dedupe) {
+          await this.identityDedupe.recordOutcome(talentId, dedupe);
+        }
+      }
+
+      const reviewNote =
+        dedupe?.decision === 'REVIEW'
+          ? ' Catatan: identitas Anda sedang ditinjau ulang oleh tim kami sebagai prosedur standar. Anda tetap dapat menggunakan akun seperti biasa.'
+          : '';
 
       await this.notificationsService.sendNotification(
         profile.userId,
-        'Verifikasi Identitas AI Gagal ❌',
-        error.message ||
-          'Terjadi kesalahan sistem saat memverifikasi identitas Anda. Silakan coba lagi.',
-        '/profile/kyc',
+        'Verifikasi Identitas AI Berhasil ✅',
+        `Selamat! Verifikasi KTP & Wajah Anda telah terverifikasi dengan tingkat kecocokan ${finalConfidence}%. Catatan: ${verificationDetail}${reviewNote}`,
+        '/profile',
+      );
+    } catch (error: any) {
+      // Gangguan mesin biometrik bukan keputusan tentang identitas pengguna.
+      // Statusnya dikembalikan ke UNVERIFIED supaya pengguna bisa mencoba lagi
+      // setelah server dibereskan — menandainya FAILED akan menyalahkan
+      // pengguna atas kesalahan konfigurasi kita.
+      const isEngineFailure = error instanceof FaceEngineUnavailableError;
+
+      await this.prisma.talentProfile.update({
+        where: { id: talentId },
+        data: {
+          faceVerificationStatus: isEngineFailure
+            ? VerificationStatus.UNVERIFIED
+            : VerificationStatus.FAILED,
+        } as any,
+      });
+
+      if (isEngineFailure) {
+        this.logger.error(
+          `Mesin biometrik tidak tersedia saat memverifikasi ${talentId}: ${error.message}. ` +
+            'Periksa dependensi Python (lihat requirements.txt).',
+        );
+      }
+
+      await this.notificationsService.sendNotification(
+        profile.userId,
+        isEngineFailure
+          ? 'Verifikasi Identitas Tertunda ⏳'
+          : 'Verifikasi Identitas AI Gagal ❌',
+        isEngineFailure
+          ? 'Layanan verifikasi identitas sedang tidak tersedia. Ini bukan karena dokumen Anda. Silakan coba lagi beberapa saat lagi.'
+          : error.message ||
+            'Terjadi kesalahan sistem saat memverifikasi identitas Anda. Silakan coba lagi.',
+        '/settings/kyc',
       );
     }
   }

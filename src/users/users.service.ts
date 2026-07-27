@@ -60,10 +60,6 @@ export class UsersService {
           },
         });
       } else if (role === Role.COMPANY) {
-        const randomStr = Math.random()
-          .toString(36)
-          .substring(2, 8)
-          .toUpperCase();
         const cName = companyName || 'Perusahaan Mitra';
         await tx.companyProfile.create({
           data: {
@@ -71,7 +67,10 @@ export class UsersService {
             companyName: cName,
             industry: industry || 'Teknologi Informasi',
             subscriptionTier: subscriptionTier || 'STARTUP',
-            inviteCode: `CMP-${randomStr}`,
+            // Kode undangan tidak dibuat otomatis saat pendaftaran. Pemilik
+            // harus menerbitkannya sendiri lewat POST /companies/workspace/invite-code
+            // agar kode tidak berumur panjang tanpa disadari.
+            inviteCode: null,
             slug: createSlug(cName),
           },
         });
@@ -97,6 +96,10 @@ export class UsersService {
       throw new ConflictException('Email sudah terdaftar');
     }
 
+    if (!inviteCode || inviteCode.trim() === '') {
+      throw new NotFoundException('Kode undangan wajib diisi');
+    }
+
     const company = await this.prisma.companyProfile.findUnique({
       where: { inviteCode },
     });
@@ -107,17 +110,37 @@ export class UsersService {
       );
     }
 
+    if (
+      !company.inviteCodeExpiresAt ||
+      company.inviteCodeExpiresAt.getTime() < Date.now()
+    ) {
+      throw new NotFoundException(
+        'Kode undangan sudah kedaluwarsa. Minta kode baru kepada pemilik akun perusahaan.',
+      );
+    }
+
     const saltRounds = 10;
     const passwordHash = await bcrypt.hash(password, saltRounds);
 
     return this.prisma.$transaction(async (tx) => {
+      // Konsumsi kode lebih dulu di dalam transaksi. updateMany dengan syarat
+      // kode masih terpasang membuat dua pendaftaran serentak tidak bisa
+      // memakai kode yang sama — yang kalah mendapat count 0 dan dibatalkan.
+      const consumed = await tx.companyProfile.updateMany({
+        where: { id: company.id, inviteCode },
+        data: { inviteCode: null, inviteCodeExpiresAt: null },
+      });
+
+      if (consumed.count === 0) {
+        throw new NotFoundException('Kode undangan sudah dipakai');
+      }
+
       const user = await tx.user.create({
         data: {
           email,
           fullName: fullName || email.split('@')[0],
           passwordHash,
           role: Role.COMPANY,
-          isVerified: true,
         },
       });
 
@@ -125,7 +148,9 @@ export class UsersService {
         data: {
           userId: user.id,
           companyId: company.id,
-          role: 'ADMIN',
+          // Undangan memberi akses tingkat anggota. Peningkatan ke ADMIN
+          // dilakukan pemilik lewat manajemen tim, bukan otomatis saat daftar.
+          role: 'MEMBER',
         },
       });
 
@@ -282,14 +307,8 @@ export class UsersService {
         location: dto.location !== undefined ? dto.location : undefined,
         roleCategory:
           dto.roleCategory !== undefined ? dto.roleCategory : undefined,
-        encryptedPrivateFace:
-          dto.encryptedPrivateFace !== undefined
-            ? dto.encryptedPrivateFace
-            : undefined,
-        biometricFeatureVector:
-          dto.biometricFeatureVector !== undefined
-            ? JSON.stringify(dto.biometricFeatureVector)
-            : undefined,
+        // Acuan biometrik (encryptedPrivateFace, biometricFeatureVector)
+        // tidak boleh diperbarui dari sini — lihat catatan di UpdateProfileDto.
         showcasedSubmissionIds:
           dto.showcasedSubmissionIds !== undefined
             ? dto.showcasedSubmissionIds

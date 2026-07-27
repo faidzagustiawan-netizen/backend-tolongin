@@ -35,8 +35,10 @@ export class UsersController {
     const user = await this.usersService.findById(id);
     const { passwordHash, ...safeUser } = user;
 
+    const isOwner = req.user?.sub === user.id;
+
     // Jika bukan pemilik profil, hapus data biometrik/KTP/privat dan filter portofolio
-    if (req.user?.sub !== user.id && safeUser.talentProfile) {
+    if (!isOwner && safeUser.talentProfile) {
       const tp = safeUser.talentProfile as any;
       delete tp.encryptedPrivateFace;
       delete tp.encryptedKtpData;
@@ -51,6 +53,24 @@ export class UsersController {
         );
       } else {
         tp.submissions = [];
+      }
+    }
+
+    // Kode undangan memberi akses ke ruang kerja perusahaan, jadi hanya boleh
+    // dilihat pemilik akun. Endpoint ini mengembalikan companyProfile utuh,
+    // sehingga tanpa penyaringan ini kodenya bocor ke setiap pengguna login.
+    if (!isOwner) {
+      const company = safeUser.companyProfile as any;
+      if (company) {
+        delete company.inviteCode;
+        delete company.inviteCodeExpiresAt;
+      }
+
+      for (const membership of (safeUser.teamMemberships as any[]) ?? []) {
+        if (membership?.company) {
+          delete membership.company.inviteCode;
+          delete membership.company.inviteCodeExpiresAt;
+        }
       }
     }
 

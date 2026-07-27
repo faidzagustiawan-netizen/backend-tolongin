@@ -54,3 +54,16 @@ pids
 
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
+# graphify knowledge graph (build artifact, regenerate with `graphify extract . --code-only`)
+graphify-out/
+.graphify_analysis.json
+.graphify_labels.json
+
+# Claude Code local config (contains machine-specific absolute paths)
+.claude/
+
+# Python (skrip mesin biometrik + lingkungan virtual ML)
+__pycache__/
+*.pyc
+.venv*/

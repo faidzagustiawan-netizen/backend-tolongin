@@ -72,14 +72,13 @@ export class UpdateProfileDto {
   @IsOptional()
   avatarUrl?: string;
 
-  @IsString()
-  @IsOptional()
-  encryptedPrivateFace?: string;
-
-  @IsArray()
-  @IsNumber({}, { each: true })
-  @IsOptional()
-  biometricFeatureVector?: number[];
+  // encryptedPrivateFace dan biometricFeatureVector sengaja TIDAK ada di sini.
+  //
+  // Keduanya adalah acuan biometrik yang dipakai fitur anti-joki untuk menilai
+  // apakah orang yang mengerjakan ujian sama dengan pemilik KTP. Jika bisa
+  // ditulis lewat pembaruan profil biasa, kandidat tinggal mengganti acuannya
+  // dengan wajah joki lalu lolos pemeriksaan. Nilai ini hanya boleh ditulis
+  // oleh alur verifikasi di VerificationService yang mencocokkannya ke KTP.
 
   @IsArray()
   @IsString({ each: true })

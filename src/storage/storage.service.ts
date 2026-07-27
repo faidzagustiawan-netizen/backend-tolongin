@@ -10,33 +10,41 @@ export class StorageService {
   private publicUrl: string;
 
   constructor(private readonly configService: ConfigService) {
-    const endpoint = this.configService.get<string>(
-      'STORAGE_ENDPOINT',
-      'https://e7b7f1b2c3d4e5f6.r2.cloudflarestorage.com',
-    );
-    const accessKeyId = this.configService.get<string>(
-      'STORAGE_ACCESS_KEY',
-      'r2-dev-access-key',
-    );
-    const secretAccessKey = this.configService.get<string>(
-      'STORAGE_SECRET_KEY',
-      'r2-dev-secret-key',
-    );
-    this.bucketName = this.configService.get<string>(
-      'STORAGE_BUCKET_NAME',
-      'tolongin-assets',
-    );
-    this.publicUrl = this.configService.get<string>(
-      'STORAGE_PUBLIC_URL',
-      'https://storage.tolongin.co',
-    );
+    // Kredensial penyimpanan tidak punya nilai bawaan: konfigurasi yang salah
+    // harus terlihat saat start, bukan berujung berkas kandidat tersimpan ke
+    // bucket yang tidak diniatkan.
+    const endpoint = this.configService.get<string>('STORAGE_ENDPOINT');
+    const accessKeyId = this.configService.get<string>('STORAGE_ACCESS_KEY');
+    const secretAccessKey =
+      this.configService.get<string>('STORAGE_SECRET_KEY');
+    const bucketName = this.configService.get<string>('STORAGE_BUCKET_NAME');
+    const publicUrl = this.configService.get<string>('STORAGE_PUBLIC_URL');
+
+    const missing = Object.entries({
+      STORAGE_ENDPOINT: endpoint,
+      STORAGE_ACCESS_KEY: accessKeyId,
+      STORAGE_SECRET_KEY: secretAccessKey,
+      STORAGE_BUCKET_NAME: bucketName,
+      STORAGE_PUBLIC_URL: publicUrl,
+    })
+      .filter(([, value]) => !value)
+      .map(([key]) => key);
+
+    if (missing.length > 0) {
+      throw new Error(
+        `Variabel penyimpanan berikut wajib diisi: ${missing.join(', ')}`,
+      );
+    }
+
+    this.bucketName = bucketName as string;
+    this.publicUrl = publicUrl as string;
 
     this.s3Client = new S3Client({
       region: 'auto',
       endpoint,
       credentials: {
-        accessKeyId,
-        secretAccessKey,
+        accessKeyId: accessKeyId as string,
+        secretAccessKey: secretAccessKey as string,
       },
     });
   }

@@ -6,6 +6,7 @@ import {
   Delete,
   Param,
   Body,
+  Request,
   UseGuards,
 } from '@nestjs/common';
 import { AdminService } from './admin.service';
@@ -13,7 +14,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { Role } from '@prisma/client';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 @ApiTags('Admin')
 @Controller('admin')
@@ -62,6 +63,33 @@ export class AdminController {
     @Body('message') message: string,
   ) {
     return this.adminService.sendWarning(userId, message);
+  }
+
+  @ApiOperation({
+    summary:
+      'Daftar profil talenta yang ditandai mirip dengan identitas terdaftar lain',
+  })
+  @Get('identity-reviews')
+  async getIdentityReviews() {
+    return this.adminService.getIdentityReviewQueue();
+  }
+
+  @ApiOperation({
+    summary:
+      'Menuntaskan tinjauan identitas. approve=true berarti dinyatakan orang berbeda.',
+  })
+  @Post('identity-reviews/:talentId')
+  async resolveIdentityReview(
+    @Request() req: any,
+    @Param('talentId') talentId: string,
+    @Body() body: { approve: boolean; note?: string },
+  ) {
+    return this.adminService.resolveIdentityReview(
+      req.user.sub,
+      talentId,
+      !!body.approve,
+      body.note,
+    );
   }
 
   @Get('challenges')

@@ -1,4 +1,4 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, DefaultValuePipe, Get, ParseIntPipe, Query } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
 import { PortfoliosService } from './portfolios.service';
 
@@ -34,9 +34,15 @@ export class PortfoliosController {
   async getPublicPortfolios(
     @Query('search') search?: string,
     @Query('skill') skill?: string,
-    @Query('limit') limit?: number,
+    // Query param selalu tiba sebagai string. Tanpa pipe ini nilainya diteruskan
+    // apa adanya ke Prisma `take` dan bisa menolak atau meloloskan angka liar.
+    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit = 20,
   ) {
-    return this.portfoliosService.getPublicPortfolios({ search, skill, limit });
+    return this.portfoliosService.getPublicPortfolios({
+      search,
+      skill,
+      limit: Math.min(100, Math.max(1, limit)),
+    });
   }
 
   @ApiOperation({
@@ -53,7 +59,11 @@ export class PortfoliosController {
     description: 'Papan peringkat talenta terbaik.',
   })
   @Get('leaderboard')
-  async getLeaderboard(@Query('limit') limit?: number) {
-    return this.portfoliosService.getLeaderboard(limit ?? 10);
+  async getLeaderboard(
+    @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit = 10,
+  ) {
+    return this.portfoliosService.getLeaderboard(
+      Math.min(100, Math.max(1, limit)),
+    );
   }
 }

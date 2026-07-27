@@ -1,6 +1,7 @@
 import sys
 import json
 import re
+import math
 import hashlib
 import tempfile
 import os
@@ -25,37 +26,198 @@ def resize_image_if_needed(img_path, max_dim=800):
         img_resized = cv2.resize(img, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
         cv2.imwrite(img_path, img_resized)
 
-def compare_faces_opencv(s_path, k_path):
+MODEL_NAME = "Facenet"
+
+# Urutan detektor yang dicoba. opencv ringan dan tersedia bersama cv2;
+# mtcnn lebih tahan terhadap wajah miring tetapi lebih lambat, jadi hanya
+# dipakai bila yang pertama gagal menemukan wajah.
+DETECTOR_CHAIN = ["opencv", "mtcnn"]
+
+# Ambang jarak cosine untuk Facenet. Nilai baku DeepFace untuk pasangan
+# selfie-vs-KTP yang sudah ter-align. Dipakai apa adanya sekarang karena
+# wajah sudah diluruskan — tidak perlu lagi dilonggarkan seperti versi lama.
+FACENET_COSINE_THRESHOLD = 0.40
+
+# Pasangan yang tidak ter-align dinilai jauh lebih ketat: jarak pada wajah
+# mentah menyebar lebar, sehingga hanya kecocokan yang sangat kuat yang
+# diterima. Sisanya dikembalikan sebagai "tidak yakin" agar ditinjau manusia.
+DEGRADED_COSINE_THRESHOLD = 0.25
+
+
+class FaceEngineUnavailable(RuntimeError):
+    """
+    Mesin pengenalan wajah tidak bisa dimuat (dependensi hilang atau rusak).
+
+    Dibedakan dari "wajah tidak cocok" karena konsekuensinya berlawanan:
+    ketidakcocokan adalah jawaban yang sah tentang pengguna, sedangkan ini
+    adalah kerusakan sistem. Menyamakan keduanya membuat pengguna diberi tahu
+    bahwa wajahnya tidak sesuai KTP padahal servernya yang bermasalah.
+    """
+
+
+def load_deepface():
+    """Memuat DeepFace, menerjemahkan dependensi yang hilang menjadi galat khusus."""
     try:
         from deepface import DeepFace
-        result = DeepFace.verify(
-            img1_path=s_path, 
-            img2_path=k_path, 
-            model_name="Facenet", 
+        return DeepFace
+    except ImportError as e:
+        raise FaceEngineUnavailable(
+            f"Pustaka pengenalan wajah tidak lengkap: {e}"
+        ) from e
+
+
+def l2_normalize(vec):
+    """
+    Menormalkan embedding ke panjang 1.
+
+    Dengan vektor ternormalisasi, jarak cosine menjadi operasi yang stabil dan
+    sebanding antar-baris — syarat agar pencarian tetangga terdekat di pgvector
+    memberi angka yang berarti.
+    """
+    norm = math.sqrt(sum(float(x) * float(x) for x in vec))
+    if norm == 0:
+        return None
+    return [float(x) / norm for x in vec]
+
+
+def represent_face(img_path, allow_unaligned=False):
+    """
+    Mengekstrak embedding wajah.
+
+    Mengembalikan (embedding_ternormalisasi, detektor_terpakai, degraded).
+    `degraded` bernilai True bila wajah gagal terdeteksi dan gambar terpaksa
+    diumpankan mentah tanpa pelurusan.
+    """
+    DeepFace = load_deepface()
+
+    for backend in DETECTOR_CHAIN:
+        try:
+            reps = DeepFace.represent(
+                img_path=img_path,
+                model_name=MODEL_NAME,
+                enforce_detection=True,
+                detector_backend=backend,
+                align=True,
+            )
+            if isinstance(reps, list) and len(reps) > 0:
+                embedding = reps[0].get("embedding")
+                if embedding:
+                    normalized = l2_normalize(embedding)
+                    if normalized:
+                        return normalized, backend, False
+        except FaceEngineUnavailable:
+            raise
+        except Exception as e:
+            # Dependensi yang hilang muncul sebagai ImportError di dalam
+            # DeepFace saat model dibangun; itu kerusakan sistem, bukan
+            # "wajah tidak terdeteksi", jadi tidak boleh ditelan di sini.
+            if isinstance(e, ImportError) or "No module named" in str(e):
+                raise FaceEngineUnavailable(str(e)) from e
+            # Detektor ini tidak menemukan wajah; coba yang berikutnya.
+            continue
+
+    if not allow_unaligned:
+        return None, None, False
+
+    # Jalur terakhir khusus foto KTP: wajah pada kartu cetak sering kecil,
+    # memantulkan cahaya, dan lolos dari detektor meskipun kartunya sah.
+    # Menolak mentah-mentah akan memblokir KTP asli, jadi gambar diproses
+    # tanpa pelurusan dan hasilnya ditandai degraded.
+    try:
+        reps = DeepFace.represent(
+            img_path=img_path,
+            model_name=MODEL_NAME,
             enforce_detection=False,
-            detector_backend="skip"
+            detector_backend="skip",
         )
-        is_match = bool(result.get("verified", False))
-        distance = float(result.get("distance", 1.0))
-        
-        confidence = max(0, min(100, round((1.0 - distance) * 100)))
-        
-        # Override is_match because we use detector_backend="skip" (unaligned faces have higher distance)
-        if not is_match and confidence >= 45:
-            is_match = True
+        if isinstance(reps, list) and len(reps) > 0:
+            embedding = reps[0].get("embedding")
+            if embedding:
+                normalized = l2_normalize(embedding)
+                if normalized:
+                    return normalized, "skip", True
+    except FaceEngineUnavailable:
+        raise
+    except Exception as e:
+        if isinstance(e, ImportError) or "No module named" in str(e):
+            raise FaceEngineUnavailable(str(e)) from e
+
+    return None, None, False
+
+
+def cosine_distance(a, b):
+    """Jarak cosine untuk dua vektor yang sudah dinormalkan (0 = identik)."""
+    return 1.0 - sum(x * y for x, y in zip(a, b))
+
+
+def compare_faces(s_path, k_path):
+    """
+    Membandingkan selfie dengan foto pada KTP.
+
+    Mengembalikan (is_match, confidence, reason, selfie_vector, degraded).
+
+    Versi sebelumnya memakai detector_backend="skip" sehingga wajah tidak
+    pernah diluruskan, lalu menambal akibatnya dengan menerima apa pun yang
+    skornya di atas 45. Di sini wajah diluruskan lebih dulu, sehingga ambang
+    yang wajar bisa dipakai tanpa tambalan.
+    """
+    try:
+        selfie_vec, _selfie_backend, selfie_degraded = represent_face(
+            s_path, allow_unaligned=False
+        )
+        if selfie_vec is None:
+            return (
+                False,
+                0,
+                "Wajah tidak terdeteksi pada foto selfie. Pastikan wajah menghadap kamera, pencahayaan cukup, dan tidak tertutup masker atau kacamata gelap.",
+                None,
+                False,
+            )
+
+        ktp_vec, _ktp_backend, ktp_degraded = represent_face(
+            k_path, allow_unaligned=True
+        )
+        if ktp_vec is None:
+            return (
+                False,
+                0,
+                "Wajah tidak terdeteksi pada foto KTP. Pastikan kartu difoto tegak lurus, tidak buram, dan tidak terkena pantulan cahaya.",
+                selfie_vec,
+                False,
+            )
+
+        degraded = selfie_degraded or ktp_degraded
+        distance = cosine_distance(selfie_vec, ktp_vec)
+        threshold = DEGRADED_COSINE_THRESHOLD if degraded else FACENET_COSINE_THRESHOLD
+
+        # Kepercayaan dipetakan terhadap ambang yang berlaku, sehingga tepat di
+        # ambang bernilai 50% dan jarak nol bernilai 100%.
+        confidence = max(0, min(100, round((1.0 - distance / (threshold * 2)) * 100)))
+        is_match = distance <= threshold
 
         if is_match:
-            return True, max(85, confidence), "Wajah terverifikasi cocok menggunakan DeepFace ML."
-        else:
-            return False, confidence, f"Wajah tidak cocok berdasarkan analisis biometrik (Skor Kecocokan: {confidence}%)."
-    except ValueError as ve:
-        if "Face could not be detected" in str(ve):
-            return False, 0, "Wajah tidak terdeteksi dengan jelas pada foto selfie atau KTP. Pastikan pencahayaan cukup dan wajah terlihat utuh tanpa terpotong."
-        return False, 0, f"Gagal mengekstrak fitur wajah: {str(ve)}"
+            note = " (kualitas foto KTP rendah, dinilai dengan ambang lebih ketat)" if degraded else ""
+            return (
+                True,
+                confidence,
+                f"Wajah cocok dengan foto pada KTP (jarak biometrik {distance:.3f}){note}.",
+                selfie_vec,
+                degraded,
+            )
+
+        return (
+            False,
+            confidence,
+            f"Wajah pada selfie tidak cocok dengan foto pada KTP (jarak biometrik {distance:.3f}, ambang {threshold:.2f}).",
+            selfie_vec,
+            degraded,
+        )
+    except FaceEngineUnavailable:
+        # Diteruskan ke atas: pemanggil harus membedakannya dari ketidakcocokan
+        # dan tidak boleh menandai verifikasi pengguna sebagai gagal.
+        raise
     except Exception as e:
-        if "Face could not be detected" in str(e):
-            return False, 0, "Wajah tidak terdeteksi dengan jelas pada foto selfie atau KTP. Pastikan pencahayaan cukup dan wajah terlihat utuh tanpa terpotong."
-        return False, 0, f"Gagal mengekstrak fitur wajah: {str(e)}"
+        return False, 0, f"Gagal mengekstrak fitur wajah: {str(e)}", None, False
 
 def main():
     try:
@@ -72,7 +234,9 @@ def main():
             "isMatch": False,
             "confidenceScore": 0,
             "reason": "",
-            "biometricHash": None
+            "biometricHash": None,
+            "featureVector": None,
+            "alignmentDegraded": False
         }
 
         bio_hash = extract_hash_from_base64(selfie_b64)
@@ -103,11 +267,20 @@ def main():
             resize_image_if_needed(s_path)
             resize_image_if_needed(k_path)
 
-            face_match, conf_score, face_msg = compare_faces_opencv(s_path, k_path)
-            
+            face_match, conf_score, face_msg, selfie_vec, degraded = compare_faces(
+                s_path, k_path
+            )
+
             result["isMatch"] = face_match
             result["confidenceScore"] = conf_score if face_match else 0
             result["reason"] = face_msg
+            result["alignmentDegraded"] = degraded
+
+            # Vektor hanya disimpan bila wajah cocok dengan KTP DAN selfie-nya
+            # benar-benar ter-align. Embedding dari wajah mentah tidak layak
+            # dijadikan acuan pembanding antar-pengguna.
+            if face_match and not degraded:
+                result["featureVector"] = selfie_vec
         finally:
             if os.path.exists(s_path): os.remove(s_path)
             if os.path.exists(k_path): os.remove(k_path)
@@ -116,12 +289,28 @@ def main():
         print(json.dumps(result))
         print("===JSON_END===")
 
+    except FaceEngineUnavailable as e:
+        err_res = {
+            "isMatch": False,
+            "confidenceScore": 0,
+            "reason": f"ENGINE_UNAVAILABLE: {str(e)}",
+            "engineUnavailable": True,
+            "biometricHash": None,
+            "featureVector": None,
+            "alignmentDegraded": False
+        }
+        print("===JSON_START===")
+        print(json.dumps(err_res))
+        print("===JSON_END===")
+        return
     except Exception as e:
         err_res = {
             "isMatch": False,
             "confidenceScore": 0,
             "reason": f"Fatal Python Error: {str(e)}",
-            "biometricHash": None
+            "biometricHash": None,
+            "featureVector": None,
+            "alignmentDegraded": False
         }
         print("===JSON_START===")
         print(json.dumps(err_res))

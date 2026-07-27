@@ -1,3 +1,44 @@
-deepface
-easyocr
-opencv-python
+# Dependensi mesin biometrik (verifikasi KTP + wajah).
+#
+# ============================================================================
+# WAJIB DIPASANG DI PYTHON 3.11 ATAU 3.12 — BUKAN DI PYTHON SISTEM.
+#
+# TensorFlow belum menyediakan wheel untuk Python 3.13+. Mesin pengembangan
+# saat ini memakai Python 3.14, sehingga `pip install tensorflow-cpu` di sana
+# selalu berakhir "No matching distribution found".
+#
+# Buat lingkungan terpisah, lalu arahkan backend ke sana:
+#
+#   py -3.11 -m venv .venv-ml
+#   .venv-ml\Scripts\pip install -r requirements.txt
+#   # lalu di .env:
+#   PYTHON_BIN=D:\Tolongin\backend\.venv-ml\Scripts\python.exe
+#
+# PythonWorkerService membaca PYTHON_BIN untuk menjalankan worker biometrik.
+# ============================================================================
+#
+# CATATAN: tensorflow sebelumnya tidak tercantum di sini sama sekali, padahal
+# DeepFace membutuhkannya untuk membangun model Facenet. Akibatnya seluruh
+# verifikasi wajah selalu gagal dengan "No module named 'tensorflow'", dan
+# kegagalan itu tampil ke pengguna seolah wajahnya tidak cocok dengan KTP.
+#
+# Versi dipatok agar lingkungan pengembangan dan produksi memuat bobot model
+# yang sama — bobot yang berbeda menggeser jarak embedding, yang berarti ambang
+# deteksi duplikat identitas ikut bergeser.
+
+deepface==0.0.100
+easyocr==1.7.2
+opencv-python-headless==4.13.0.92
+
+# DeepFace 0.0.100 berjalan di atas Keras 2 lewat paket tf-keras.
+# Varian -cpu dipakai karena inferensi memang dijalankan tanpa GPU
+# (CUDA_VISIBLE_DEVICES=-1) dan ukurannya jauh lebih ringan.
+tensorflow-cpu==2.15.1
+tf-keras==2.15.0
+
+# Detektor cadangan pada rantai pelurusan wajah di verify_face.py.
+mtcnn==0.1.1
+
+# Dipakai easyocr; dicantumkan eksplisit agar versinya tidak berubah diam-diam.
+torch==2.12.0
+torchvision==0.27.0

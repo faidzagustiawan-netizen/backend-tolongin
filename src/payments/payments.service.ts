@@ -1,10 +1,15 @@
 import {
+  BadRequestException,
   Injectable,
   InternalServerErrorException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { PaymentStatus, PaymentType, SubscriptionTier } from '@prisma/client';
+import {
+  CreateSubscriptionDto,
+  SUBSCRIPTION_MONTHLY_PRICE,
+} from './dto/create-subscription.dto';
 import * as crypto from 'crypto';
 
 const midtransClient = require('midtrans-client');
@@ -12,12 +17,27 @@ const midtransClient = require('midtrans-client');
 @Injectable()
 export class PaymentsService {
   private snap: any;
+  private readonly serverKey: string;
 
   constructor(private prisma: PrismaService) {
+    // Tidak ada nilai cadangan. Server key dipakai untuk memverifikasi tanda
+    // tangan webhook; kalau nilainya bisa ditebak (apalagi tertulis di source),
+    // siapa pun dapat memalsukan notifikasi pembayaran berhasil.
+    const serverKey = process.env.MIDTRANS_SERVER_KEY;
+    const clientKey = process.env.MIDTRANS_CLIENT_KEY;
+
+    if (!serverKey || !clientKey) {
+      throw new Error(
+        'MIDTRANS_SERVER_KEY dan MIDTRANS_CLIENT_KEY wajib diisi. ' +
+          'Kunci bawaan tidak disediakan karena dipakai untuk verifikasi webhook.',
+      );
+    }
+
+    this.serverKey = serverKey;
     this.snap = new midtransClient.Snap({
-      isProduction: false,
-      serverKey: process.env.MIDTRANS_SERVER_KEY || 'dummy_server_key',
-      clientKey: process.env.MIDTRANS_CLIENT_KEY || 'dummy_client_key',
+      isProduction: process.env.MIDTRANS_IS_PRODUCTION === 'true',
+      serverKey,
+      clientKey,
     });
   }
 
@@ -91,8 +111,22 @@ export class PaymentsService {
   // =====================================
   // COMPANY: SUBSCRIPTION
   // =====================================
-  async createSubscription(companyUserId: string, email: string) {
-    const price = 2500000;
+  async createSubscription(
+    companyUserId: string,
+    email: string,
+    dto: CreateSubscriptionDto = {},
+  ) {
+    const tier = dto.tier ?? SubscriptionTier.KONGLOMERAT;
+    const durationMonths = dto.durationMonths ?? 1;
+
+    // Tier CUSTOM dinegosiasikan manual, tidak boleh lewat checkout mandiri.
+    if (!(tier in SUBSCRIPTION_MONTHLY_PRICE)) {
+      throw new BadRequestException(
+        `Paket ${tier} tidak tersedia untuk pembelian mandiri. Hubungi tim penjualan.`,
+      );
+    }
+
+    const price = SUBSCRIPTION_MONTHLY_PRICE[tier] * durationMonths;
     const orderId = `sub-${companyUserId.substring(0, 8)}-${Date.now()}`;
 
     const tx = await this.prisma.paymentTransaction.create({
@@ -101,7 +135,7 @@ export class PaymentsService {
         externalId: orderId,
         amount: price,
         paymentType: PaymentType.SUBSCRIPTION,
-        metadata: { plan: 'PROFESSIONAL', durationMonths: 1 },
+        metadata: { tier, durationMonths },
       },
     });
 
@@ -116,10 +150,10 @@ export class PaymentsService {
         },
         item_details: [
           {
-            id: 'PRO_PLAN',
-            price: price,
-            quantity: 1,
-            name: `Langganan Paket Professional (1 Bulan)`,
+            id: `PLAN_${tier}`,
+            price: SUBSCRIPTION_MONTHLY_PRICE[tier],
+            quantity: durationMonths,
+            name: `Langganan Paket ${tier} (per bulan)`,
           },
         ],
       };
@@ -155,16 +189,23 @@ export class PaymentsService {
       signature_key,
       transaction_status,
     } = payload;
-    const serverKey = process.env.MIDTRANS_SERVER_KEY || 'dummy_server_key';
-
     // 1. Kalkulasi signature manual untuk dicocokkan (Anti-Hacker)
-    const rawString = `${order_id}${status_code}${gross_amount}${serverKey}`;
+    const rawString = `${order_id}${status_code}${gross_amount}${this.serverKey}`;
     const hashedSignature = crypto
       .createHash('sha512')
       .update(rawString)
       .digest('hex');
 
-    if (hashedSignature !== signature_key) {
+    // timingSafeEqual mencegah kebocoran informasi lewat perbedaan waktu
+    // perbandingan string. Panjang harus dicek dulu karena fungsinya melempar
+    // galat bila kedua buffer berbeda ukuran.
+    const expected = Buffer.from(hashedSignature, 'utf8');
+    const received = Buffer.from(String(signature_key ?? ''), 'utf8');
+
+    if (
+      expected.length !== received.length ||
+      !crypto.timingSafeEqual(expected, received)
+    ) {
       console.error('Invalid Webhook Signature. Peringatan Keamanan!');
       throw new UnauthorizedException('Invalid Signature Key');
     }
@@ -201,14 +242,29 @@ export class PaymentsService {
           data: { tokenBalance: { increment: addedTokens } },
         });
       } else if (tx.paymentType === PaymentType.SUBSCRIPTION) {
-        const expiresAt = new Date();
-        expiresAt.setMonth(expiresAt.getMonth() + 1);
+        const metadata: any = tx.metadata;
+        const tier: SubscriptionTier =
+          metadata?.tier ?? SubscriptionTier.KONGLOMERAT;
+        const durationMonths: number = Number(metadata?.durationMonths) || 1;
+
+        const current = await this.prisma.companyProfile.findUnique({
+          where: { userId: tx.userId },
+          select: { subscriptionExpiresAt: true },
+        });
+
+        // Perpanjangan menumpuk dari sisa masa aktif, bukan menghanguskannya.
+        const now = new Date();
+        const base =
+          current?.subscriptionExpiresAt && current.subscriptionExpiresAt > now
+            ? new Date(current.subscriptionExpiresAt)
+            : now;
+        base.setMonth(base.getMonth() + durationMonths);
 
         await this.prisma.companyProfile.update({
           where: { userId: tx.userId },
           data: {
-            subscriptionTier: SubscriptionTier.KONGLOMERAT,
-            subscriptionExpiresAt: expiresAt,
+            subscriptionTier: tier,
+            subscriptionExpiresAt: base,
           },
         });
       }
