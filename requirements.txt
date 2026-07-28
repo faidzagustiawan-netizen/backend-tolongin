@@ -1,15 +1,13 @@
 # Dependensi mesin biometrik (verifikasi KTP + wajah).
 #
 # ============================================================================
-# WAJIB DIPASANG DI PYTHON 3.11 ATAU 3.12 — BUKAN DI PYTHON SISTEM.
+# WAJIB DIPASANG DI PYTHON 3.12 — BUKAN DI PYTHON SISTEM MESIN DEV.
 #
-# TensorFlow belum menyediakan wheel untuk Python 3.13+. Mesin pengembangan
-# saat ini memakai Python 3.14, sehingga `pip install tensorflow-cpu` di sana
-# selalu berakhir "No matching distribution found".
+# Produksi (VPS) memakai Python 3.12.3 dan kombinasi di bawah ini sudah
+# terbukti berjalan di sana. Mesin dev Windows memakai Python 3.14 yang belum
+# punya wheel TensorFlow, jadi butuh lingkungan terpisah:
 #
-# Buat lingkungan terpisah, lalu arahkan backend ke sana:
-#
-#   py -3.11 -m venv .venv-ml
+#   py -3.12 -m venv .venv-ml
 #   .venv-ml\Scripts\pip install -r requirements.txt
 #   # lalu di .env:
 #   PYTHON_BIN=D:\Tolongin\backend\.venv-ml\Scripts\python.exe
@@ -17,39 +15,46 @@
 # PythonWorkerService membaca PYTHON_BIN untuk menjalankan worker biometrik.
 # ============================================================================
 #
-# CATATAN: tensorflow sebelumnya tidak tercantum di sini sama sekali, padahal
-# DeepFace membutuhkannya untuk membangun model Facenet. Akibatnya seluruh
-# verifikasi wajah selalu gagal dengan "No module named 'tensorflow'", dan
-# kegagalan itu tampil ke pengguna seolah wajahnya tidak cocok dengan KTP.
+# RIWAYAT dua kesalahan yang pernah membuat berkas ini tidak bisa dipakai —
+# keduanya gagal dengan cara yang menyalahkan pengguna, bukan sistem:
 #
-# Versi dipatok agar lingkungan pengembangan dan produksi memuat bobot model
-# yang sama — bobot yang berbeda menggeser jarak embedding, yang berarti ambang
-# deteksi duplikat identitas ikut bergeser.
+# 1. tensorflow sempat tidak tercantum sama sekali, padahal DeepFace
+#    membutuhkannya untuk membangun Facenet. Seluruh verifikasi wajah gagal
+#    dengan "No module named 'tensorflow'", dan pengguna diberi tahu bahwa
+#    wajahnya tidak cocok dengan KTP.
+#
+# 2. Versi sempat dipatok ke tensorflow-cpu 2.15.1 bersama opencv 4.13.
+#    opencv 4.11+ mensyaratkan numpy>=2 sedangkan tensorflow-intel 2.15.1
+#    mensyaratkan numpy<2, jadi `pip install -r requirements.txt` selalu
+#    berakhir ResolutionImpossible dan lingkungan ML tidak pernah terpasang.
+#
+# Konflik numpy itu hilang sendiri pada TensorFlow 2.21, yang memang berjalan
+# di atas numpy 2. Karena itu patokan mengikuti stack produksi, bukan
+# sebaliknya — menurunkan TensorFlow demi mempertahankan pin lama justru akan
+# merusak lingkungan yang sudah bekerja.
+#
+# PERINGATAN: mengganti versi TensorFlow atau opencv menggeser hasil pelurusan
+# wajah, dan jendela aman antara pasangan sah dengan pasangan beda-orang hanya
+# selebar ~0,075 (lihat src/ai/python/verify_face.py). Setelah menaikkan versi,
+# ukur ulang jaraknya sebelum menganggap ambang masih sah.
 
 deepface==0.0.100
 easyocr==1.7.2
 
-# JANGAN naikkan ke 4.11+ selama TensorFlow masih dipatok di 2.15.
-# opencv-python-headless 4.11 ke atas mensyaratkan numpy>=2, sedangkan
-# tensorflow-intel 2.15.1 mensyaratkan numpy<2. Kombinasi 4.13.0.92 + 2.15.1
-# yang sempat tercantum di sini membuat `pip install -r requirements.txt`
-# selalu berakhir ResolutionImpossible, jadi lingkungan ML tidak pernah
-# terpasang dan seluruh verifikasi wajah pulang sebagai ENGINE_UNAVAILABLE.
-opencv-python-headless==4.10.0.84
+# DeepFace 0.0.100 berjalan di atas Keras 3 bawaan TensorFlow 2.21; paket
+# tf-keras tidak diperlukan dan tidak terpasang di produksi.
+tensorflow==2.21.0
+numpy==2.5.0
+opencv-python-headless==5.0.0.93
 
-# Dipatok eksplisit karena inilah batas yang sebenarnya mengikat seluruh
-# kombinasi di berkas ini. Menaikkannya ke 2.x memaksa TensorFlow ikut naik.
-numpy==1.26.4
+# Detektor utama pada rantai pelurusan wajah di verify_face.py. Dulu hanya ikut
+# terbawa sebagai dependensi DeepFace; dicantumkan eksplisit karena sekarang
+# kualitas seluruh sistem bergantung padanya.
+retina-face==0.0.18
 
-# DeepFace 0.0.100 berjalan di atas Keras 2 lewat paket tf-keras.
-# Varian -cpu dipakai karena inferensi memang dijalankan tanpa GPU
-# (CUDA_VISIBLE_DEVICES=-1) dan ukurannya jauh lebih ringan.
-tensorflow-cpu==2.15.1
-tf-keras==2.15.0
-
-# Detektor cadangan pada rantai pelurusan wajah di verify_face.py.
-mtcnn==0.1.1
+# Detektor cadangan bila retinaface gagal menemukan wajah.
+mtcnn==1.0.0
 
 # Dipakai easyocr; dicantumkan eksplisit agar versinya tidak berubah diam-diam.
-torch==2.12.0
-torchvision==0.27.0
+torch==2.12.1
+torchvision==0.27.1
