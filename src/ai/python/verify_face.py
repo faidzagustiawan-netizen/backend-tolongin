@@ -26,7 +26,23 @@ def resize_image_if_needed(img_path, max_dim=800):
         img_resized = cv2.resize(img, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
         cv2.imwrite(img_path, img_resized)
 
-MODEL_NAME = "Facenet"
+# Facenet512 menggantikan Facenet 128 dimensi. Embedding-nya memisahkan
+# identitas jauh lebih tajam, yang penting di sini karena pasangan
+# selfie-vs-KTP memang berjarak lebar dan menyisakan sedikit ruang aman.
+#
+# PERINGATAN: mengubah model membuat seluruh embedding yang sudah tersimpan
+# tidak sebanding lagi. Setelah menggantinya, kosongkan biometricFeatureVector
+# dan jalankan ulang scripts/backfill-biometric-vectors.ts.
+MODEL_NAME = os.environ.get('FACE_MODEL', 'Facenet512')
+
+# Dimensi keluaran per model, dipakai untuk memastikan vektor cocok dengan
+# lebar kolom pgvector.
+MODEL_DIMENSIONS = {
+    "Facenet": 128,
+    "Facenet512": 512,
+    "ArcFace": 512,
+    "VGG-Face": 4096,
+}
 
 # Urutan detektor yang dicoba. opencv ringan dan tersedia bersama cv2;
 # mtcnn lebih tahan terhadap wajah miring tetapi lebih lambat, jadi hanya
@@ -47,19 +63,46 @@ DETECTOR_CHAIN = ["opencv", "mtcnn"]
 # diteruskan ke peninjauan manusia: salah menolak pencari kerja yang sah jauh
 # lebih mahal daripada meloloskan satu kasus untuk diperiksa petugas.
 #
-# Angka di bawah adalah titik awal yang bisa ditimpa lewat variabel
-# lingkungan, dan HARUS dikalibrasi ulang begitu ada cukup pasangan asli
-# maupun pasangan berbeda-orang.
-FACE_MATCH_DISTANCE = float(os.environ.get('FACE_MATCH_DISTANCE', '0.55'))
-FACE_REVIEW_DISTANCE = float(os.environ.get('FACE_REVIEW_DISTANCE', '0.80'))
+# Ambang baku DeepFace per model untuk jarak cosine, dipakai sebagai titik
+# acuan. Ini adalah angka untuk pasangan foto-vs-foto.
+MODEL_COSINE_BASELINE = {
+    "Facenet": 0.40,
+    "Facenet512": 0.30,
+    "ArcFace": 0.68,
+    "VGG-Face": 0.68,
+}
+
+# Pengali domain. Diturunkan dari pengukuran nyata pada Facenet: pasangan
+# selfie-vs-KTP milik orang yang sama menghasilkan jarak 0,66-0,69 terhadap
+# ambang baku 0,40, yaitu sekitar 1,7 kali. Zona cocok dipasang sedikit di
+# bawah rasio itu dan zona tinjau sedikit di atasnya.
+#
+# Pengali ini BELUM diukur ulang untuk Facenet512. Nilainya sengaja dibiarkan
+# sama agar perbandingannya adil, dan harus disetel setelah terkumpul cukup
+# pasangan asli maupun pasangan berbeda-orang.
+DOMAIN_MATCH_MULTIPLIER = 1.4
+DOMAIN_REVIEW_MULTIPLIER = 2.0
+
+_baseline = MODEL_COSINE_BASELINE.get(MODEL_NAME, 0.40)
+
+FACE_MATCH_DISTANCE = float(
+    os.environ.get(
+        'FACE_MATCH_DISTANCE', _baseline * DOMAIN_MATCH_MULTIPLIER
+    )
+)
+FACE_REVIEW_DISTANCE = float(
+    os.environ.get(
+        'FACE_REVIEW_DISTANCE', _baseline * DOMAIN_REVIEW_MULTIPLIER
+    )
+)
 
 # Pasangan yang gagal diluruskan dinilai lebih ketat: jarak pada wajah mentah
 # menyebar lebih lebar sehingga kurang bisa dipercaya.
 DEGRADED_MATCH_DISTANCE = float(
-    os.environ.get('FACE_DEGRADED_MATCH_DISTANCE', '0.45')
+    os.environ.get('FACE_DEGRADED_MATCH_DISTANCE', FACE_MATCH_DISTANCE * 0.8)
 )
 DEGRADED_REVIEW_DISTANCE = float(
-    os.environ.get('FACE_DEGRADED_REVIEW_DISTANCE', '0.70')
+    os.environ.get('FACE_DEGRADED_REVIEW_DISTANCE', FACE_REVIEW_DISTANCE * 0.875)
 )
 
 

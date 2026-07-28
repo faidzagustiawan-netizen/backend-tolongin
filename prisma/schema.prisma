@@ -70,14 +70,14 @@ model TalentProfile {
   // jadi perannya sebatas saringan awal yang murah. Pemeriksaan "1 wajah 1 akun"
   // yang sebenarnya memakai biometricFeatureVector di bawah.
   biometricDataHash      String?            @unique
-  // Embedding wajah Facenet 128 dimensi, sudah di-L2-normalize sehingga jarak
-  // cosine antar-baris sebanding. Ditulis HANYA oleh VerificationService dari
-  // selfie yang sudah ter-align dan cocok dengan KTP.
+  // Embedding wajah Facenet512, sudah di-L2-normalize sehingga jarak cosine
+  // antar-baris sebanding. Ditulis HANYA oleh VerificationService dari selfie
+  // yang sudah ter-align dan cocok dengan KTP.
   //
   // Tipe `vector` berasal dari extension pgvector dan tidak dikenali Prisma
   // Client — itu disengaja: kolom ini tidak boleh ikut terbawa ke respons API
   // mana pun, dan seluruh akses dilakukan lewat $queryRaw di IdentityDedupeService.
-  biometricFeatureVector Unsupported("vector(128)")?
+  biometricFeatureVector Unsupported("vector(512)")?
 
   // Selfie atau KTP gagal diluruskan (wajah tidak terdeteksi). Verifikasi tetap
   // bisa lolos dengan ambang lebih ketat, tetapi embedding-nya tidak disimpan

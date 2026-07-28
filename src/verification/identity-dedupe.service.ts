@@ -3,7 +3,15 @@ import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
-export const EMBEDDING_DIMENSIONS = 128;
+/**
+ * Dimensi embedding wajah. Harus sama persis dengan lebar kolom pgvector di
+ * migrasi dan dengan keluaran model di verify_face.py (Facenet512).
+ *
+ * Mengubah model berarti mengubah angka ini, mengubah lebar kolom, dan
+ * mengosongkan seluruh vektor yang sudah tersimpan — embedding dari model
+ * berbeda tidak sebanding satu sama lain.
+ */
+export const EMBEDDING_DIMENSIONS = 512;
 
 export type DedupeDecision = 'PASS' | 'REVIEW' | 'REJECT';
 

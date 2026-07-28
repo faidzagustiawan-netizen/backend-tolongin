@@ -25,7 +25,8 @@ import { EncryptionUtil } from '../src/utils/encryption.util';
 
 const prisma = new PrismaClient();
 const APPLY = process.argv.includes('--apply');
-const EMBEDDING_DIMENSIONS = 128;
+// Harus sama dengan lebar kolom pgvector dan keluaran model di verify_face.py.
+const EMBEDDING_DIMENSIONS = 512;
 
 interface FaceScriptResult {
   isMatch: boolean;
