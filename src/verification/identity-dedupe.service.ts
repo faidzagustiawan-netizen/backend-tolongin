@@ -57,14 +57,30 @@ export class IdentityDedupeService {
     private readonly prisma: PrismaService,
     configService: ConfigService,
   ) {
+    // Angka bawaan berasal dari pengukuran, bukan tebakan.
+    //
+    // Satu wajah yang sama pada dua akun berbeda terukur pada jarak 0.2908,
+    // sedangkan dua orang berbeda paling dekat berada di 0.4525. Ambang lama
+    // 0,2 karena itu tidak pernah menyala sekali pun: kasus duplikat yang
+    // nyata pun jauh di atasnya, sehingga aturan "1 identitas 1 akun" hanya
+    // ada di atas kertas.
+    //
+    // 0,35 menolak duplikat sebenarnya dengan margin 0,06, dan menyisakan
+    // 0,35-0,42 sebagai zona manusia — tempat kembar dan saudara kandung
+    // seharusnya mendarat.
     this.rejectDistance = Number(
-      configService.get<string>('IDENTITY_DEDUPE_REJECT_DISTANCE') ?? 0.2,
+      configService.get<string>('IDENTITY_DEDUPE_REJECT_DISTANCE') ?? 0.35,
     );
     this.reviewDistance = Number(
-      configService.get<string>('IDENTITY_DEDUPE_REVIEW_DISTANCE') ?? 0.35,
+      configService.get<string>('IDENTITY_DEDUPE_REVIEW_DISTANCE') ?? 0.42,
     );
+    // Bawaan kini menegakkan. Mode bayangan berguna selama ambang belum
+    // terkalibrasi, tetapi sekarang sudah — dan bawaan yang tidak pernah
+    // menolak berarti fitur ini diam-diam mati di lingkungan mana pun yang
+    // lupa menyetel env-nya. Setel IDENTITY_DEDUPE_MODE=shadow untuk kembali
+    // mencatat tanpa menolak.
     this.enforcing =
-      configService.get<string>('IDENTITY_DEDUPE_MODE') === 'enforce';
+      configService.get<string>('IDENTITY_DEDUPE_MODE') !== 'shadow';
 
     this.logger.log(
       `Deteksi duplikat identitas aktif dalam mode ${this.enforcing ? 'ENFORCE' : 'SHADOW'} ` +
@@ -128,8 +144,17 @@ export class IdentityDedupeService {
   }
 
   /**
-   * Mencari profil terverifikasi paling mirip selain dirinya sendiri.
+   * Mencari profil paling mirip selain dirinya sendiri.
    * Operator `<=>` pgvector menghitung jarak cosine dan memanfaatkan indeks HNSW.
+   *
+   * PENDING ikut dibandingkan, bukan hanya VERIFIED. Profil yang tertahan di
+   * zona tinjau berstatus PENDING namun vektornya sudah tersimpan; membatasi
+   * pencarian ke VERIFIED saja akan membuat dua pendaftaran dengan wajah sama
+   * saling tidak terlihat selama keduanya masih menunggu petugas — persis
+   * celah yang ingin ditutup aturan "1 identitas 1 akun".
+   *
+   * FAILED dan UNVERIFIED sengaja tidak ikut: profil yang sudah ditolak tidak
+   * boleh terus menandai pendaftaran orang lain.
    */
   async findNearest(
     talentId: string,
@@ -144,7 +169,7 @@ export class IdentityDedupeService {
       FROM "talent_profiles"
       WHERE "biometricFeatureVector" IS NOT NULL
         AND "id" <> ${talentId}
-        AND "faceVerificationStatus" = 'VERIFIED'
+        AND "faceVerificationStatus" IN ('VERIFIED', 'PENDING')
       ORDER BY "biometricFeatureVector" <=> ${literal}::vector
       LIMIT 1
     `;
