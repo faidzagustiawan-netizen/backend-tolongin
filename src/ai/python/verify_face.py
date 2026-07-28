@@ -27,12 +27,18 @@ def resize_image_if_needed(img_path, max_dim=800):
         cv2.imwrite(img_path, img_resized)
 
 # Facenet512 menggantikan Facenet 128 dimensi. Embedding-nya memisahkan
-# identitas jauh lebih tajam, yang penting di sini karena pasangan
-# selfie-vs-KTP memang berjarak lebar dan menyisakan sedikit ruang aman.
+# identitas jauh lebih tajam.
 #
-# PERINGATAN: mengubah model membuat seluruh embedding yang sudah tersimpan
-# tidak sebanding lagi. Setelah menggantinya, kosongkan biometricFeatureVector
-# dan jalankan ulang scripts/backfill-biometric-vectors.ts.
+# ArcFace sempat diuji sebagai pengganti. Selisih sah-vs-impostor-nya memang
+# lebih lebar pada pasangan selfie (0,44 dengan opencv), tetapi jarak pemilik
+# KTP terhadap KTP-nya sendiri melonjak ke 0,99 — praktis tidak terbedakan dari
+# orang asing. Model itu merusak jalur pendaftaran, jadi tidak dipakai.
+#
+# PERINGATAN: mengubah MODEL_NAME **atau** DETECTOR_CHAIN membuat seluruh
+# embedding yang sudah tersimpan tidak sebanding lagi — pelurusan yang berbeda
+# menghasilkan vektor yang berbeda untuk wajah yang sama. Setelah mengubah
+# salah satunya, kosongkan biometricFeatureVector dan jalankan ulang
+# scripts/backfill-biometric-vectors.ts.
 MODEL_NAME = os.environ.get('FACE_MODEL', 'Facenet512')
 
 # Dimensi keluaran per model, dipakai untuk memastikan vektor cocok dengan
@@ -44,89 +50,91 @@ MODEL_DIMENSIONS = {
     "VGG-Face": 4096,
 }
 
-# Urutan detektor yang dicoba. opencv ringan dan tersedia bersama cv2;
-# mtcnn lebih tahan terhadap wajah miring tetapi lebih lambat, jadi hanya
-# dipakai bila yang pertama gagal menemukan wajah.
-DETECTOR_CHAIN = ["opencv", "mtcnn"]
-
-# Ambang jarak cosine untuk pasangan selfie-vs-KTP.
+# --------------------------------------------------------------------------
+# Urutan detektor. retinaface didahulukan, dan itu keputusan yang menentukan
+# kualitas seluruh sistem ini — bukan sekadar preferensi.
 #
-# CATATAN PENTING soal angka ini. DeepFace menganjurkan 0.40 untuk Facenet
-# cosine, tetapi angka itu dikalibrasi pada pasangan foto-vs-foto berkualitas
-# wajar (misal LFW). Selfie-vs-KTP adalah domain yang jauh lebih sulit: foto
-# pada KTP adalah foto dari hasil cetak, beresolusi rendah, pencahayaan
-# berbeda, dan sering berusia bertahun-tahun. Pengukuran pada pasangan asli
-# di sini menghasilkan jarak 0,66-0,69 untuk orang yang SAMA — jauh di atas
-# 0,40. Memakai 0,40 berarti menolak pemilik KTP yang sah.
+# Sebelumnya rantai ini dimulai dari opencv. Haar cascade opencv hampir selalu
+# berhasil menemukan wajah, jadi mtcnn di belakangnya praktis tidak pernah
+# terpakai; sementara pelurusan opencv buruk, dan pelurusan yang buruk
+# menggembungkan jarak pasangan yang SAH sampai nyaris menyentuh jarak
+# pasangan orang berbeda. Diukur pada tiga wajah asli (Facenet512):
 #
-# Karena itu keputusannya dibuat tiga zona, bukan lolos/tolak. Zona tengah
-# diteruskan ke peninjauan manusia: salah menolak pencari kerja yang sah jauh
-# lebih mahal daripada meloloskan satu kasus untuk diperiksa petugas.
+#   detektor      sah    impostor   selisih
+#   opencv      0.4026    0.4784     0.076   <- tidak ada ambang yang benar
+#   mtcnn       0.3967    0.6138     0.217
+#   retinaface  0.3162    0.6482     0.332
 #
-# Ambang baku DeepFace per model untuk jarak cosine, dipakai sebagai titik
-# acuan. Ini adalah angka untuk pasangan foto-vs-foto.
-MODEL_COSINE_BASELINE = {
-    "Facenet": 0.40,
-    "Facenet512": 0.30,
-    "ArcFace": 0.68,
-    "VGG-Face": 0.68,
-}
-
-# Pengali domain. Diturunkan dari pengukuran nyata pada Facenet: pasangan
-# selfie-vs-KTP milik orang yang sama menghasilkan jarak 0,66-0,69 terhadap
-# ambang baku 0,40, yaitu sekitar 1,7 kali. Zona cocok dipasang sedikit di
-# bawah rasio itu dan zona tinjau sedikit di atasnya.
+# Dengan selisih 0,076 tidak ada angka ambang yang bisa benar: di titik mana
+# pun pilihannya antara meloloskan joki atau memblokir pengguna yang sah.
+# Masalahnya ada di pelurusan, bukan di ambang.
 #
-# Pengali ini BELUM diukur ulang untuk Facenet512. Nilainya sengaja dibiarkan
-# sama agar perbandingannya adil, dan harus disetel setelah terkumpul cukup
-# pasangan asli maupun pasangan berbeda-orang.
-DOMAIN_MATCH_MULTIPLIER = 1.4
-DOMAIN_REVIEW_MULTIPLIER = 2.0
+# Biayanya nyata: retinaface ~1280 ms per gambar melawan ~350 ms untuk opencv.
+# Pengawasan berkelanjutan memanggil verifikasi tiap 30 detik per kandidat,
+# jadi naikkan FACE_WORKER_POOL_SIZE bila peserta serentak bertambah banyak.
+DETECTOR_CHAIN = [
+    name.strip()
+    for name in os.environ.get('FACE_DETECTOR_CHAIN', 'retinaface,mtcnn').split(',')
+    if name.strip()
+]
 
-_baseline = MODEL_COSINE_BASELINE.get(MODEL_NAME, 0.40)
+COMPARISON_SELFIE_VS_KTP = "selfie_vs_ktp"
+COMPARISON_SELFIE_VS_SELFIE = "selfie_vs_selfie"
 
-FACE_MATCH_DISTANCE = float(
-    os.environ.get(
-        'FACE_MATCH_DISTANCE', _baseline * DOMAIN_MATCH_MULTIPLIER
-    )
-)
-FACE_REVIEW_DISTANCE = float(
-    os.environ.get(
-        'FACE_REVIEW_DISTANCE', _baseline * DOMAIN_REVIEW_MULTIPLIER
-    )
-)
+# --------------------------------------------------------------------------
+# Ambang jarak cosine.
+#
+# Angka di bawah ini DIUKUR, bukan diturunkan dari pengali. Skema pengali yang
+# lama (baku model x 1,4 dan x 2,0) dibangun di atas klaim bahwa pasangan
+# selfie-vs-KTP yang sah berjarak 0,66-0,69. Klaim itu berasal dari Facenet 128
+# dimensi DAN dari rantai detektor lama; dengan Facenet512 + retinaface,
+# pengukuran pada pasangan asli memberi gambaran yang sama sekali berbeda:
+#
+#   pasangan                                    jarak
+#   sah      selfie vs selfie lain hari         0.3162
+#   sah      selfie vs KTP-nya sendiri          0.3275
+#   impostor dua pengguna terdaftar, beda orang 0.4020   <- pasangan pengikat
+#   impostor orang lain vs selfie               0.6444
+#   impostor orang lain vs KTP                  0.8565
+#
+# "Hukuman domain KTP" pada dasarnya lenyap: 0.3275 untuk pasangan KTP hampir
+# sama rapat dengan 0.3162 untuk pasangan selfie. Jarak besar yang dulu
+# diyakini melekat pada foto cetak ternyata sebagian besar adalah kesalahan
+# pelurusan opencv.
+#
+# Yang mengikat ambang adalah baris 0.4020: dua pengguna terdaftar yang benar-
+# benar berbeda orang (nama, email, dan wilayah NIK berlainan) ternyata hanya
+# sejauh itu. Jendela aman karena itu bukan 0,317 melainkan hanya 0,075 —
+# antara pasangan sah terburuk 0.3275 dan impostor terdekat 0.4020.
+#
+# PERINGATAN KALIBRASI: dengan jendela sesempit itu, ambang di bawah ini adalah
+# kompromi sementara, bukan angka yang sudah mapan. Marginnya tipis ke kedua
+# arah: 0,05 di atas pasangan sah yang terukur, 0,02 di bawah impostor yang
+# terukur. Satu foto dengan pencahayaan buruk bisa melewatinya. Selama sampel
+# masih sesedikit ini, perlakukan pengetatan lebih lanjut sebagai keputusan
+# berbasis data, bukan tebakan — kumpulkan pasangan asli lalu setel ulang.
+FACE_MATCH_DISTANCE = float(os.environ.get('FACE_MATCH_DISTANCE', 0.42))
+FACE_REVIEW_DISTANCE = float(os.environ.get('FACE_REVIEW_DISTANCE', 0.50))
+
+# Pengecekan anti-joki adalah gerbang keamanan, bukan pendaftaran: tidak ada
+# zona "cukup mirip" yang diloloskan sambil menunggu petugas, karena petugas
+# tidak hadir saat ujian berlangsung.
+#
+# 0,38 dipilih dari jendela 0.3275-0.4020 di atas, digeser sedikit ke arah
+# meloloskan karena salah-tolak menghentikan ujian yang sedang berjalan.
+# Naikkan lewat FACE_SELFIE_MATCH_DISTANCE bila pengguna sah mulai terblokir —
+# tetapi jangan melewati 0,40 tanpa data baru, karena di atas itu pasangan
+# beda-orang yang sudah terukur ikut lolos.
+SELFIE_MATCH_DISTANCE = float(os.environ.get('FACE_SELFIE_MATCH_DISTANCE', 0.38))
 
 # Pasangan yang gagal diluruskan dinilai lebih ketat: jarak pada wajah mentah
-# menyebar lebih lebar sehingga kurang bisa dipercaya.
+# menyebar lebih lebar sehingga kurang bisa dipercaya. Dengan retinaface di
+# depan rantai, jalur ini seharusnya jarang terpakai.
 DEGRADED_MATCH_DISTANCE = float(
     os.environ.get('FACE_DEGRADED_MATCH_DISTANCE', FACE_MATCH_DISTANCE * 0.8)
 )
 DEGRADED_REVIEW_DISTANCE = float(
     os.environ.get('FACE_DEGRADED_REVIEW_DISTANCE', FACE_REVIEW_DISTANCE * 0.875)
-)
-
-# --------------------------------------------------------------------------
-# Dua jenis pembandingan, dua ambang.
-#
-# Pelonggaran di atas HANYA sah untuk pasangan selfie-vs-KTP, karena foto pada
-# kartu cetak memang menghasilkan jarak besar untuk orang yang sama.
-#
-# Pengecekan anti-joki membandingkan foto kamera langsung dengan SELFIE yang
-# tersimpan — dua foto digital dengan kualitas setara. Itu domain foto-vs-foto
-# biasa, dan memakai ambang KTP di sini adalah lubang: batas 0,60 untuk
-# Facenet512 melampaui jarak khas antar-orang-berbeda, sehingga dua orang yang
-# berlainan sama-sama diloloskan terhadap satu wajah terdaftar.
-#
-# Karena itu pembandingan selfie-vs-selfie memakai ambang baku model, tanpa
-# zona tinjau (tidak ada "cukup mirip" yang diloloskan), dan tanpa jalur wajah
-# tak-terdeteksi — foto tanpa wajah tidak boleh menghasilkan embedding acak
-# yang kebetulan lolos.
-# --------------------------------------------------------------------------
-COMPARISON_SELFIE_VS_KTP = "selfie_vs_ktp"
-COMPARISON_SELFIE_VS_SELFIE = "selfie_vs_selfie"
-
-SELFIE_MATCH_DISTANCE = float(
-    os.environ.get('FACE_SELFIE_MATCH_DISTANCE', _baseline)
 )
 
 
@@ -260,12 +268,11 @@ def compare_faces(s_path, k_path, comparison=COMPARISON_SELFIE_VS_KTP):
     Membandingkan selfie dengan gambar pembanding.
 
     `comparison` menentukan ambang yang dipakai:
-    - COMPARISON_SELFIE_VS_KTP: pembanding adalah foto pada KTP. Ambang longgar
-      tiga zona, dan wajah yang tak terdeteksi pada kartu tetap diproses tanpa
-      pelurusan.
+    - COMPARISON_SELFIE_VS_KTP: pembanding adalah foto pada KTP. Tiga zona
+      (cocok / perlu tinjau petugas / tolak), dan wajah yang tak terdeteksi pada
+      kartu tetap diproses tanpa pelurusan.
     - COMPARISON_SELFIE_VS_SELFIE: pembanding adalah selfie tersimpan (anti-joki).
-      Ambang baku model, tanpa zona tinjau, dan wajah wajib terdeteksi di kedua
-      sisi.
+      Satu ambang tanpa zona tinjau, dan wajah wajib terdeteksi di kedua sisi.
 
     Mengembalikan (is_match, confidence, reason, selfie_vector, degraded,
     distance, needs_review).
