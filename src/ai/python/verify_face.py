@@ -179,6 +179,33 @@ def load_deepface():
         ) from e
 
 
+# Penanda galat yang berarti mesinnya tidak bisa dibangun, bukan wajahnya yang
+# tidak ketemu. Daftar ini ada karena DeepFace melaporkan sebagian kerusakan
+# dependensi sebagai ValueError biasa, bukan ImportError — khususnya syarat
+# tf_keras untuk TensorFlow >= 2.16:
+#
+#   You have tensorflow 2.21.0 and this requires tf-keras package.
+#
+# Tanpa pemilahan ini galat tersebut ditelan sebagai "detektor gagal", lalu
+# muncul ke pengguna sebagai "wajah tidak terdeteksi" — menyalahkan pengguna
+# atas dependensi server yang belum lengkap.
+ENGINE_FAILURE_MARKERS = (
+    "no module named",
+    "requires tf-keras",
+    "tf-keras package",
+    "failed to load",
+    "could not be imported",
+)
+
+
+def is_engine_failure(error):
+    """True bila galat ini menandakan mesin rusak, bukan wajah tidak ketemu."""
+    if isinstance(error, (ImportError, FaceEngineUnavailable)):
+        return True
+    message = str(error).lower()
+    return any(marker in message for marker in ENGINE_FAILURE_MARKERS)
+
+
 def l2_normalize(vec):
     """
     Menormalkan embedding ke panjang 1.
@@ -221,10 +248,10 @@ def represent_face(img_path, allow_unaligned=False):
         except FaceEngineUnavailable:
             raise
         except Exception as e:
-            # Dependensi yang hilang muncul sebagai ImportError di dalam
-            # DeepFace saat model dibangun; itu kerusakan sistem, bukan
-            # "wajah tidak terdeteksi", jadi tidak boleh ditelan di sini.
-            if isinstance(e, ImportError) or "No module named" in str(e):
+            # Kerusakan mesin tidak boleh ditelan di sini: menelannya membuat
+            # dependensi server yang belum lengkap tampil sebagai penilaian
+            # terhadap wajah pengguna.
+            if is_engine_failure(e):
                 raise FaceEngineUnavailable(str(e)) from e
             # Detektor ini tidak menemukan wajah; coba yang berikutnya.
             continue
@@ -252,7 +279,7 @@ def represent_face(img_path, allow_unaligned=False):
     except FaceEngineUnavailable:
         raise
     except Exception as e:
-        if isinstance(e, ImportError) or "No module named" in str(e):
+        if is_engine_failure(e):
             raise FaceEngineUnavailable(str(e)) from e
 
     return None, None, False

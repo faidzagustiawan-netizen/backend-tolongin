@@ -162,20 +162,43 @@ def warmup():
     DeepFace membangun modelnya secara malas pada pemakaian pertama. Tanpa
     pemanasan ini, permintaan pertama tetap menanggung penalti beberapa detik
     dan pool worker terlihat sehat padahal belum siap.
+
+    Hasilnya diperiksa, bukan sekadar dijalankan. Versi sebelumnya menganggap
+    "tidak melempar" sebagai sukses, padahal represent_face mengembalikan None
+    tanpa melempar ketika model gagal dibangun. Akibatnya log menulis "model
+    wajah siap" pada worker yang sebenarnya tidak bisa memproses apa pun, dan
+    kerusakan itu baru terlihat setelah pengguna ditolak verifikasinya.
     """
     try:
         import numpy as np
         from verify_face import represent_face
 
+        # Derau acak sengaja dipakai: yang diuji adalah kemampuan membangun
+        # model dan menghasilkan embedding, bukan mendeteksi wajah. Karena itu
+        # jalur unaligned diizinkan — pada derau memang tidak ada wajah.
         dummy = (np.random.rand(160, 160, 3) * 255).astype('uint8')
         path = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg").name
         cv2.imwrite(path, dummy)
         try:
-            represent_face(path, allow_unaligned=True)
+            embedding, _backend, _degraded = represent_face(
+                path, allow_unaligned=True
+            )
         finally:
             if os.path.exists(path):
                 os.remove(path)
-        log("model wajah siap")
+
+        if embedding is None:
+            log(
+                "PERINGATAN: pemanasan tidak menghasilkan embedding. Model wajah "
+                "kemungkinan besar tidak bisa dibangun — periksa dependensi "
+                "(TensorFlow >= 2.16 mewajibkan tf-keras). Worker tetap "
+                "melayani, tetapi setiap permintaan akan gagal."
+            )
+            return
+
+        log(f"model wajah siap ({len(embedding)} dimensi)")
+    except FaceEngineUnavailable as e:
+        log(f"PERINGATAN: mesin wajah tidak tersedia: {e}")
     except Exception as e:
         log(f"pemanasan model wajah gagal (tidak fatal): {e}")
 

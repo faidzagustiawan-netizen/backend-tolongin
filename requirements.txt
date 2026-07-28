@@ -41,11 +41,19 @@
 deepface==0.0.100
 easyocr==1.7.2
 
-# DeepFace 0.0.100 berjalan di atas Keras 3 bawaan TensorFlow 2.21; paket
-# tf-keras tidak diperlukan dan tidak terpasang di produksi.
 tensorflow==2.21.0
 numpy==2.5.0
 opencv-python-headless==5.0.0.93
+
+# WAJIB, dan bukan sekadar pelengkap. DeepFace 0.0.100 memanggil
+# validate_for_keras3() yang melempar ValueError begitu TensorFlow >= 2.16
+# tanpa tf_keras:
+#
+#   You have tensorflow 2.21.0 and this requires tf-keras package.
+#
+# Galat itu muncul ke pengguna sebagai "Gagal mengekstrak fitur wajah", yang
+# terbaca seolah wajahnya bermasalah. Versinya mengikuti TensorFlow.
+tf-keras==2.21.0
 
 # Detektor utama pada rantai pelurusan wajah di verify_face.py. Dulu hanya ikut
 # terbawa sebagai dependensi DeepFace; dicantumkan eksplisit karena sekarang
