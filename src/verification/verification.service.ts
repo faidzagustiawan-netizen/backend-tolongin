@@ -147,22 +147,35 @@ export class VerificationService {
       const encryptedFace = EncryptionUtil.encrypt(dto.selfiePhotoUrl);
       const encryptedKtp = EncryptionUtil.encrypt(dto.idCardPhotoUrl);
 
-      // Kecocokan di zona tengah tetap diloloskan, tetapi ditandai agar
-      // diperiksa petugas. Jarak selfie-vs-KTP menyebar lebar karena foto pada
-      // kartu adalah hasil cetak beresolusi rendah, sehingga menolak otomatis
-      // di zona ini akan mengunci banyak pemilik KTP yang sah.
+      // Zona tengah TIDAK lagi berstatus terverifikasi.
+      //
+      // Sebelumnya zona ini diloloskan sebagai VERIFIED sambil ditandai untuk
+      // diperiksa petugas — dengan alasan foto cetak pada KTP membuat jarak
+      // menyebar lebar. Alasan itu ternyata tidak berdasar: setelah pelurusan
+      // wajah diperbaiki, pasangan KTP yang sah serapat pasangan selfie.
+      //
+      // Yang tersisa di zona itu justru pasangan orang berbeda. Dua pasangan
+      // asli terukur pada 0.4525 dan 0.4806 — keduanya di bawah batas tinjau
+      // 0,50, keduanya dulu langsung VERIFIED. Itulah cara sebuah selfie
+      // diterima mendaftar memakai KTP milik orang lain.
+      //
+      // Statusnya kini PENDING sampai petugas memutuskan lewat antrean di
+      // AdminService.getIdentityReviewQueue().
       const faceNeedsReview = !!visionResult.needsReview;
 
       if (faceNeedsReview) {
         this.logger.warn(
-          `Verifikasi ${talentId} lolos di zona tinjau (jarak wajah ${visionResult.faceDistance}). Ditandai untuk diperiksa petugas.`,
+          `Verifikasi ${talentId} berada di zona tinjau (jarak wajah ${visionResult.faceDistance}). ` +
+            'Status ditahan PENDING menunggu keputusan petugas.',
         );
       }
 
       await this.prisma.talentProfile.update({
         where: { id: talentId },
         data: {
-          faceVerificationStatus: VerificationStatus.VERIFIED,
+          faceVerificationStatus: faceNeedsReview
+            ? VerificationStatus.PENDING
+            : VerificationStatus.VERIFIED,
           ktpNik: visionResult.ktpNik,
           biometricDataHash: biometricHash,
           encryptedPrivateFace: encryptedFace,
@@ -187,8 +200,20 @@ export class VerificationService {
         }
       }
 
+      if (faceNeedsReview) {
+        await this.notificationsService.sendNotification(
+          profile.userId,
+          'Verifikasi Identitas Sedang Ditinjau ⏳',
+          'Dokumen dan selfie Anda sudah kami terima, tetapi tingkat kemiripannya berada di rentang yang perlu diperiksa petugas kami. ' +
+            'Ini prosedur standar dan bukan berarti dokumen Anda bermasalah. Anda akan diberi tahu begitu peninjauan selesai. ' +
+            'Bila fotonya kurang jelas, Anda boleh mengulang verifikasi dengan pencahayaan yang lebih baik.',
+          '/profile',
+        );
+        return;
+      }
+
       const reviewNote =
-        dedupe?.decision === 'REVIEW' || faceNeedsReview
+        dedupe?.decision === 'REVIEW'
           ? ' Catatan: identitas Anda sedang ditinjau ulang oleh tim kami sebagai prosedur standar. Anda tetap dapat menggunakan akun seperti biasa.'
           : '';
 

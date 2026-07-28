@@ -323,9 +323,13 @@ export class AdminService {
         needsIdentityReview: false,
         identityReviewedAt: new Date(),
         identityReviewedBy: adminUserId,
-        ...(approve
-          ? {}
-          : { faceVerificationStatus: VerificationStatus.FAILED }),
+        // Persetujuan harus menetapkan VERIFIED, bukan sekadar mencabut tanda.
+        // Profil yang ditahan di zona tinjau berstatus PENDING; kalau tinjauan
+        // hanya mematikan tandanya, profil itu tidak pernah keluar dari PENDING
+        // dan penggunanya terkunci tanpa cara memperbaikinya sendiri.
+        faceVerificationStatus: approve
+          ? VerificationStatus.VERIFIED
+          : VerificationStatus.FAILED,
       },
     });
 

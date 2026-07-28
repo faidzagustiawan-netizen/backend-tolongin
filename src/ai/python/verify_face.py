@@ -90,29 +90,42 @@ COMPARISON_SELFIE_VS_SELFIE = "selfie_vs_selfie"
 # dimensi DAN dari rantai detektor lama; dengan Facenet512 + retinaface,
 # pengukuran pada pasangan asli memberi gambaran yang sama sekali berbeda:
 #
-#   pasangan                                    jarak
-#   sah      selfie vs selfie lain hari         0.3162
-#   sah      selfie vs KTP-nya sendiri          0.3275
-#   impostor dua pengguna terdaftar, beda orang 0.4020   <- pasangan pengikat
-#   impostor orang lain vs selfie               0.6444
-#   impostor orang lain vs KTP                  0.8565
+# Label pasangan di bawah ini dipastikan manusia, bukan disimpulkan dari
+# metadata akun. Nama, email, dan NIK tidak bisa dipakai menebak identitas
+# wajah — justru itulah yang dipalsukan.
 #
-# "Hukuman domain KTP" pada dasarnya lenyap: 0.3275 untuk pasangan KTP hampir
-# sama rapat dengan 0.3162 untuk pasangan selfie. Jarak besar yang dulu
-# diyakini melekat pada foto cetak ternyata sebagian besar adalah kesalahan
-# pelurusan opencv.
+#   ORANG YANG SAMA
+#     selfie vs KTP miliknya sendiri            0.2957
+#     selfie vs KTP miliknya sendiri (foto lain) 0.3861   <- sah terburuk
+#     selfie vs selfie, akun berbeda            0.2908
+#     selfie vs KTP miliknya sendiri (uji)      0.3273
+#     selfie vs selfie, sesi berbeda (uji)      0.3174
 #
-# Yang mengikat ambang adalah baris 0.4020: dua pengguna terdaftar yang benar-
-# benar berbeda orang (nama, email, dan wilayah NIK berlainan) ternyata hanya
-# sejauh itu. Jendela aman karena itu bukan 0,317 melainkan hanya 0,075 —
-# antara pasangan sah terburuk 0.3275 dan impostor terdekat 0.4020.
+#   ORANG BERBEDA
+#     selfie vs KTP milik orang lain            0.4525   <- impostor terdekat
+#     selfie vs KTP milik orang lain            0.4806
+#     KTP vs KTP, dua kartu berbeda             0.5080
+#     selfie vs selfie (uji)                    0.6449
+#     selfie vs KTP (uji)                       0.8565
 #
-# PERINGATAN KALIBRASI: dengan jendela sesempit itu, ambang di bawah ini adalah
-# kompromi sementara, bukan angka yang sudah mapan. Marginnya tipis ke kedua
-# arah: 0,05 di atas pasangan sah yang terukur, 0,02 di bawah impostor yang
-# terukur. Satu foto dengan pencahayaan buruk bisa melewatinya. Selama sampel
-# masih sesedikit ini, perlakukan pengetatan lebih lanjut sebagai keputusan
-# berbasis data, bukan tebakan — kumpulkan pasangan asli lalu setel ulang.
+# "Hukuman domain KTP" pada dasarnya lenyap: pasangan KTP yang sah serapat
+# pasangan selfie. Jarak besar yang dulu diyakini melekat pada foto cetak
+# ternyata sebagian besar adalah kesalahan pelurusan opencv.
+#
+# Jendela aman: antara sah terburuk 0.3861 dan impostor terdekat 0.4525, yaitu
+# 0,066 dengan titik tengah 0,419. FACE_MATCH_DISTANCE 0,42 jatuh tepat di
+# sana dan memisahkan seluruh pasangan yang terukur.
+#
+# Yang TIDAK dipisahkan olehnya adalah zona tinjau. Dua pasangan impostor
+# terukur (0.4525 dan 0.4806) berada di bawah FACE_REVIEW_DISTANCE 0,50, dan
+# zona itu dulu diloloskan otomatis — itulah cara sebuah selfie diterima
+# mendaftar memakai KTP milik orang lain. Zona tinjau kini benar-benar ditinjau
+# petugas, tidak lagi berstatus VERIFIED sambil menunggu.
+#
+# PERINGATAN KALIBRASI: jendela 0,066 itu sempit dan sampelnya masih sedikit.
+# Kembar dan saudara kandung akan mendarat lebih rendah daripada 0,45;
+# pencahayaan buruk mendorong pasangan sah melewati 0,39. Ukur ulang begitu
+# terkumpul pasangan asli yang labelnya dipastikan manusia.
 FACE_MATCH_DISTANCE = float(os.environ.get('FACE_MATCH_DISTANCE', 0.42))
 FACE_REVIEW_DISTANCE = float(os.environ.get('FACE_REVIEW_DISTANCE', 0.50))
 
@@ -120,12 +133,14 @@ FACE_REVIEW_DISTANCE = float(os.environ.get('FACE_REVIEW_DISTANCE', 0.50))
 # zona "cukup mirip" yang diloloskan sambil menunggu petugas, karena petugas
 # tidak hadir saat ujian berlangsung.
 #
-# 0,38 dipilih dari jendela 0.3275-0.4020 di atas, digeser sedikit ke arah
-# meloloskan karena salah-tolak menghentikan ujian yang sedang berjalan.
-# Naikkan lewat FACE_SELFIE_MATCH_DISTANCE bila pengguna sah mulai terblokir —
-# tetapi jangan melewati 0,40 tanpa data baru, karena di atas itu pasangan
-# beda-orang yang sudah terukur ikut lolos.
-SELFIE_MATCH_DISTANCE = float(os.environ.get('FACE_SELFIE_MATCH_DISTANCE', 0.38))
+# 0,40 duduk 0,083 di atas pasangan selfie-vs-selfie sah yang terburuk (0.3174)
+# dan 0,05 di bawah pasangan beda-orang terdekat yang pernah terukur (0.4525).
+# Digeser sedikit ke arah meloloskan karena salah-tolak menghentikan ujian yang
+# sedang berjalan, sementara joki masih tersaring jauh di atas angka ini.
+#
+# Jangan melewati 0,45 lewat FACE_SELFIE_MATCH_DISTANCE tanpa data baru: di
+# atas itu pasangan beda-orang yang sudah terukur ikut lolos.
+SELFIE_MATCH_DISTANCE = float(os.environ.get('FACE_SELFIE_MATCH_DISTANCE', 0.40))
 
 # Pasangan yang gagal diluruskan dinilai lebih ketat: jarak pada wajah mentah
 # menyebar lebih lebar sehingga kurang bisa dipercaya. Dengan retinaface di
