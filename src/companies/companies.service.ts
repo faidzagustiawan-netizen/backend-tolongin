@@ -22,26 +22,73 @@ const PUBLIC_COMPANY_SELECT = {
   location: true,
   linkedinUrl: true,
   trustScore: true,
-  subscriptionTier: true,
   createdAt: true,
 } satisfies Prisma.CompanyProfileSelect;
 
+/**
+ * Kolom challenge yang aman tampil di profil publik perusahaan.
+ * Sebelumnya seluruh baris ikut terkirim, termasuk `gradingRubric` dan
+ * `aiPromptUsed` yang tidak ada urusannya dengan pengunjung.
+ */
+const PUBLIC_CHALLENGE_SELECT = {
+  id: true,
+  slug: true,
+  title: true,
+  summary: true,
+  category: true,
+  difficulty: true,
+  challengeType: true,
+  status: true,
+  rewardDescription: true,
+  startsAt: true,
+  deadlineAt: true,
+  createdAt: true,
+} satisfies Prisma.ChallengeSelect;
+
 const INVITE_CODE_TTL_HOURS = 48;
+const DEFAULT_PAGE_SIZE = 24;
+const MAX_PAGE_SIZE = 100;
 
 @Injectable()
 export class CompaniesService {
   constructor(private prisma: PrismaService) {}
 
-  async findAll() {
-    return this.prisma.companyProfile.findMany({
-      select: {
-        ...PUBLIC_COMPANY_SELECT,
-        _count: {
-          select: { challenges: true },
+  async findAll(
+    query: { page?: number; limit?: number; search?: string } = {},
+  ) {
+    const page = Math.max(1, Number(query.page) || 1);
+    const limit = Math.min(
+      MAX_PAGE_SIZE,
+      Math.max(1, Number(query.limit) || DEFAULT_PAGE_SIZE),
+    );
+
+    const where: Prisma.CompanyProfileWhereInput = query.search
+      ? {
+          OR: [
+            { companyName: { contains: query.search, mode: 'insensitive' } },
+            { industry: { contains: query.search, mode: 'insensitive' } },
+            { location: { contains: query.search, mode: 'insensitive' } },
+          ],
+        }
+      : {};
+
+    const [data, total] = await this.prisma.$transaction([
+      this.prisma.companyProfile.findMany({
+        where,
+        select: {
+          ...PUBLIC_COMPANY_SELECT,
+          _count: {
+            select: { challenges: true },
+          },
         },
-      },
-      orderBy: { trustScore: 'desc' },
-    });
+        orderBy: { trustScore: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.companyProfile.count({ where }),
+    ]);
+
+    return { data, total, page, limit };
   }
 
   async findOne(idOrSlug: string) {
@@ -53,7 +100,19 @@ export class CompaniesService {
       select: {
         ...PUBLIC_COMPANY_SELECT,
         challenges: {
-          where: { isPrivate: false },
+          // Penyaringnya dulu hanya `isPrivate: false`. Draf yang batas
+          // akhirnya sudah lewat masuk ke kelompok "completed", dan draf yang
+          // tanggal mulainya di depan masuk ke "upcoming" — isi soal yang
+          // belum diterbitkan tampil di profil publik perusahaan.
+          // CLOSED tetap ikut karena mengisi kelompok "completed"; hanya DRAFT
+          // yang disembunyikan.
+          where: {
+            isPrivate: false,
+            status: {
+              in: [ChallengeStatus.PUBLISHED, ChallengeStatus.CLOSED],
+            },
+          },
+          select: PUBLIC_CHALLENGE_SELECT,
           orderBy: { createdAt: 'desc' },
         },
       },
@@ -109,7 +168,10 @@ export class CompaniesService {
   async generateInviteCode(companyId: string) {
     // Math.random() adalah PRNG non-kriptografis dan bisa diprediksi. Kode ini
     // memberi akses penuh ke ruang kerja perusahaan, jadi wajib dari CSPRNG.
-    const inviteCode = crypto.randomBytes(16).toString('base64url').toUpperCase();
+    const inviteCode = crypto
+      .randomBytes(16)
+      .toString('base64url')
+      .toUpperCase();
     const inviteCodeExpiresAt = new Date(
       Date.now() + INVITE_CODE_TTL_HOURS * 60 * 60 * 1000,
     );

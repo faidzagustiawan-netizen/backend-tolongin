@@ -1,12 +1,26 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { CompaniesService } from '../companies/companies.service';
 import { UpgradeSubscriptionDto } from './dto/upgrade-subscription.dto';
 
 @Injectable()
 export class SubscriptionsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly companiesService: CompaniesService,
+  ) {}
 
-  async upgrade(companyId: string, dto: UpgradeSubscriptionDto) {
+  /**
+   * Penyesuaian paket secara manual oleh admin.
+   *
+   * Jalur berbayar yang sah adalah POST /payments/subscribe lalu webhook
+   * Midtrans yang tanda tangannya diverifikasi. Endpoint ini melewati
+   * keduanya, jadi aksesnya dibatasi ke admin dan setiap pemakaiannya
+   * ditinggalkan jejaknya.
+   */
+  async upgrade(dto: UpgradeSubscriptionDto, actorUserId: string) {
+    const companyId = dto.companyId;
+
     const company = await this.prisma.companyProfile.findUnique({
       where: { id: companyId },
       include: { user: true },
@@ -16,6 +30,7 @@ export class SubscriptionsService {
       throw new NotFoundException('Profil Perusahaan tidak ditemukan');
     }
 
+    const previousTier = company.subscriptionTier;
     const duration = dto.durationInMonths ?? 12;
     const expiresAt = new Date();
     expiresAt.setMonth(expiresAt.getMonth() + duration);
@@ -27,6 +42,21 @@ export class SubscriptionsService {
         subscriptionExpiresAt: expiresAt,
       },
     });
+
+    await this.companiesService.logAction(
+      companyId,
+      actorUserId,
+      'SUBSCRIPTION_ADJUSTED_MANUALLY',
+      'COMPANY',
+      companyId,
+      {
+        from: previousTier,
+        to: dto.tier,
+        durationInMonths: duration,
+        expiresAt,
+        reason: dto.reason ?? null,
+      },
+    );
 
     await this.prisma.notification.create({
       data: {

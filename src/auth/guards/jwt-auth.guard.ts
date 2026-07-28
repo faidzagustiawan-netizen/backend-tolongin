@@ -75,9 +75,7 @@ export class JwtAuthGuard implements CanActivate {
     return true;
   }
 
-  private async resolveAccount(
-    userId?: string,
-  ): Promise<CachedAccount | null> {
+  private async resolveAccount(userId?: string): Promise<CachedAccount | null> {
     if (!userId) return null;
 
     const cached = this.accountCache.get(userId);

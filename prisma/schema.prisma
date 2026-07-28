@@ -469,6 +469,10 @@ model Submission {
   liveDemoUrl      String?
   notes            String?
 
+  // Penanda bahwa perusahaan sudah diingatkan soal SLA tinjauan 7 hari.
+  // Menjaga pengingat harian tidak berubah menjadi spam harian.
+  slaReminderSentAt DateTime?
+
   // AI Correction & Integrity
   aiPlagiarismScore   Float? // 0.0 - 100.0%
   aiCorrectionSummary String? // Analisis otomatis dari AI

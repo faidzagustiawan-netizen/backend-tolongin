@@ -19,6 +19,89 @@ export class SubmissionsCronService {
     private readonly aiService: AiService,
   ) {}
 
+  /** Berapa hari perusahaan punya waktu meninjau sebelum diingatkan. */
+  private static readonly REVIEW_SLA_DAYS = 7;
+
+  /**
+   * Mengingatkan perusahaan yang melewati SLA tinjauan.
+   *
+   * Angka SLA sudah lama dihitung dan ditampilkan di dasbor, tetapi tidak ada
+   * yang terjadi saat terlewat — kandidat menunggu tanpa kabar dan tanpa
+   * batas. Pengingat dikirim sekali per submisi; `slaReminderSentAt` menjaga
+   * cron harian tidak berubah jadi notifikasi harian.
+   */
+  @Cron(CronExpression.EVERY_DAY_AT_9AM)
+  async handleReviewSlaReminders() {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - SubmissionsCronService.REVIEW_SLA_DAYS);
+
+    const overdue = await this.prisma.submission.findMany({
+      where: {
+        status: {
+          in: [SubmissionStatus.PENDING_AI, SubmissionStatus.UNDER_REVIEW],
+        },
+        evaluatedAt: null,
+        slaReminderSentAt: null,
+        createdAt: { lt: cutoff },
+      },
+      include: {
+        challenge: {
+          select: {
+            id: true,
+            title: true,
+            company: { select: { userId: true } },
+          },
+        },
+        talent: { select: { userId: true, fullName: true } },
+      },
+      take: 200,
+    });
+
+    if (overdue.length === 0) return;
+
+    this.logger.log(`Mengirim ${overdue.length} pengingat SLA tinjauan.`);
+
+    for (const submission of overdue) {
+      const companyUserId = submission.challenge.company?.userId;
+
+      try {
+        await this.prisma.$transaction(async (tx) => {
+          if (companyUserId) {
+            await tx.notification.create({
+              data: {
+                userId: companyUserId,
+                title: 'Tinjauan Melewati Batas Waktu',
+                content: `Solusi dari ${submission.talent.fullName} untuk "${submission.challenge.title}" sudah menunggu lebih dari ${SubmissionsCronService.REVIEW_SLA_DAYS} hari dan belum dinilai.`,
+                linkUrl: `/company/submissions/${submission.id}`,
+              },
+            });
+          }
+
+          // Kandidat juga diberi kabar. Diamnya sistem adalah bagian terburuk
+          // dari menunggu.
+          await tx.notification.create({
+            data: {
+              userId: submission.talent.userId,
+              title: 'Solusi Anda Masih Menunggu Tinjauan',
+              content: `Solusi Anda untuk "${submission.challenge.title}" masih dalam antrean tinjauan perusahaan. Kami sudah mengingatkan mereka.`,
+              linkUrl: `/workspace/${submission.enrollmentId}`,
+            },
+          });
+
+          await tx.submission.update({
+            where: { id: submission.id },
+            data: { slaReminderSentAt: new Date() },
+          });
+        });
+      } catch (error) {
+        this.logger.error(
+          `Gagal mengirim pengingat SLA untuk submisi ${submission.id}`,
+          error instanceof Error ? error.stack : String(error),
+        );
+      }
+    }
+  }
+
   @Cron(CronExpression.EVERY_30_SECONDS)
   async handleAiEvaluations() {
     if (this.isProcessing) return;
@@ -72,8 +155,13 @@ export class SubmissionsCronService {
               if (compData) {
                 // Determine skillCategory from component's metadata
                 let skillCategory = 'TECHNICAL';
-                if (compData.metadata && typeof compData.metadata === 'object' && !Array.isArray(compData.metadata)) {
-                  skillCategory = (compData.metadata as any).skillCategory || 'TECHNICAL';
+                if (
+                  compData.metadata &&
+                  typeof compData.metadata === 'object' &&
+                  !Array.isArray(compData.metadata)
+                ) {
+                  skillCategory =
+                    compData.metadata.skillCategory || 'TECHNICAL';
                 }
 
                 componentsData.push({

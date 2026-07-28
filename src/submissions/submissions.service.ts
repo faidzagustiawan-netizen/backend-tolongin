@@ -474,8 +474,12 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  async getSubmissionsForCompany(companyId: string, challengeId?: string) {
-    const where: any = {
+  async getSubmissionsForCompany(
+    companyId: string,
+    challengeId?: string,
+    pagination: { page?: number; limit?: number } = {},
+  ) {
+    const where: Prisma.SubmissionWhereInput = {
       challenge: { companyId },
     };
 
@@ -483,8 +487,51 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
       where.challengeId = challengeId;
     }
 
-    return this.prisma.submission.findMany({
-      where,
+    // Setiap baris membawa seluruh jawaban kandidat beserta definisi soalnya.
+    // Tanpa paginasi, satu challenge dengan ratusan pelamar menarik semuanya
+    // sekaligus dalam satu permintaan.
+    const page = Math.max(1, Number(pagination.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(pagination.limit) || 25));
+
+    const [data, total] = await this.prisma.$transaction([
+      this.prisma.submission.findMany({
+        where,
+        include: {
+          talent: {
+            select: {
+              fullName: true,
+              avatarUrl: true,
+              skills: true,
+              githubUrl: true,
+            },
+          },
+          challenge: {
+            select: { title: true, difficulty: true, category: true },
+          },
+          componentResponses: {
+            include: { component: true },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.submission.count({ where }),
+    ]);
+
+    return { data, total, page, limit };
+  }
+
+  /**
+   * Satu submisi untuk halaman penilaian.
+   *
+   * Halaman itu dulu mengambil seluruh daftar submisi perusahaan lalu mencari
+   * satu id di dalamnya. Begitu daftarnya berpaginasi, submisi di halaman
+   * kedua dan seterusnya menjadi tidak terjangkau.
+   */
+  async getSubmissionForCompany(companyId: string, submissionId: string) {
+    const submission = await this.prisma.submission.findFirst({
+      where: { id: submissionId, challenge: { companyId } },
       include: {
         talent: {
           select: {
@@ -495,14 +542,19 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
           },
         },
         challenge: {
-          select: { title: true, difficulty: true, category: true },
+          select: { id: true, title: true, difficulty: true, category: true },
         },
         componentResponses: {
           include: { component: true },
         },
       },
-      orderBy: { createdAt: 'desc' },
     });
+
+    if (!submission) {
+      throw new NotFoundException('Submisi tidak ditemukan');
+    }
+
+    return submission;
   }
 
   async getTalentEnrollments(talentId: string) {
@@ -553,12 +605,27 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
       throw new ForbiddenException('Submisi tidak ditemukan');
     }
 
-    const isCompanyOwner = submission.challenge.companyId === profileId;
-    const isTalentOwner = submission.challenge.talentId === profileId;
+    // Admin diizinkan oleh @Roles tapi tokennya tidak membawa profileId,
+    // sehingga pemeriksaan kepemilikan di bawah selalu menolaknya. Aksesnya
+    // sekarang dinyatakan terang-terangan.
+    const isAdmin = role === Role.ADMIN;
+    const isCompanyOwner =
+      !!profileId && submission.challenge.companyId === profileId;
+    const isTalentOwner =
+      !!profileId && submission.challenge.talentId === profileId;
 
-    if (!isCompanyOwner && !isTalentOwner) {
+    if (!isAdmin && !isCompanyOwner && !isTalentOwner) {
       throw new ForbiddenException(
         'Akses ditolak: Hanya pembuat Challenge yang dapat menilai submisi',
+      );
+    }
+
+    // Penilaian memberi XP dan token. Tanpa penjagaan ini setiap pemanggilan
+    // ulang — termasuk klik ganda pada formulir — menambah hadiah lagi, tanpa
+    // batas.
+    if (submission.evaluatedAt) {
+      throw new ForbiddenException(
+        'Submisi ini sudah dinilai dan tidak dapat dinilai ulang. Hubungi admin bila ada koreksi.',
       );
     }
 
@@ -580,7 +647,9 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
       });
 
       if (dto.status === SubmissionStatus.PASSED) {
-        const finalScore = dto.finalScore || 60;
+        // `|| 60` memperlakukan nilai 0 sebagai 60 dan diam-diam memberi
+        // hadiah untuk pekerjaan yang tidak bernilai.
+        const finalScore = dto.finalScore ?? 60;
         const rewards = this.calculateRewards(
           submission.challenge.difficulty,
           finalScore,
@@ -590,6 +659,16 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
           where: { id: submission.talentId },
           data: { xp: { increment: rewards.xp } },
         });
+
+        // Token dulu diberikan setelah transaksi selesai dan kegagalannya
+        // hanya dicatat ke konsol: talenta lulus, XP masuk, token hilang, dan
+        // tidak ada yang tahu. Kini sehidup-semati dengan penilaiannya.
+        await this.tokensService.earnTokensWithin(
+          tx,
+          submission.talent.userId,
+          rewards.tokens,
+          `Reward: Menyelesaikan ${submission.challenge.title}`,
+        );
 
         await tx.portfolio.upsert({
           where: { submissionId },
@@ -617,24 +696,6 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
 
       return updatedSubmission;
     });
-
-    if (dto.status === SubmissionStatus.PASSED) {
-      const finalScore = dto.finalScore || 60;
-      const rewards = this.calculateRewards(
-        submission.challenge.difficulty,
-        finalScore,
-      );
-
-      try {
-        await this.tokensService.earnTokens(
-          submission.talent.userId,
-          rewards.tokens,
-          `Reward: Menyelesaikan ${submission.challenge.title}`,
-        );
-      } catch (err) {
-        console.error('Failed to grant tokens', err);
-      }
-    }
 
     if (role === Role.COMPANY && userId && submission.challenge.companyId) {
       await this.companiesService.logAction(

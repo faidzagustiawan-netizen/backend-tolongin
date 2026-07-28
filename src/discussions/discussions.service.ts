@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateDiscussionDto } from './dto/create-discussion.dto';
+import { DISCUSSION_AUTHOR_SELECT } from '../common/selects/discussion-author.select';
 
 @Injectable()
 export class DiscussionsService {
@@ -34,7 +35,7 @@ export class DiscussionsService {
         parentId: dto.parentId,
       },
       include: {
-        user: { select: { email: true, role: true } },
+        user: { select: DISCUSSION_AUTHOR_SELECT },
       },
     });
 
@@ -61,7 +62,7 @@ export class DiscussionsService {
     return this.prisma.discussion.findMany({
       where: { challengeId },
       include: {
-        user: { select: { email: true, role: true } },
+        user: { select: DISCUSSION_AUTHOR_SELECT },
       },
       orderBy: { createdAt: 'asc' },
     });

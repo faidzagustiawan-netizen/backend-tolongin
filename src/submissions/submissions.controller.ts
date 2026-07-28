@@ -26,6 +26,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { Role } from '@prisma/client';
 import { VerifiedCompanyGuard } from '../auth/guards/verified-company.guard';
+import { resolveCompanyScope } from '../common/utils/company-scope';
 
 @ApiTags('Workspace, Submissions & AI Assessment')
 @ApiBearerAuth('JWT-auth')
@@ -111,17 +112,53 @@ export class SubmissionsController {
     required: false,
     description: 'Filter berdasarkan ID Challenge spesifik',
   })
+  @ApiQuery({
+    name: 'companyId',
+    required: false,
+    description: 'Wajib untuk admin; diabaikan untuk peran perusahaan',
+  })
+  @ApiQuery({ name: 'page', required: false })
+  @ApiQuery({ name: 'limit', required: false })
   @ApiResponse({ status: 200, description: 'Daftar submission talenta.' })
   @Roles(Role.COMPANY, Role.ADMIN)
   @Get('company-submissions')
   async getCompanySubmissions(
     @Request() req: any,
     @Query('challengeId') challengeId?: string,
+    @Query('companyId') companyId?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
   ) {
-    const companyId = req.user.profileId;
     return this.submissionsService.getSubmissionsForCompany(
-      companyId,
+      resolveCompanyScope(req.user, companyId),
       challengeId,
+      {
+        page: page ? Number(page) : undefined,
+        limit: limit ? Number(limit) : undefined,
+      },
+    );
+  }
+
+  @ApiOperation({
+    summary: 'Mendapatkan satu submisi milik challenge perusahaan',
+  })
+  @ApiQuery({
+    name: 'companyId',
+    required: false,
+    description: 'Wajib untuk admin; diabaikan untuk peran perusahaan',
+  })
+  @ApiResponse({ status: 200, description: 'Detail submisi.' })
+  @ApiResponse({ status: 404, description: 'Submisi tidak ditemukan.' })
+  @Roles(Role.COMPANY, Role.ADMIN)
+  @Get('company-submissions/:id')
+  async getCompanySubmission(
+    @Request() req: any,
+    @Param('id') submissionId: string,
+    @Query('companyId') companyId?: string,
+  ) {
+    return this.submissionsService.getSubmissionForCompany(
+      resolveCompanyScope(req.user, companyId),
+      submissionId,
     );
   }
 
@@ -133,11 +170,20 @@ export class SubmissionsController {
     status: 200,
     description: 'Daftar challenge dan statistik submisi.',
   })
+  @ApiQuery({
+    name: 'companyId',
+    required: false,
+    description: 'Wajib untuk admin; diabaikan untuk peran perusahaan',
+  })
   @Roles(Role.COMPANY, Role.ADMIN)
   @Get('challenge-stats')
-  async getChallengeStats(@Request() req: any) {
-    const companyId = req.user.profileId;
-    return this.submissionsService.getChallengeStats(companyId);
+  async getChallengeStats(
+    @Request() req: any,
+    @Query('companyId') companyId?: string,
+  ) {
+    return this.submissionsService.getChallengeStats(
+      resolveCompanyScope(req.user, companyId),
+    );
   }
 
   @ApiOperation({

@@ -16,6 +16,7 @@ import { UpdateChallengeDto } from './dto/update-challenge.dto';
 import { GenerateAiChallengeDto } from './dto/generate-ai-challenge.dto';
 import { GenerateAiBlueprintDto } from './dto/generate-ai-blueprint.dto';
 import { ChallengeSectionDto } from './dto/create-challenge.dto';
+import { DISCUSSION_AUTHOR_SELECT } from '../common/selects/discussion-author.select';
 import {
   ChallengeCategory,
   ChallengeDifficulty,
@@ -644,7 +645,7 @@ export class ChallengesService {
           orderBy: { order: 'asc' },
         },
         discussions: {
-          include: { user: { select: { email: true, role: true } } },
+          include: { user: { select: DISCUSSION_AUTHOR_SELECT } },
           orderBy: { createdAt: 'asc' },
         },
       },
