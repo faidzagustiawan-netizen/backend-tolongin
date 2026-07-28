@@ -6,7 +6,12 @@ import {
   UseGuards,
   Request,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+} from '@nestjs/swagger';
 import { ChallengesService } from './challenges.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -32,7 +37,10 @@ export class TemplateController {
   @ApiOperation({
     summary: '1-Click Clone Template menjadi Challenge Perusahaan',
   })
-  @ApiResponse({ status: 201, description: 'Template berhasil dikloning menjadi DRAFT.' })
+  @ApiResponse({
+    status: 201,
+    description: 'Template berhasil dikloning menjadi DRAFT.',
+  })
   @ApiResponse({ status: 404, description: 'Template tidak ditemukan.' })
   @UseGuards(JwtAuthGuard, RolesGuard, VerifiedCompanyGuard)
   @Roles(Role.COMPANY, Role.ADMIN)

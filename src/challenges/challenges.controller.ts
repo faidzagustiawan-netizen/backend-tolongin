@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -16,6 +17,7 @@ import {
   ApiBearerAuth,
   ApiQuery,
 } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { ChallengesService } from './challenges.service';
 import { CreateChallengeDto } from './dto/create-challenge.dto';
 import { UpdateChallengeDto } from './dto/update-challenge.dto';
@@ -64,6 +66,12 @@ export class ChallengesController {
     description: 'Filter berdasarkan ID perusahaan',
   })
   @ApiQuery({
+    name: 'mine',
+    required: false,
+    description:
+      'Bila "true", hanya challenge milik pemanggil (perusahaan maupun talenta), termasuk draf',
+  })
+  @ApiQuery({
     name: 'page',
     required: false,
     description: 'Halaman (mulai dari 1)',
@@ -87,6 +95,7 @@ export class ChallengesController {
     @Query('search') search?: string,
     @Query('companyId') companyId?: string,
     @Query('includeDrafts') includeDrafts?: string,
+    @Query('mine') mine?: string,
     @Query('sort') sort?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
@@ -99,6 +108,7 @@ export class ChallengesController {
         search,
         companyId,
         includeDrafts,
+        mine,
         sort,
         page: page ? Number(page) : undefined,
         limit: limit ? Number(limit) : undefined,
@@ -142,14 +152,30 @@ export class ChallengesController {
         req.user.sub,
         createChallengeDto,
       );
-    } else {
-      const companyId = req.user.profileId;
-      return this.challengesService.create(
-        companyId,
-        createChallengeDto,
-        req.user.sub,
+    }
+
+    // Token admin tidak membawa profileId (admin bukan perusahaan maupun
+    // talenta). Sebelumnya nilai undefined itu diteruskan ke Prisma dan
+    // permintaan berakhir sebagai galat 500 tanpa penjelasan; admin sekarang
+    // wajib menyebut perusahaan tujuannya.
+    const companyId =
+      req.user.role === Role.ADMIN
+        ? createChallengeDto.companyId
+        : req.user.profileId;
+
+    if (!companyId) {
+      throw new BadRequestException(
+        req.user.role === Role.ADMIN
+          ? 'Admin wajib menyertakan companyId perusahaan pemilik studi kasus.'
+          : 'Sesi tidak memiliki profil perusahaan. Silakan masuk ulang.',
       );
     }
+
+    return this.challengesService.create(
+      companyId,
+      createChallengeDto,
+      req.user.sub,
+    );
   }
 
   @ApiBearerAuth('JWT-auth')
@@ -184,6 +210,11 @@ export class ChallengesController {
     description: 'Blueprint studi kasus berhasil dirumuskan oleh AI.',
   })
   @ApiResponse({ status: 403, description: 'Akses ditolak.' })
+  @ApiResponse({ status: 429, description: 'Terlalu banyak permintaan AI.' })
+  // Blueprint tidak memotong token, sehingga tanpa pembatasan satu akun bisa
+  // memanggil penyedia AI tanpa henti atas biaya kami. Dihitung per pengguna
+  // oleh UserThrottlerGuard, bukan per IP.
+  @Throttle({ default: { limit: 20, ttl: 3_600_000 } })
   @UseGuards(JwtAuthGuard, RolesGuard, VerifiedCompanyGuard)
   @Roles(Role.COMPANY, Role.ADMIN, Role.TALENT)
   @Post('ai-generate-blueprint')
@@ -212,6 +243,8 @@ export class ChallengesController {
     description: 'Studi kasus draf berhasil dirumuskan oleh AI.',
   })
   @ApiResponse({ status: 403, description: 'Akses ditolak.' })
+  @ApiResponse({ status: 429, description: 'Terlalu banyak permintaan AI.' })
+  @Throttle({ default: { limit: 10, ttl: 3_600_000 } })
   @UseGuards(JwtAuthGuard, RolesGuard, VerifiedCompanyGuard)
   @Roles(Role.COMPANY, Role.ADMIN, Role.TALENT)
   @Post('ai-generate')

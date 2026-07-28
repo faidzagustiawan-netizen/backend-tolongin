@@ -20,7 +20,8 @@ import { TokensModule } from './tokens/tokens.module';
 import { PaymentsModule } from './payments/payments.module';
 import { CompaniesModule } from './companies/companies.module';
 import { ScheduleModule } from '@nestjs/schedule';
-import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
+import { UserThrottlerGuard } from './common/guards/user-throttler.guard';
 import { APP_GUARD } from '@nestjs/core';
 import { MailModule } from './mail/mail.module';
 import { AdminModule } from './admin/admin.module';
@@ -65,7 +66,9 @@ import { SkillsModule } from './skills/skills.module';
     AppService,
     {
       provide: APP_GUARD,
-      useClass: ThrottlerGuard,
+      // Varian per-pengguna: kuota endpoint mahal seperti generator AI tidak
+      // boleh dibagi rata satu alamat IP. Tamu tetap dihitung per IP.
+      useClass: UserThrottlerGuard,
     },
   ],
 })

@@ -21,6 +21,7 @@ import {
   ChallengeDifficulty,
   ChallengeStatus,
   ChallengeType,
+  ComponentType,
   Prisma,
   Role,
   SectionStageType,
@@ -41,6 +42,9 @@ export class ChallengesService {
 
   /** Biaya token untuk satu Public Challenge yang dibuat talenta. */
   private static readonly PUBLIC_CHALLENGE_COST = 50;
+
+  /** Berapa banyak Public Challenge aktif/draf yang boleh dimiliki talenta. */
+  private static readonly MAX_ACTIVE_PUBLIC_CHALLENGES = 3;
 
   /** Batas percobaan mencari slug yang belum terpakai. */
   private static readonly SLUG_ATTEMPTS = 5;
@@ -96,6 +100,105 @@ export class ChallengesService {
   };
 
   /**
+   * Kunci `gradingRubric` yang bukan kriteria penilaian. Kolom itu dipakai
+   * bersama untuk beberapa pengaturan lain, jadi bobot tidak boleh dihitung
+   * dari seluruh isinya.
+   */
+  private static readonly RUBRIC_SYSTEM_KEYS = [
+    'proctoringSettings',
+    'customOutputs',
+    'durationHours',
+    'requireProctoring',
+  ];
+
+  /**
+   * Pemeriksaan yang tidak bisa dinyatakan lewat dekorator class-validator
+   * karena melibatkan hubungan antar-field.
+   *
+   * Aturan ketat soal (opsi pilihan ganda, bobot rubrik) hanya berlaku saat
+   * studi kasus benar-benar diterbitkan. Draf sengaja dibiarkan setengah jadi
+   * — memaksa kelengkapan di sana membuat tombol "Simpan ke Draf" menolak
+   * pekerjaan yang memang belum selesai.
+   */
+  private assertChallengeConsistency(
+    dto: UpdateChallengeDto,
+    existing?: { startsAt: Date | null; deadlineAt: Date | null },
+  ) {
+    const startsAt = dto.startsAt
+      ? new Date(dto.startsAt)
+      : (existing?.startsAt ?? null);
+    const deadlineAt = dto.deadlineAt
+      ? new Date(dto.deadlineAt)
+      : (existing?.deadlineAt ?? null);
+
+    if (startsAt && deadlineAt && deadlineAt <= startsAt) {
+      throw new BadRequestException(
+        'Batas akhir harus lebih lambat daripada tanggal mulai.',
+      );
+    }
+
+    const isPublishing =
+      (dto.status ?? ChallengeStatus.PUBLISHED) === ChallengeStatus.PUBLISHED;
+    if (!isPublishing) return;
+
+    const sections = dto.sections ?? [];
+    const hasComponents = sections.some((s) => (s.components?.length ?? 0) > 0);
+
+    for (const section of sections) {
+      for (const component of section.components ?? []) {
+        if (component.type !== ComponentType.MULTIPLE_CHOICE) continue;
+
+        const options = Array.isArray(component.options)
+          ? component.options
+          : [];
+
+        if (options.length < 2) {
+          throw new BadRequestException(
+            `Soal pilihan ganda "${component.question}" harus memiliki minimal 2 opsi jawaban.`,
+          );
+        }
+        if (options.some((o: any) => !String(o?.text ?? '').trim())) {
+          throw new BadRequestException(
+            `Ada opsi jawaban kosong pada soal pilihan ganda "${component.question}".`,
+          );
+        }
+        if (options.filter((o: any) => o?.isCorrect === true).length !== 1) {
+          throw new BadRequestException(
+            `Soal pilihan ganda "${component.question}" harus memiliki tepat satu jawaban benar.`,
+          );
+        }
+      }
+    }
+
+    // Bobot rubrik hanya dipakai saat penilaian bersifat holistik. Begitu ada
+    // soal, skor dihitung dari poin tiap soal dan rubrik tidak lagi mengikat —
+    // memaksanya berjumlah 100 di situ hanya akan menghalangi tanpa alasan.
+    if (hasComponents) return;
+
+    const rubric = dto.gradingRubric;
+    if (!rubric) return;
+
+    const weights = Object.entries(rubric)
+      .filter(([key]) => !ChallengesService.RUBRIC_SYSTEM_KEYS.includes(key))
+      .map(([, value]) => value);
+
+    if (weights.length === 0) return;
+
+    if (weights.some((w) => typeof w !== 'number' || w < 0)) {
+      throw new BadRequestException(
+        'Setiap bobot kriteria penilaian harus berupa angka tidak negatif.',
+      );
+    }
+
+    const total = weights.reduce((acc: number, w: any) => acc + w, 0);
+    if (total !== 100) {
+      throw new BadRequestException(
+        `Total bobot kriteria penilaian harus 100%, saat ini ${total}%.`,
+      );
+    }
+  }
+
+  /**
    * Mengunci baris perusahaan untuk sisa transaksi.
    *
    * Tanpa penguncian, dua permintaan bersamaan sama-sama membaca hitungan
@@ -111,6 +214,41 @@ export class ChallengesService {
     if (!company) throw new NotFoundException('Perusahaan tidak ditemukan');
 
     return company;
+  }
+
+  /**
+   * Mengunci profil talenta lalu memastikan kuota Public Challenge aktif belum
+   * terlampaui.
+   *
+   * Biaya token saja bukan rem yang memadai: talenta bersaldo besar bisa
+   * membanjiri direktori publik, dan tiap challenge berbayar itu memicu
+   * pekerjaan AI di sisi kami.
+   */
+  private async lockTalentAndAssertQuota(
+    tx: Prisma.TransactionClient,
+    userId: string,
+  ) {
+    await tx.$queryRaw`SELECT id FROM "talent_profiles" WHERE "userId" = ${userId} FOR UPDATE`;
+
+    const talent = await tx.talentProfile.findUnique({ where: { userId } });
+    if (!talent) {
+      throw new NotFoundException('Profil Talenta tidak ditemukan');
+    }
+
+    const activeCount = await tx.challenge.count({
+      where: {
+        talentId: talent.id,
+        status: { in: [ChallengeStatus.DRAFT, ChallengeStatus.PUBLISHED] },
+      },
+    });
+
+    if (activeCount >= ChallengesService.MAX_ACTIVE_PUBLIC_CHALLENGES) {
+      throw new ForbiddenException(
+        `Anda hanya dapat memiliki ${ChallengesService.MAX_ACTIVE_PUBLIC_CHALLENGES} Public Challenge aktif atau draf sekaligus. Terbitkan, selesaikan, atau hapus salah satunya terlebih dahulu.`,
+      );
+    }
+
+    return talent;
   }
 
   /** Memastikan kuota studi kasus aktif/draf paket belum terlampaui. */
@@ -142,6 +280,8 @@ export class ChallengesService {
     createChallengeDto: CreateChallengeDto,
     userId: string,
   ) {
+    this.assertChallengeConsistency(createChallengeDto);
+
     const newChallenge = await this.withSlugRetry(
       createChallengeDto.title,
       (slug) =>
@@ -167,6 +307,8 @@ export class ChallengesService {
                 gradingRubric:
                   createChallengeDto.gradingRubric ??
                   ChallengesService.DEFAULT_RUBRIC,
+                proctoringSettings:
+                  createChallengeDto.proctoringSettings ?? undefined,
                 rewardDescription: this.generateSystemRewardDescription(
                   createChallengeDto.difficulty,
                 ),
@@ -218,6 +360,8 @@ export class ChallengesService {
   }
 
   async createPublic(userId: string, createChallengeDto: CreateChallengeDto) {
+    this.assertChallengeConsistency(createChallengeDto);
+
     // Pemotongan token dan pembuatan challenge berada dalam satu transaksi.
     // Sebelumnya token dipotong lebih dulu di transaksinya sendiri, sehingga
     // profil talenta yang tidak ditemukan atau kegagalan penulisan apa pun
@@ -225,13 +369,7 @@ export class ChallengesService {
     return this.withSlugRetry(createChallengeDto.title, (slug) =>
       this.prisma.$transaction(
         async (tx) => {
-          const talentProfile = await tx.talentProfile.findUnique({
-            where: { userId },
-          });
-
-          if (!talentProfile) {
-            throw new NotFoundException('Profil Talenta tidak ditemukan');
-          }
+          const talentProfile = await this.lockTalentAndAssertQuota(tx, userId);
 
           await this.tokensService.spendTokensWithin(
             tx,
@@ -258,6 +396,8 @@ export class ChallengesService {
               gradingRubric:
                 createChallengeDto.gradingRubric ??
                 ChallengesService.DEFAULT_RUBRIC,
+              proctoringSettings:
+                createChallengeDto.proctoringSettings ?? undefined,
               rewardDescription: this.generateSystemRewardDescription(
                 createChallengeDto.difficulty,
               ),
@@ -317,29 +457,57 @@ export class ChallengesService {
       search?: string;
       companyId?: string;
       includeDrafts?: string;
+      mine?: string;
       sort?: string;
       page?: number;
       limit?: number;
     },
     requester?: { sub?: string; role?: Role; profileId?: string },
   ) {
-    // Hanya pemilik perusahaan yang bersangkutan (atau admin) yang boleh melihat
+    // Hanya pemilik challenge yang bersangkutan (atau admin) yang boleh melihat
     // challenge privat dan draft. Tanpa pemeriksaan ini, siapa pun cukup
     // menebak/menyalin companyId untuk membaca soal yang belum terbit.
     const isAdmin = requester?.role === Role.ADMIN;
-    const isOwner =
+
+    // `mine=true` adalah cara pemilik melihat miliknya sendiri tanpa perlu
+    // menebak id profilnya. Ini juga satu-satunya cara talenta menemukan
+    // Public Challenge miliknya: penyaring lama hanya mengenal companyId,
+    // sehingga draf talenta tidak pernah muncul di mana pun.
+    const wantsOwn = query.mine === 'true';
+    if (wantsOwn && !requester?.profileId) {
+      throw new ForbiddenException(
+        'Sesi tidak memiliki profil. Silakan masuk ulang.',
+      );
+    }
+
+    const isCompanyOwner =
       !!query.companyId &&
       !!requester?.profileId &&
       requester.profileId === query.companyId;
-    const canSeeRestricted = isAdmin || isOwner;
+    const canSeeRestricted = isAdmin || isCompanyOwner || wantsOwn;
 
     const where: Prisma.ChallengeWhereInput = {};
+    // Syarat yang harus digabung dengan AND supaya tidak saling menimpa:
+    // penyaring kepemilikan dan pencarian teks sama-sama memakai OR.
+    const and: Prisma.ChallengeWhereInput[] = [];
+
+    if (wantsOwn) {
+      and.push({
+        OR: [
+          { companyId: requester!.profileId },
+          { talentId: requester!.profileId },
+        ],
+      });
+    }
 
     if (!canSeeRestricted) {
       where.isPrivate = false;
     }
 
     if (query.includeDrafts === 'true' && canSeeRestricted) {
+      where.status = { in: [ChallengeStatus.PUBLISHED, ChallengeStatus.DRAFT] };
+    } else if (wantsOwn) {
+      // Halaman "milik saya" tidak ada gunanya bila draf disembunyikan.
       where.status = { in: [ChallengeStatus.PUBLISHED, ChallengeStatus.DRAFT] };
     } else {
       where.status = ChallengeStatus.PUBLISHED;
@@ -374,11 +542,17 @@ export class ChallengesService {
     }
 
     if (query.search) {
-      where.OR = [
-        { title: { contains: query.search, mode: 'insensitive' } },
-        { summary: { contains: query.search, mode: 'insensitive' } },
-        { description: { contains: query.search, mode: 'insensitive' } },
-      ];
+      and.push({
+        OR: [
+          { title: { contains: query.search, mode: 'insensitive' } },
+          { summary: { contains: query.search, mode: 'insensitive' } },
+          { description: { contains: query.search, mode: 'insensitive' } },
+        ],
+      });
+    }
+
+    if (and.length > 0) {
+      where.AND = and;
     }
 
     const page = Math.max(1, Number(query.page) || 1);
@@ -760,13 +934,7 @@ export class ChallengesService {
       (slug) =>
         this.prisma.$transaction(
           async (tx) => {
-            const talent = await tx.talentProfile.findUnique({
-              where: { userId },
-            });
-
-            if (!talent) {
-              throw new NotFoundException('Profil Talenta tidak ditemukan');
-            }
+            const talent = await this.lockTalentAndAssertQuota(tx, userId);
 
             await this.tokensService.spendTokensWithin(
               tx,
@@ -821,16 +989,30 @@ export class ChallengesService {
     userId?: string,
     role?: string,
   ) {
+    // Admin memoderasi milik siapa pun, jadi penyaring kepemilikan dilewati
+    // secara eksplisit. Sebelumnya hal ini terjadi tanpa sengaja: profileId
+    // admin bernilai undefined, sehingga `OR` berisi dua objek kosong dan
+    // cocok dengan challenge mana pun.
+    const isAdmin = role === Role.ADMIN;
+
+    if (!isAdmin && !profileId) {
+      throw new ForbiddenException(
+        'Sesi tidak memiliki profil. Silakan masuk ulang.',
+      );
+    }
+
     // Pembacaan status dan penulisannya berada dalam satu transaksi: tanpa
     // itu dua penyimpanan bersamaan bisa sama-sama melihat status DRAFT dan
     // sama-sama menulis, membuat set section tertimpa dua kali.
     const { challenge, updated } = await this.prisma.$transaction(
       async (tx) => {
         const existing = await tx.challenge.findFirst({
-          where: {
-            id,
-            OR: [{ companyId: profileId }, { talentId: profileId }],
-          },
+          where: isAdmin
+            ? { id }
+            : {
+                id,
+                OR: [{ companyId: profileId }, { talentId: profileId }],
+              },
         });
 
         if (!existing) {
@@ -842,6 +1024,8 @@ export class ChallengesService {
             'Studi kasus yang sudah diterbitkan tidak dapat diedit. Silakan buat yang baru.',
           );
         }
+
+        this.assertChallengeConsistency(updateDto, existing);
 
         const result = await tx.challenge.update({
           where: { id },
@@ -858,12 +1042,22 @@ export class ChallengesService {
               updateDto.gradingRubric !== undefined
                 ? updateDto.gradingRubric
                 : undefined,
+            proctoringSettings:
+              updateDto.proctoringSettings !== undefined
+                ? updateDto.proctoringSettings
+                : undefined,
             rewardDescription: updateDto.difficulty
               ? this.generateSystemRewardDescription(updateDto.difficulty)
               : undefined,
             startsAt: updateDto.startsAt
               ? new Date(updateDto.startsAt)
               : undefined,
+            // Keduanya dulu tidak ikut disalin, jadi batas akhir yang diisi di
+            // formulir hilang tanpa jejak begitu draf disimpan ulang.
+            deadlineAt: updateDto.deadlineAt
+              ? new Date(updateDto.deadlineAt)
+              : undefined,
+            isPrivate: updateDto.isPrivate,
             status: updateDto.status,
             sections:
               updateDto.sections && updateDto.sections.length > 0
@@ -942,6 +1136,7 @@ export class ChallengesService {
               mockApiUrl: template.mockApiUrl,
               brandGuidelineUrl: template.brandGuidelineUrl,
               gradingRubric: template.gradingRubric ?? {},
+              proctoringSettings: template.proctoringSettings ?? undefined,
               rewardDescription: template.rewardDescription,
               status: ChallengeStatus.DRAFT, // Always draft on clone
               isPrivate: false,

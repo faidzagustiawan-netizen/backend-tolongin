@@ -43,13 +43,22 @@ describe('ChallengesService', () => {
       notification: { create: jest.fn() },
       $queryRaw: jest.fn(),
     };
+    // Kuota kosong secara bawaan; setiap pengujian kuota menimpanya sendiri.
+    tx.challenge.count.mockResolvedValue(0);
 
     prisma = {
       // Cukup jalankan callback dengan klien transaksi tiruan; kegagalan di
       // dalamnya merambat keluar persis seperti transaksi yang dibatalkan.
       $transaction: jest.fn((fn: any) => fn(tx)),
-      challenge: { findUnique: jest.fn().mockResolvedValue(null) },
+      challenge: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        findMany: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
+      },
     };
+    prisma.$transaction = jest.fn((arg: any) =>
+      typeof arg === 'function' ? arg(tx) : Promise.all(arg),
+    );
 
     tokens = {
       spendTokensWithin: jest.fn().mockResolvedValue({ success: true }),
@@ -229,6 +238,236 @@ describe('ChallengesService', () => {
         } as any),
       ).rejects.toThrow(/Fitur AI Generator dikunci/);
       expect(tx.challenge.count).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('kuota Public Challenge talenta', () => {
+    beforeEach(() => {
+      tx.talentProfile.findUnique.mockResolvedValue({
+        id: 'talent-1',
+        userId: 'user-1',
+      });
+    });
+
+    it('menolak saat talenta sudah punya 3 challenge aktif/draf', async () => {
+      tx.challenge.count.mockResolvedValue(3);
+
+      await expect(service.createPublic('user-1', publicDto)).rejects.toThrow(
+        /3 Public Challenge aktif/,
+      );
+      expect(tokens.spendTokensWithin).not.toHaveBeenCalled();
+      expect(tx.challenge.create).not.toHaveBeenCalled();
+    });
+
+    it('mengunci baris talenta sebelum menghitung kuota', async () => {
+      tx.challenge.create.mockResolvedValue({
+        id: 'ch-1',
+        title: publicDto.title,
+        slug: 's',
+        status: 'PUBLISHED',
+      });
+
+      await service.createPublic('user-1', publicDto);
+
+      expect(tx.$queryRaw.mock.calls[0][0].join('')).toContain('FOR UPDATE');
+      expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+        tx.challenge.count.mock.invocationCallOrder[0],
+      );
+    });
+  });
+
+  describe('validasi konsistensi', () => {
+    beforeEach(() => {
+      tx.talentProfile.findUnique.mockResolvedValue({
+        id: 'talent-1',
+        userId: 'user-1',
+      });
+    });
+
+    it('menolak batas akhir yang lebih awal daripada tanggal mulai', async () => {
+      await expect(
+        service.createPublic('user-1', {
+          ...publicDto,
+          startsAt: '2026-09-01T00:00:00.000Z',
+          deadlineAt: '2026-08-01T00:00:00.000Z',
+        }),
+      ).rejects.toThrow(/lebih lambat daripada tanggal mulai/);
+    });
+
+    it('menolak soal pilihan ganda tanpa jawaban benar saat diterbitkan', async () => {
+      await expect(
+        service.createPublic('user-1', {
+          ...publicDto,
+          status: 'PUBLISHED',
+          sections: [
+            {
+              title: 'B1',
+              order: 0,
+              components: [
+                {
+                  type: 'MULTIPLE_CHOICE',
+                  question: 'Q',
+                  options: [
+                    { text: 'a', isCorrect: false },
+                    { text: 'b', isCorrect: false },
+                  ],
+                },
+              ],
+            },
+          ],
+        } as unknown as CreateChallengeDto),
+      ).rejects.toThrow(/tepat satu jawaban benar/);
+    });
+
+    it('membiarkan draf setengah jadi tersimpan', async () => {
+      tx.challenge.create.mockResolvedValue({
+        id: 'ch-1',
+        title: publicDto.title,
+        slug: 's',
+        status: 'DRAFT',
+      });
+
+      await expect(
+        service.createPublic('user-1', {
+          ...publicDto,
+          status: 'DRAFT',
+          sections: [
+            {
+              title: 'B1',
+              order: 0,
+              components: [
+                { type: 'MULTIPLE_CHOICE', question: 'Q', options: [] },
+              ],
+            },
+          ],
+        } as unknown as CreateChallengeDto),
+      ).resolves.toBeDefined();
+    });
+
+    it('menolak total bobot rubrik yang bukan 100 pada penilaian holistik', async () => {
+      await expect(
+        service.createPublic('user-1', {
+          ...publicDto,
+          status: 'PUBLISHED',
+          gradingRubric: { kualitas: 40, kecepatan: 40 },
+        } as unknown as CreateChallengeDto),
+      ).rejects.toThrow(/harus 100%, saat ini 80%/);
+    });
+
+    it('mengabaikan bobot rubrik ketika penilaian memakai poin soal', async () => {
+      tx.challenge.create.mockResolvedValue({
+        id: 'ch-1',
+        title: publicDto.title,
+        slug: 's',
+        status: 'PUBLISHED',
+      });
+
+      await expect(
+        service.createPublic('user-1', {
+          ...publicDto,
+          status: 'PUBLISHED',
+          gradingRubric: { kualitas: 40, kecepatan: 40 },
+          sections: [
+            {
+              title: 'B1',
+              order: 0,
+              components: [{ type: 'ESSAY', question: 'Q', points: 10 }],
+            },
+          ],
+        } as unknown as CreateChallengeDto),
+      ).resolves.toBeDefined();
+    });
+  });
+
+  describe('findAll', () => {
+    it('mine=true menyaring milik pemanggil dan menyertakan draf', async () => {
+      await service.findAll(
+        { mine: 'true' },
+        {
+          role: 'TALENT',
+          profileId: 'talent-1',
+        },
+      );
+
+      const where = prisma.challenge.findMany.mock.calls[0][0].where;
+      expect(where.status).toEqual({ in: ['PUBLISHED', 'DRAFT'] });
+      expect(where.isPrivate).toBeUndefined();
+      expect(where.AND).toContainEqual({
+        OR: [{ companyId: 'talent-1' }, { talentId: 'talent-1' }],
+      });
+    });
+
+    it('tamu hanya melihat challenge terbit dan tidak privat', async () => {
+      await service.findAll({}, undefined);
+
+      const where = prisma.challenge.findMany.mock.calls[0][0].where;
+      expect(where.status).toBe('PUBLISHED');
+      expect(where.isPrivate).toBe(false);
+    });
+
+    it('menggabungkan pencarian dan kepemilikan tanpa saling menimpa', async () => {
+      await service.findAll(
+        { mine: 'true', search: 'react' },
+        {
+          role: 'COMPANY',
+          profileId: 'co-1',
+        },
+      );
+
+      const where = prisma.challenge.findMany.mock.calls[0][0].where;
+      expect(where.AND).toHaveLength(2);
+    });
+  });
+
+  describe('updateChallenge', () => {
+    const draft = {
+      id: 'ch-1',
+      status: 'DRAFT',
+      companyId: 'co-1',
+      talentId: null,
+      startsAt: null,
+      deadlineAt: null,
+    };
+
+    it('admin boleh menyunting tanpa penyaring kepemilikan', async () => {
+      tx.challenge.findFirst.mockResolvedValue(draft);
+      tx.challenge.update.mockResolvedValue({ ...draft, title: 'Baru' });
+
+      await service.updateChallenge(
+        'ch-1',
+        undefined as any,
+        { title: 'Baru' },
+        'admin-1',
+        'ADMIN',
+      );
+
+      expect(tx.challenge.findFirst.mock.calls[0][0].where).toEqual({
+        id: 'ch-1',
+      });
+    });
+
+    it('menolak pemanggil non-admin tanpa profil', async () => {
+      await expect(
+        service.updateChallenge('ch-1', undefined as any, {}, 'u-1', 'COMPANY'),
+      ).rejects.toThrow(/tidak memiliki profil/);
+      expect(tx.challenge.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('menyimpan deadlineAt yang sebelumnya terlewat', async () => {
+      tx.challenge.findFirst.mockResolvedValue(draft);
+      tx.challenge.update.mockResolvedValue(draft);
+
+      await service.updateChallenge(
+        'ch-1',
+        'co-1',
+        { deadlineAt: '2026-09-01T00:00:00.000Z' },
+        'u-1',
+        'COMPANY',
+      );
+
+      expect(tx.challenge.update.mock.calls[0][0].data.deadlineAt).toEqual(
+        new Date('2026-09-01T00:00:00.000Z'),
+      );
     });
   });
 

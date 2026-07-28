@@ -226,10 +226,10 @@ export class SeedService {
           rewardDescription: `Sistem Reward: Hingga 75 Token & 400 XP`,
           gradingRubric: {
             requireProctoring: faker.datatype.boolean(),
-            proctoringSettings: {
-              continuousTracking: true,
-              maxTabSwitches: 3,
-            },
+          },
+          proctoringSettings: {
+            continuousTracking: true,
+            maxTabSwitches: 3,
           },
         },
       });

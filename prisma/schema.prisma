@@ -302,7 +302,13 @@ model Challenge {
   briefAttachments  Json? // For images, videos, documents, external links related to brief
 
   // Rubrik Penilaian (Penyimpanan JSON untuk fleksibilitas kriteria)
-  gradingRubric     Json
+  gradingRubric Json
+
+  // Pengaturan pengawasan ujian. Dulu diselipkan sebagai satu kunci di dalam
+  // gradingRubric, sehingga setiap perhitungan bobot kriteria harus ingat
+  // menyaringnya keluar dan tiap pembaca menebak-nebak bentuknya.
+  proctoringSettings Json?
+
   rewardDescription String?
   startsAt          DateTime?
   deadlineAt        DateTime?
