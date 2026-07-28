@@ -43,6 +43,14 @@ _real_stdout_fd = os.dup(1)
 os.dup2(2, 1)
 _out = os.fdopen(_real_stdout_fd, 'w', encoding='utf-8')
 
+# Pesan dari pustaka bisa memuat karakter non-ASCII (bilah kemajuan, simbol).
+# Tanpa errors='replace', satu karakter yang tidak bisa di-encode cukup untuk
+# melempar UnicodeEncodeError dan menjatuhkan permintaan.
+try:
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+except Exception:
+    pass
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import cv2  # noqa: E402
@@ -52,9 +60,13 @@ from verify_face import (  # noqa: E402
     extract_hash_from_base64,
     resize_image_if_needed,
 )
-from verify_ktp import analyze_ktp_image, build_reader  # noqa: E402
 
-_ocr_reader = None
+# CATATAN: verify_ktp / EasyOCR sengaja TIDAK diimpor di sini.
+#
+# EasyOCR berjalan di atas PyTorch sedangkan DeepFace di atas TensorFlow.
+# Keduanya membawa runtime OpenMP/MKL sendiri, dan memuatnya dalam satu proses
+# membuat proses ini mati dengan SIGSEGV di tengah permintaan. OCR KTP
+# ditangani proses terpisah, lihat ocr_worker.py.
 
 
 def log(message):
@@ -132,28 +144,8 @@ def op_verify_face(payload):
                 os.remove(path)
 
 
-def op_verify_ktp(payload):
-    global _ocr_reader
-
-    k_path = decode_to_tempfile(payload.get("idCardPhotoUrl", ""))
-    try:
-        if cv2.imread(k_path) is None:
-            raise ValueError("OpenCV gagal membaca berkas KTP.")
-
-        if _ocr_reader is None:
-            log("memuat model EasyOCR...")
-            _ocr_reader = build_reader()
-            log("model EasyOCR siap")
-
-        return analyze_ktp_image(k_path, reader=_ocr_reader)
-    finally:
-        if os.path.exists(k_path):
-            os.remove(k_path)
-
-
 OPS = {
     "verify_face": op_verify_face,
-    "verify_ktp": op_verify_ktp,
     "ping": lambda _payload: {"pong": True},
 }
 
