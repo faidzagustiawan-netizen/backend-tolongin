@@ -258,6 +258,11 @@ export class AdminService {
         duplicateCheckMatchId: true,
         faceAlignmentDegraded: true,
         createdAt: true,
+        // Statusnya membedakan dua jenis tinjauan yang tampil di antrean yang
+        // sama: PENDING berarti wajah-vs-KTP berhenti di zona ragu dan akun
+        // belum aktif, sedangkan VERIFIED berarti akun sudah jalan dan yang
+        // ditinjau hanya kemiripan dengan identitas lain.
+        faceVerificationStatus: true,
         user: { select: { id: true, email: true, isBanned: true } },
       },
       orderBy: { duplicateCheckDistance: 'asc' },
