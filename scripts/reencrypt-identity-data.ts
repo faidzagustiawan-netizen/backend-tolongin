@@ -14,10 +14,17 @@
  *
  * Skrip ini aman diulang: baris yang sudah memakai kunci baru dilewati.
  */
+import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
+import { Pool } from 'pg';
+import { PrismaPg } from '@prisma/adapter-pg';
 import { EncryptionUtil } from '../src/utils/encryption.util';
 
-const prisma = new PrismaClient();
+// Sejak Prisma 7 `new PrismaClient()` tanpa argumen tidak lagi sah dan tidak
+// membaca DATABASE_URL sendiri. Adapter dirakit seperti di PrismaService.
+const prisma = new PrismaClient({
+  adapter: new PrismaPg(new Pool({ connectionString: process.env.DATABASE_URL })),
+});
 
 const FIELDS = ['encryptedKtpData', 'encryptedPrivateFace'] as const;
 

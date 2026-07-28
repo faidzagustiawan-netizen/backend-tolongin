@@ -18,12 +18,20 @@
  *
  * Aman diulang.
  */
+import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
+import { Pool } from 'pg';
+import { PrismaPg } from '@prisma/adapter-pg';
 import { exec } from 'child_process';
 import * as path from 'path';
 import { EncryptionUtil } from '../src/utils/encryption.util';
 
-const prisma = new PrismaClient();
+// Sejak Prisma 7 `new PrismaClient()` tanpa argumen tidak lagi sah dan tidak
+// membaca DATABASE_URL sendiri. Adapter dirakit seperti di PrismaService agar
+// skrip ini memakai koneksi yang sama dengan aplikasi.
+const prisma = new PrismaClient({
+  adapter: new PrismaPg(new Pool({ connectionString: process.env.DATABASE_URL })),
+});
 const APPLY = process.argv.includes('--apply');
 // Harus sama dengan lebar kolom pgvector dan keluaran model di verify_face.py.
 const EMBEDDING_DIMENSIONS = 512;
@@ -41,7 +49,13 @@ function runFaceScript(selfieDataUrl: string): Promise<FaceScriptResult> {
       process.cwd(),
       'src/ai/python/verify_face.py',
     );
-    const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+    // Harus menghormati PYTHON_BIN seperti PythonWorkerService. Tanpa ini
+    // skrip memanggil Python sistem, yang pada mesin dev tidak punya
+    // TensorFlow — setiap profil dilewati dengan alasan yang terlihat seperti
+    // "wajah tidak ter-align" padahal mesinnya yang tidak ada.
+    const pythonCmd =
+      process.env.PYTHON_BIN ||
+      (process.platform === 'win32' ? 'python' : 'python3');
 
     const child = exec(
       `${pythonCmd} "${scriptPath}"`,
