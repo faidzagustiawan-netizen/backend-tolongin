@@ -28,7 +28,18 @@
 
 deepface==0.0.100
 easyocr==1.7.2
-opencv-python-headless==4.13.0.92
+
+# JANGAN naikkan ke 4.11+ selama TensorFlow masih dipatok di 2.15.
+# opencv-python-headless 4.11 ke atas mensyaratkan numpy>=2, sedangkan
+# tensorflow-intel 2.15.1 mensyaratkan numpy<2. Kombinasi 4.13.0.92 + 2.15.1
+# yang sempat tercantum di sini membuat `pip install -r requirements.txt`
+# selalu berakhir ResolutionImpossible, jadi lingkungan ML tidak pernah
+# terpasang dan seluruh verifikasi wajah pulang sebagai ENGINE_UNAVAILABLE.
+opencv-python-headless==4.10.0.84
+
+# Dipatok eksplisit karena inilah batas yang sebenarnya mengikat seluruh
+# kombinasi di berkas ini. Menaikkannya ke 2.x memaksa TensorFlow ikut naik.
+numpy==1.26.4
 
 # DeepFace 0.0.100 berjalan di atas Keras 2 lewat paket tf-keras.
 # Varian -cpu dipakai karena inferensi memang dijalankan tanpa GPU
