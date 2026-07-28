@@ -250,8 +250,36 @@ export class VerificationService {
       );
     }
 
-    // Dekripsi foto wajah asli (Private)
-    const decryptedFace = EncryptionUtil.decrypt(profile.encryptedPrivateFace);
+    // Dekripsi foto wajah asli (Private).
+    //
+    // Kegagalan di sini berarti baris itu ditulis dengan kunci enkripsi yang
+    // berbeda dari APP_SECRET sekarang — bukan kesalahan pengguna dan bukan
+    // pula bukti bahwa wajahnya tidak cocok. Tanpa penjaga ini galatnya
+    // merambat menjadi 500, sehingga pengguna terhenti di tengah ujian dengan
+    // pesan yang tidak bisa ditindaklanjuti. Lihat scripts/reencrypt-identity-data.ts.
+    let decryptedFace: string;
+    try {
+      decryptedFace = EncryptionUtil.decrypt(profile.encryptedPrivateFace);
+    } catch (error: any) {
+      this.logger.error(
+        `Data biometrik ${talentId} tidak bisa didekripsi: ${error.message}. ` +
+          'Kemungkinan ditulis dengan kunci lama; jalankan scripts/reencrypt-identity-data.ts.',
+      );
+
+      await this.prisma.talentProfile.update({
+        where: { id: talentId },
+        data: { needsIdentityReview: true } as any,
+      });
+
+      return {
+        verified: false,
+        matchScore: 0,
+        identityDataUnreadable: true,
+        message:
+          'Data verifikasi identitas Anda tidak dapat dibaca oleh sistem. Ini masalah di sisi kami, bukan pada dokumen Anda. ' +
+          'Tim kami sudah diberi tahu. Silakan ulangi verifikasi KTP & selfie di halaman profil, atau hubungi dukungan.',
+      };
+    }
 
     // Pembandingan di sini adalah foto kamera vs selfie tersimpan — dua gambar
     // digital sekualitas, bukan pasangan selfie-vs-KTP. aiService.verifyFaceMatch
