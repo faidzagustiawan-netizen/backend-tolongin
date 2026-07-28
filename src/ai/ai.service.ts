@@ -1,4 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { PythonWorkerService } from './python-worker.service';
@@ -124,8 +128,7 @@ export class AiService {
     // pendaftaran identitas (selfie vs foto cetak pada KTP, ambang longgar);
     // `match_only` adalah pengecekan anti-joki yang membandingkan dua foto
     // digital, sehingga harus dinilai dengan ambang foto-vs-foto yang ketat.
-    const comparison =
-      mode === 'full' ? 'selfie_vs_ktp' : 'selfie_vs_selfie';
+    const comparison = mode === 'full' ? 'selfie_vs_ktp' : 'selfie_vs_selfie';
 
     // Dijalankan di pool proses Python yang tetap hidup. Versi sebelumnya
     // memanggil `exec` per permintaan, sehingga TensorFlow dan bobot model
@@ -402,19 +405,16 @@ Berikan respons HANYA dalam format JSON persis dengan struktur ini:
       return resultJson;
     } catch (error: any) {
       this.logger.error('Generate blueprint gagal: ' + error.message);
-    }
 
-    // Draft kosong ini hanya kerangka agar UI tetap bisa dibuka dan diisi
-    // manual oleh rekruter — bukan konten yang berpura-pura hasil AI.
-    return {
-      title: `Draft: ${category} - ${difficulty}`,
-      summary: `Kerangka studi kasus untuk ${category}`,
-      description: `### Latar Belakang\nDraft blueprint.`,
-      rubric: { code: 50, logic: 50 },
-      sections_outline: [
-        { title: 'Bagian Utama', description: 'Deskripsi bagian', competencies: ['Coding'] }
-      ]
-    };
+      // Sebelumnya kegagalan dijawab dengan kerangka kosong berisi
+      // "Draft: <kategori>". Klien menerimanya sebagai 201 dan menampilkan
+      // "Blueprint berhasil dibuat", sehingga pengguna tidak punya cara tahu
+      // AI sedang mati — dan untuk talenta, langkah berikutnya memotong token
+      // demi mengembangkan kerangka kosong itu.
+      throw new ServiceUnavailableException(
+        'Layanan AI sedang tidak dapat dihubungi. Silakan coba lagi beberapa saat lagi, atau susun studi kasus lewat mode manual.',
+      );
+    }
   }
 
   async generateChallengeContent(
@@ -429,9 +429,12 @@ Berikan respons HANYA dalam format JSON persis dengan struktur ini:
     deadlineAt?: string;
     sections: any[];
   }> {
-    const difficultyInstruction = difficulty === 'ADVANCED'
-      ? 'Level: ADVANCED. Buat soal SANGAT SULIT SEKALI, menguji edge-cases ekstrem, optimasi kompleks, dan problem-solving tingkat arsitek senior.'
-      : (difficulty === 'INTERMEDIATE' ? 'Level: INTERMEDIATE. Buat soal dengan kesulitan menengah, menguji best-practice dan integrasi tingkat menengah.' : 'Level: BEGINNER. Buat soal yang fundamental namun praktikal.');
+    const difficultyInstruction =
+      difficulty === 'ADVANCED'
+        ? 'Level: ADVANCED. Buat soal SANGAT SULIT SEKALI, menguji edge-cases ekstrem, optimasi kompleks, dan problem-solving tingkat arsitek senior.'
+        : difficulty === 'INTERMEDIATE'
+          ? 'Level: INTERMEDIATE. Buat soal dengan kesulitan menengah, menguji best-practice dan integrasi tingkat menengah.'
+          : 'Level: BEGINNER. Buat soal yang fundamental namun praktikal.';
 
     const prompt = `Anda adalah AI Technical Assessor Master. Anda diberikan sebuah blueprint kerangka studi kasus rekrutmen. Tugas Anda adalah mengembangkan blueprint tersebut menjadi sekumpulan soal teknis (components) yang SANGAT KOMPREHENSIF dan MENDALAM.
 
@@ -502,29 +505,16 @@ Berikan respons HANYA dalam format JSON dengan struktur ini (tanpa markdown blok
       return resultJson;
     } catch (error: any) {
       this.logger.error('Generate challenge gagal: ' + error.message);
-    }
 
-    // Kerangka minimum agar rekruter tetap bisa melanjutkan secara manual.
-    return {
-      title: blueprint.title,
-      summary: blueprint.summary,
-      description: blueprint.description,
-      rubric: blueprint.rubric,
-      sections: [
-        {
-          title: 'Bagian Utama',
-          description: 'Selesaikan tantangan ini dengan baik.',
-          components: [
-            {
-              type: 'URL_SUBMISSION',
-              question:
-                'Kirimkan tautan repositori GitHub Anda yang berisi solusi teknis.',
-              points: 100,
-            },
-          ],
-        },
-      ],
-    };
+      // Kerangka satu-soal "kirim tautan GitHub" dulu dikembalikan di sini
+      // seolah-olah hasil AI. Draf tetap ditandai selesai, token talenta tetap
+      // terpotong, dan tidak ada yang menandakan generasi sebenarnya gagal.
+      // Pemanggil di latar belakang kini menangkap galat ini, memberi tahu
+      // pengguna, dan mengembalikan tokennya.
+      throw new ServiceUnavailableException(
+        'Layanan AI sedang tidak dapat dihubungi saat menyusun soal.',
+      );
+    }
   }
 
   /**

@@ -3,6 +3,8 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  ConflictException,
+  Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiService } from '../ai/ai.service';
@@ -10,8 +12,10 @@ import { TokensService } from '../tokens/tokens.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CompaniesService } from '../companies/companies.service';
 import { CreateChallengeDto } from './dto/create-challenge.dto';
+import { UpdateChallengeDto } from './dto/update-challenge.dto';
 import { GenerateAiChallengeDto } from './dto/generate-ai-challenge.dto';
 import { GenerateAiBlueprintDto } from './dto/generate-ai-blueprint.dto';
+import { ChallengeSectionDto } from './dto/create-challenge.dto';
 import {
   ChallengeCategory,
   ChallengeDifficulty,
@@ -19,6 +23,7 @@ import {
   ChallengeType,
   Prisma,
   Role,
+  SectionStageType,
 } from '@prisma/client';
 import crypto from 'crypto';
 
@@ -32,19 +37,90 @@ export class ChallengesService {
     private readonly companiesService: CompaniesService,
   ) {}
 
-  async create(
-    companyId: string,
-    createChallengeDto: CreateChallengeDto,
-    userId: string,
+  private readonly logger = new Logger(ChallengesService.name);
+
+  /** Biaya token untuk satu Public Challenge yang dibuat talenta. */
+  private static readonly PUBLIC_CHALLENGE_COST = 50;
+
+  /** Batas percobaan mencari slug yang belum terpakai. */
+  private static readonly SLUG_ATTEMPTS = 5;
+
+  /**
+   * Transaksi pembuatan challenge menulis satu challenge beserta seluruh
+   * section dan komponennya, jadi batas bawaan Prisma (5 detik) terlalu ketat
+   * untuk soal yang panjang.
+   */
+  private static readonly TX_TIMEOUT_MS = 20000;
+
+  /**
+   * Bentuk nested-create untuk section beserta komponennya. Dipakai bersama
+   * oleh create, createPublic, dan updateChallenge supaya kolom baru tidak
+   * terlewat di salah satu jalur.
+   */
+  private buildSectionsCreateInput(
+    challengeId: string,
+    sections?: ChallengeSectionDto[],
   ) {
-    const company = await this.prisma.companyProfile.findUnique({
+    if (!sections || sections.length === 0) return undefined;
+
+    return {
+      create: sections.map((s, sIdx) => ({
+        title: s.title,
+        description: s.description,
+        order: s.order ?? sIdx,
+        stageType: s.stageType ?? SectionStageType.ASSIGNMENT,
+        timeLimit: s.timeLimit ?? null,
+        components:
+          s.components && s.components.length > 0
+            ? {
+                create: s.components.map((c, cIdx) => ({
+                  challengeId,
+                  type: c.type,
+                  question: c.question,
+                  description: c.description,
+                  options: c.options ?? undefined,
+                  metadata: c.metadata ?? undefined,
+                  points: c.points ?? 10,
+                  order: c.order ?? cIdx,
+                })),
+              }
+            : undefined,
+      })),
+    };
+  }
+
+  private static readonly DEFAULT_RUBRIC = {
+    completeness: 30,
+    quality: 40,
+    efficiency: 30,
+  };
+
+  /**
+   * Mengunci baris perusahaan untuk sisa transaksi.
+   *
+   * Tanpa penguncian, dua permintaan bersamaan sama-sama membaca hitungan
+   * challenge yang lama dan sama-sama lolos pemeriksaan kuota, sehingga batas
+   * paket bisa dilewati. Lock membuat keduanya mengantre.
+   */
+  private async lockCompany(tx: Prisma.TransactionClient, companyId: string) {
+    await tx.$queryRaw`SELECT id FROM "company_profiles" WHERE id = ${companyId} FOR UPDATE`;
+
+    const company = await tx.companyProfile.findUnique({
       where: { id: companyId },
     });
     if (!company) throw new NotFoundException('Perusahaan tidak ditemukan');
 
-    const activeCount = await this.prisma.challenge.count({
+    return company;
+  }
+
+  /** Memastikan kuota studi kasus aktif/draf paket belum terlampaui. */
+  private async assertCompanyQuota(
+    tx: Prisma.TransactionClient,
+    company: { id: string; subscriptionTier: string },
+  ) {
+    const activeCount = await tx.challenge.count({
       where: {
-        companyId,
+        companyId: company.id,
         status: { in: [ChallengeStatus.DRAFT, ChallengeStatus.PUBLISHED] },
       },
     });
@@ -59,82 +135,76 @@ export class ChallengesService {
         'Paket Pro hanya mengizinkan 5 studi kasus aktif/draf. Silakan tingkatkan langganan Anda.',
       );
     }
+  }
 
-    const slug = this.generateSlug(createChallengeDto.title);
+  async create(
+    companyId: string,
+    createChallengeDto: CreateChallengeDto,
+    userId: string,
+  ) {
+    const newChallenge = await this.withSlugRetry(
+      createChallengeDto.title,
+      (slug) =>
+        this.prisma.$transaction(
+          async (tx) => {
+            const company = await this.lockCompany(tx, companyId);
+            await this.assertCompanyQuota(tx, company);
+            const challengeId = crypto.randomUUID();
 
-    const defaultRubric = {
-      completeness: 30,
-      quality: 40,
-      efficiency: 30,
-    };
+            const challenge = await tx.challenge.create({
+              data: {
+                id: challengeId,
+                companyId,
+                title: createChallengeDto.title,
+                slug,
+                summary: createChallengeDto.summary,
+                description: createChallengeDto.description,
+                category: createChallengeDto.category,
+                difficulty: createChallengeDto.difficulty,
+                datasetUrl: createChallengeDto.datasetUrl,
+                mockApiUrl: createChallengeDto.mockApiUrl,
+                brandGuidelineUrl: createChallengeDto.brandGuidelineUrl,
+                gradingRubric:
+                  createChallengeDto.gradingRubric ??
+                  ChallengesService.DEFAULT_RUBRIC,
+                rewardDescription: this.generateSystemRewardDescription(
+                  createChallengeDto.difficulty,
+                ),
+                startsAt: createChallengeDto.startsAt
+                  ? new Date(createChallengeDto.startsAt)
+                  : null,
+                deadlineAt: createChallengeDto.deadlineAt
+                  ? new Date(createChallengeDto.deadlineAt)
+                  : null,
+                isPrivate: createChallengeDto.isPrivate ?? false,
+                status: createChallengeDto.status ?? ChallengeStatus.PUBLISHED,
+                createdByAi: createChallengeDto.createdByAi ?? false,
+                aiPromptUsed: createChallengeDto.aiPromptUsed,
+                challengeType: ChallengeType.COMPANY,
+                sections: this.buildSectionsCreateInput(
+                  challengeId,
+                  createChallengeDto.sections,
+                ),
+              },
+            });
 
-    const challengeId = crypto.randomUUID();
+            await tx.notification.create({
+              data: {
+                userId: company.userId,
+                title: 'Studi Kasus Diterbitkan',
+                content: `Studi Kasus "${challenge.title}" berhasil ${challenge.status === ChallengeStatus.DRAFT ? 'disimpan sebagai draft' : 'diterbitkan'}.`,
+                linkUrl: `/challenges/${challenge.slug}`,
+              },
+            });
 
-    const newChallenge = await this.prisma.challenge.create({
-      data: {
-        id: challengeId,
-        companyId,
-        title: createChallengeDto.title,
-        slug,
-        summary: createChallengeDto.summary,
-        description: createChallengeDto.description,
-        category: createChallengeDto.category,
-        difficulty: createChallengeDto.difficulty,
-        datasetUrl: createChallengeDto.datasetUrl,
-        mockApiUrl: createChallengeDto.mockApiUrl,
-        brandGuidelineUrl: createChallengeDto.brandGuidelineUrl,
-        gradingRubric: createChallengeDto.gradingRubric ?? defaultRubric,
-        rewardDescription: this.generateSystemRewardDescription(
-          createChallengeDto.difficulty,
+            return challenge;
+          },
+          { timeout: ChallengesService.TX_TIMEOUT_MS },
         ),
-        startsAt: createChallengeDto.startsAt
-          ? new Date(createChallengeDto.startsAt)
-          : null,
-        deadlineAt: createChallengeDto.deadlineAt
-          ? new Date(createChallengeDto.deadlineAt)
-          : null,
-        isPrivate: createChallengeDto.isPrivate ?? false,
-        status: createChallengeDto.status ?? ChallengeStatus.PUBLISHED,
-        createdByAi: createChallengeDto.createdByAi ?? false,
-        aiPromptUsed: createChallengeDto.aiPromptUsed,
-        challengeType: ChallengeType.COMPANY,
-        sections:
-          createChallengeDto.sections && createChallengeDto.sections.length > 0
-            ? {
-                create: createChallengeDto.sections.map((s) => ({
-                  title: s.title,
-                  description: s.description,
-                  order: s.order ?? 0,
-                  components:
-                    s.components && s.components.length > 0
-                      ? {
-                          create: s.components.map((c) => ({
-                            challengeId: challengeId,
-                            type: c.type as any,
-                            question: c.question,
-                            description: c.description,
-                            options: c.options || undefined,
-                            metadata: c.metadata || undefined,
-                            points: c.points ?? 10,
-                            order: c.order ?? 0,
-                          })),
-                        }
-                      : undefined,
-                })),
-              }
-            : undefined,
-      },
-    });
+    );
 
-    await this.prisma.notification.create({
-      data: {
-        userId: company.userId,
-        title: 'Studi Kasus Diterbitkan',
-        content: `Studi Kasus "${newChallenge.title}" berhasil ${createChallengeDto.status === ChallengeStatus.DRAFT ? 'disimpan sebagai draft' : 'diterbitkan'}.`,
-        linkUrl: `/challenges/${newChallenge.slug}`,
-      },
-    });
-
+    // Di luar transaksi: jejak audit yang gagal tidak boleh membatalkan
+    // challenge yang sudah sah dibuat.
     await this.companiesService.logAction(
       companyId,
       userId,
@@ -148,96 +218,78 @@ export class ChallengesService {
   }
 
   async createPublic(userId: string, createChallengeDto: CreateChallengeDto) {
-    const PUBLIC_CHALLENGE_COST = 50;
+    // Pemotongan token dan pembuatan challenge berada dalam satu transaksi.
+    // Sebelumnya token dipotong lebih dulu di transaksinya sendiri, sehingga
+    // profil talenta yang tidak ditemukan atau kegagalan penulisan apa pun
+    // meninggalkan saldo terpotong tanpa challenge dan tanpa pengembalian.
+    return this.withSlugRetry(createChallengeDto.title, (slug) =>
+      this.prisma.$transaction(
+        async (tx) => {
+          const talentProfile = await tx.talentProfile.findUnique({
+            where: { userId },
+          });
 
-    // Deduct tokens
-    await this.tokensService.spendTokens(
-      userId,
-      PUBLIC_CHALLENGE_COST,
-      `Membuat Public Challenge: ${createChallengeDto.title}`,
+          if (!talentProfile) {
+            throw new NotFoundException('Profil Talenta tidak ditemukan');
+          }
+
+          await this.tokensService.spendTokensWithin(
+            tx,
+            userId,
+            ChallengesService.PUBLIC_CHALLENGE_COST,
+            `Membuat Public Challenge: ${createChallengeDto.title}`,
+          );
+
+          const challengeId = crypto.randomUUID();
+
+          const newChallenge = await tx.challenge.create({
+            data: {
+              id: challengeId,
+              talentId: talentProfile.id,
+              title: createChallengeDto.title,
+              slug,
+              summary: createChallengeDto.summary,
+              description: createChallengeDto.description,
+              category: createChallengeDto.category,
+              difficulty: createChallengeDto.difficulty,
+              datasetUrl: createChallengeDto.datasetUrl,
+              mockApiUrl: createChallengeDto.mockApiUrl,
+              brandGuidelineUrl: createChallengeDto.brandGuidelineUrl,
+              gradingRubric:
+                createChallengeDto.gradingRubric ??
+                ChallengesService.DEFAULT_RUBRIC,
+              rewardDescription: this.generateSystemRewardDescription(
+                createChallengeDto.difficulty,
+              ),
+              deadlineAt: createChallengeDto.deadlineAt
+                ? new Date(createChallengeDto.deadlineAt)
+                : null,
+              isPrivate: createChallengeDto.isPrivate ?? false,
+              status: createChallengeDto.status ?? ChallengeStatus.PUBLISHED,
+              createdByAi: createChallengeDto.createdByAi ?? false,
+              aiPromptUsed: createChallengeDto.aiPromptUsed,
+              challengeType: ChallengeType.PUBLIC,
+              sections: this.buildSectionsCreateInput(
+                challengeId,
+                createChallengeDto.sections,
+              ),
+            },
+          });
+
+          await tx.notification.create({
+            data: {
+              userId: talentProfile.userId,
+              title: 'Public Challenge Diterbitkan',
+              content: `Public Challenge "${newChallenge.title}" berhasil ${newChallenge.status === ChallengeStatus.DRAFT ? 'disimpan sebagai draft' : 'diterbitkan'}.`,
+              linkUrl: `/challenges/${newChallenge.slug}`,
+            },
+          });
+
+          return newChallenge;
+        },
+        { timeout: ChallengesService.TX_TIMEOUT_MS },
+      ),
     );
-
-    const talentProfile = await this.prisma.talentProfile.findUnique({
-      where: { userId },
-    });
-
-    if (!talentProfile) {
-      throw new NotFoundException('Profil Talenta tidak ditemukan');
-    }
-
-    const slug = this.generateSlug(createChallengeDto.title);
-
-    const defaultRubric = {
-      completeness: 30,
-      quality: 40,
-      efficiency: 30,
-    };
-
-    const challengeId = crypto.randomUUID();
-
-    const newChallenge = await this.prisma.challenge.create({
-      data: {
-        id: challengeId,
-        talentId: talentProfile.id,
-        title: createChallengeDto.title,
-        slug,
-        summary: createChallengeDto.summary,
-        description: createChallengeDto.description,
-        category: createChallengeDto.category,
-        difficulty: createChallengeDto.difficulty,
-        datasetUrl: createChallengeDto.datasetUrl,
-        mockApiUrl: createChallengeDto.mockApiUrl,
-        brandGuidelineUrl: createChallengeDto.brandGuidelineUrl,
-        gradingRubric: createChallengeDto.gradingRubric ?? defaultRubric,
-        rewardDescription: this.generateSystemRewardDescription(
-          createChallengeDto.difficulty,
-        ),
-        deadlineAt: createChallengeDto.deadlineAt
-          ? new Date(createChallengeDto.deadlineAt)
-          : null,
-        isPrivate: createChallengeDto.isPrivate ?? false,
-        status: createChallengeDto.status ?? ChallengeStatus.PUBLISHED,
-        createdByAi: createChallengeDto.createdByAi ?? false,
-        aiPromptUsed: createChallengeDto.aiPromptUsed,
-        challengeType: ChallengeType.PUBLIC,
-        sections:
-          createChallengeDto.sections && createChallengeDto.sections.length > 0
-            ? {
-                create: createChallengeDto.sections.map((s) => ({
-                  title: s.title,
-                  description: s.description,
-                  order: s.order ?? 0,
-                  components:
-                    s.components && s.components.length > 0
-                      ? {
-                          create: s.components.map((c) => ({
-                            challengeId: challengeId,
-                            type: c.type as any,
-                            question: c.question,
-                            description: c.description,
-                            options: c.options || undefined,
-                            metadata: c.metadata || undefined,
-                            points: c.points ?? 10,
-                            order: c.order ?? 0,
-                          })),
-                        }
-                      : undefined,
-                })),
-              }
-            : undefined,
-      },
-    });
-
-    await this.prisma.notification.create({
-      data: {
-        userId: talentProfile.userId,
-        title: 'Public Challenge Diterbitkan',
-        content: `Public Challenge "${newChallenge.title}" berhasil ${createChallengeDto.status === ChallengeStatus.DRAFT ? 'disimpan sebagai draft' : 'diterbitkan'}.`,
-        linkUrl: `/challenges/${newChallenge.slug}`,
-      },
-    });
-
-    return newChallenge;
   }
 
   /**
@@ -377,6 +429,28 @@ export class ChallengesService {
     return { data, total, page, limit };
   }
 
+  /**
+   * Benar bila pemanggil berhak melihat isi soal tanpa redaksi: admin, atau
+   * pemilik challenge tersebut — perusahaan lewat `companyId`, talenta lewat
+   * `talentId` untuk Public Challenge.
+   */
+  private isChallengeOwner(
+    userReq: { role?: string; profileId?: string } | undefined,
+    challenge: { companyId: string | null; talentId: string | null },
+  ): boolean {
+    if (!userReq) return false;
+    if (userReq.role === Role.ADMIN) return true;
+    if (!userReq.profileId) return false;
+
+    if (userReq.role === Role.COMPANY) {
+      return userReq.profileId === challenge.companyId;
+    }
+    if (userReq.role === Role.TALENT) {
+      return userReq.profileId === challenge.talentId;
+    }
+    return false;
+  }
+
   async findOne(slugOrId: string, userReq?: any) {
     const challenge = await this.prisma.challenge.findFirst({
       where: {
@@ -406,14 +480,12 @@ export class ChallengesService {
       throw new NotFoundException('Challenge tidak ditemukan');
     }
 
-    let isOwner = false;
-    if (
-      userReq &&
-      userReq.role === 'COMPANY' &&
-      userReq.profileId === challenge.companyId
-    ) {
-      isOwner = true;
-    }
+    // Pembuat challenge harus melihat soalnya utuh. Sebelumnya hanya peran
+    // COMPANY yang diakui, sehingga pembuat TALENT dan ADMIN menerima versi
+    // teredaksi — dan karena halaman edit memuat lalu menyimpan ulang isi yang
+    // sama, teks "[TERKUNCI - HARAP DAFTAR]" tertulis permanen menimpa soal
+    // aslinya.
+    const isOwner = this.isChallengeOwner(userReq, challenge);
 
     if (!isOwner) {
       const redactComponent = (comp: any) => ({
@@ -500,53 +572,77 @@ export class ChallengesService {
   private async processAiChallengeBackground(
     challengeId: string,
     userId: string,
-    dto: GenerateAiChallengeDto
+    dto: GenerateAiChallengeDto,
+    // Diisi hanya untuk Public Challenge milik talenta, yang pembuatannya
+    // berbayar. Kegagalan di sini terjadi setelah permintaan HTTP selesai,
+    // jadi tidak ada transaksi yang bisa membatalkan pemotongan token —
+    // pengembaliannya harus dilakukan secara eksplisit.
+    refundOnFailure?: { amount: number; reason: string },
   ) {
     try {
-      const aiContent = await this.aiService.generateChallengeContent(dto.blueprint, dto.difficulty);
+      const aiContent = await this.aiService.generateChallengeContent(
+        dto.blueprint,
+        dto.difficulty,
+      );
+      const slug = await this.generateUniqueSlug(aiContent.title);
 
       await this.prisma.challenge.update({
         where: { id: challengeId },
         data: {
           title: aiContent.title,
-          slug: this.generateSlug(aiContent.title),
+          slug,
           summary: aiContent.summary,
           description: aiContent.description,
           gradingRubric: aiContent.rubric,
           startsAt: aiContent.startsAt ? new Date(aiContent.startsAt) : null,
-          deadlineAt: aiContent.deadlineAt ? new Date(aiContent.deadlineAt) : null,
-          sections: aiContent.sections && aiContent.sections.length > 0
-            ? {
-                create: aiContent.sections.map((s: any, sIdx: number) => ({
-                  title: s.title,
-                  description: s.description,
-                  order: sIdx,
-                  components: s.components && s.components.length > 0
-                    ? {
-                        create: s.components.map((c: any, cIdx: number) => {
-                          let mappedType = c.type === 'TEXT' ? 'ESSAY' : (c.type || 'ESSAY');
-                          if (mappedType === 'VIDEO_RECORDING') mappedType = 'VIDEO_UPLOAD';
-                          if (mappedType === 'URL_LINK') mappedType = 'URL_SUBMISSION';
+          deadlineAt: aiContent.deadlineAt
+            ? new Date(aiContent.deadlineAt)
+            : null,
+          sections:
+            aiContent.sections && aiContent.sections.length > 0
+              ? {
+                  create: aiContent.sections.map((s: any, sIdx: number) => ({
+                    title: s.title,
+                    description: s.description,
+                    order: sIdx,
+                    components:
+                      s.components && s.components.length > 0
+                        ? {
+                            create: s.components.map((c: any, cIdx: number) => {
+                              let mappedType =
+                                c.type === 'TEXT' ? 'ESSAY' : c.type || 'ESSAY';
+                              if (mappedType === 'VIDEO_RECORDING')
+                                mappedType = 'VIDEO_UPLOAD';
+                              if (mappedType === 'URL_LINK')
+                                mappedType = 'URL_SUBMISSION';
 
-                          return {
-                            challengeId: challengeId,
-                            type: mappedType,
-                            question: c.question,
-                            points: c.points ?? 10,
-                            order: cIdx,
-                            options: c.options || undefined,
-                            metadata: (c.language || c.starterCode) ? { language: c.language, starterCode: c.starterCode } : undefined,
-                          };
-                        }),
-                      }
-                    : undefined,
-                })),
-              }
-            : undefined,
+                              return {
+                                challengeId: challengeId,
+                                type: mappedType,
+                                question: c.question,
+                                points: c.points ?? 10,
+                                order: cIdx,
+                                options: c.options || undefined,
+                                metadata:
+                                  c.language || c.starterCode
+                                    ? {
+                                        language: c.language,
+                                        starterCode: c.starterCode,
+                                      }
+                                    : undefined,
+                              };
+                            }),
+                          }
+                        : undefined,
+                  })),
+                }
+              : undefined,
         },
       });
 
-      const challenge = await this.prisma.challenge.findUnique({ where: { id: challengeId } });
+      const challenge = await this.prisma.challenge.findUnique({
+        where: { id: challengeId },
+      });
 
       await this.prisma.notification.create({
         data: {
@@ -557,12 +653,37 @@ export class ChallengesService {
         },
       });
     } catch (error) {
-      console.error('Background AI Challenge Generation failed:', error);
+      this.logger.error(
+        `Generasi AI di latar belakang gagal untuk challenge ${challengeId}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+
+      let refunded = false;
+      if (refundOnFailure) {
+        try {
+          await this.tokensService.earnTokens(
+            userId,
+            refundOnFailure.amount,
+            refundOnFailure.reason,
+          );
+          refunded = true;
+        } catch (refundError) {
+          this.logger.error(
+            `Pengembalian ${refundOnFailure.amount} token untuk ${userId} gagal`,
+            refundError instanceof Error
+              ? refundError.stack
+              : String(refundError),
+          );
+        }
+      }
+
       await this.prisma.notification.create({
         data: {
           userId,
           title: 'Draft AI Gagal',
-          content: `Maaf, sistem AI gagal menyelesaikan draf studi kasus Anda.`,
+          content: refunded
+            ? `Maaf, sistem AI gagal menyelesaikan draf studi kasus Anda. ${refundOnFailure!.amount} Token telah dikembalikan ke saldo Anda. Kerangka draf tetap tersimpan dan bisa Anda lanjutkan secara manual.`
+            : `Maaf, sistem AI gagal menyelesaikan draf studi kasus Anda. Kerangka draf tetap tersimpan dan bisa Anda lanjutkan secara manual.`,
           linkUrl: `/challenges/${challengeId}/edit`,
         },
       });
@@ -570,99 +691,125 @@ export class ChallengesService {
   }
 
   async generateAiChallenge(companyId: string, dto: GenerateAiChallengeDto) {
-    const company = await this.prisma.companyProfile.findUnique({
-      where: { id: companyId },
-    });
+    const title = dto.blueprint.title || 'Draft AI Challenge';
 
-    if (!company) {
-      throw new NotFoundException('Profil Perusahaan tidak ditemukan');
-    }
+    const { challenge: newChallenge, companyUserId } = await this.withSlugRetry(
+      title,
+      (slug) =>
+        this.prisma.$transaction(
+          async (tx) => {
+            const company = await this.lockCompany(tx, companyId);
 
-    if (company.subscriptionTier === 'STARTUP') {
-      throw new ForbiddenException(
-        'Fitur AI Generator dikunci pada Paket Murah. Silakan tingkatkan langganan Anda.',
-      );
-    }
+            // Diperiksa sebelum kuota supaya paket Murah menerima pesan
+            // "fitur AI dikunci", bukan pesan kuota yang menyesatkan.
+            if (company.subscriptionTier === 'STARTUP') {
+              throw new ForbiddenException(
+                'Fitur AI Generator dikunci pada Paket Murah. Silakan tingkatkan langganan Anda.',
+              );
+            }
 
-    const activeCount = await this.prisma.challenge.count({
-      where: {
-        companyId,
-        status: { in: [ChallengeStatus.DRAFT, ChallengeStatus.PUBLISHED] },
-      },
-    });
+            await this.assertCompanyQuota(tx, company);
 
-    if (company.subscriptionTier === 'KONGLOMERAT' && activeCount >= 5) {
-      throw new ForbiddenException(
-        'Paket Pro hanya mengizinkan 5 studi kasus aktif/draf. Silakan tingkatkan langganan Anda.',
-      );
-    }
+            const challengeId = crypto.randomUUID();
 
-    const challengeId = crypto.randomUUID();
+            const challenge = await tx.challenge.create({
+              data: {
+                id: challengeId,
+                companyId,
+                title,
+                slug,
+                summary:
+                  dto.blueprint.summary ||
+                  'Proses pembuatan sedang berjalan di latar belakang...',
+                description:
+                  dto.blueprint.description ||
+                  'Mohon tunggu, AI sedang menyusun soal...',
+                category: dto.category,
+                difficulty: dto.difficulty,
+                gradingRubric: dto.blueprint.rubric || {},
+                status: ChallengeStatus.DRAFT,
+                createdByAi: true,
+                aiPromptUsed: dto.prompt,
+                challengeType: ChallengeType.COMPANY,
+              },
+            });
 
-    const newChallenge = await this.prisma.challenge.create({
-      data: {
-        id: challengeId,
-        companyId,
-        title: dto.blueprint.title || 'Draft AI Challenge',
-        slug: this.generateSlug(dto.blueprint.title || 'Draft AI Challenge'),
-        summary: dto.blueprint.summary || 'Proses pembuatan sedang berjalan di latar belakang...',
-        description: dto.blueprint.description || 'Mohon tunggu, AI sedang menyusun soal...',
-        category: dto.category,
-        difficulty: dto.difficulty,
-        gradingRubric: dto.blueprint.rubric || {},
-        status: ChallengeStatus.DRAFT,
-        createdByAi: true,
-        aiPromptUsed: dto.prompt,
-        challengeType: ChallengeType.COMPANY,
-      },
-    });
+            return { challenge, companyUserId: company.userId };
+          },
+          { timeout: ChallengesService.TX_TIMEOUT_MS },
+        ),
+    );
 
     // Run in background without await
-    this.processAiChallengeBackground(challengeId, company.userId, dto).catch(e => console.error(e));
+    this.processAiChallengeBackground(
+      newChallenge.id,
+      companyUserId,
+      dto,
+    ).catch((e) => this.logger.error(e));
 
     return newChallenge;
   }
 
   async generateAiPublicChallenge(userId: string, dto: GenerateAiChallengeDto) {
-    const PUBLIC_CHALLENGE_COST = 50;
+    const title = dto.blueprint.title || 'Draft AI Public Challenge';
 
-    // Deduct tokens
-    await this.tokensService.spendTokens(
-      userId,
-      PUBLIC_CHALLENGE_COST,
-      `AI Generate Public Challenge: ${dto.category}`,
+    // Sama seperti createPublic: pemotongan token menyatu dengan pembuatan
+    // draf, jadi permintaan yang gagal tidak menyisakan saldo terpotong.
+    const { challenge: newChallenge, talentUserId } = await this.withSlugRetry(
+      title,
+      (slug) =>
+        this.prisma.$transaction(
+          async (tx) => {
+            const talent = await tx.talentProfile.findUnique({
+              where: { userId },
+            });
+
+            if (!talent) {
+              throw new NotFoundException('Profil Talenta tidak ditemukan');
+            }
+
+            await this.tokensService.spendTokensWithin(
+              tx,
+              userId,
+              ChallengesService.PUBLIC_CHALLENGE_COST,
+              `AI Generate Public Challenge: ${dto.category}`,
+            );
+
+            const challengeId = crypto.randomUUID();
+
+            const challenge = await tx.challenge.create({
+              data: {
+                id: challengeId,
+                talentId: talent.id,
+                title,
+                slug,
+                summary:
+                  dto.blueprint.summary ||
+                  'Proses pembuatan sedang berjalan di latar belakang...',
+                description:
+                  dto.blueprint.description ||
+                  'Mohon tunggu, AI sedang menyusun soal...',
+                category: dto.category,
+                difficulty: dto.difficulty,
+                gradingRubric: dto.blueprint.rubric || {},
+                status: ChallengeStatus.DRAFT,
+                createdByAi: true,
+                aiPromptUsed: dto.prompt,
+                challengeType: ChallengeType.PUBLIC,
+              },
+            });
+
+            return { challenge, talentUserId: talent.userId };
+          },
+          { timeout: ChallengesService.TX_TIMEOUT_MS },
+        ),
     );
 
-    const talent = await this.prisma.talentProfile.findUnique({
-      where: { userId },
-    });
-
-    if (!talent) {
-      throw new NotFoundException('Profil Talenta tidak ditemukan');
-    }
-
-    const challengeId = crypto.randomUUID();
-
-    const newChallenge = await this.prisma.challenge.create({
-      data: {
-        id: challengeId,
-        talentId: talent.id,
-        title: dto.blueprint.title || 'Draft AI Public Challenge',
-        slug: this.generateSlug(dto.blueprint.title || 'Draft AI Public Challenge'),
-        summary: dto.blueprint.summary || 'Proses pembuatan sedang berjalan di latar belakang...',
-        description: dto.blueprint.description || 'Mohon tunggu, AI sedang menyusun soal...',
-        category: dto.category,
-        difficulty: dto.difficulty,
-        gradingRubric: dto.blueprint.rubric || {},
-        status: ChallengeStatus.DRAFT,
-        createdByAi: true,
-        aiPromptUsed: dto.prompt,
-        challengeType: ChallengeType.PUBLIC,
-      },
-    });
-
     // Run in background without await
-    this.processAiChallengeBackground(challengeId, talent.userId, dto).catch(e => console.error(e));
+    this.processAiChallengeBackground(newChallenge.id, talentUserId, dto, {
+      amount: ChallengesService.PUBLIC_CHALLENGE_COST,
+      reason: `Pengembalian: generasi AI untuk "${title}" gagal`,
+    }).catch((e) => this.logger.error(e));
 
     return newChallenge;
   }
@@ -670,86 +817,68 @@ export class ChallengesService {
   async updateChallenge(
     id: string,
     profileId: string,
-    updateDto: Partial<CreateChallengeDto>,
+    updateDto: UpdateChallengeDto,
     userId?: string,
     role?: string,
   ) {
-    const challenge = await this.prisma.challenge.findFirst({
-      where: {
-        id,
-        OR: [{ companyId: profileId }, { talentId: profileId }],
+    // Pembacaan status dan penulisannya berada dalam satu transaksi: tanpa
+    // itu dua penyimpanan bersamaan bisa sama-sama melihat status DRAFT dan
+    // sama-sama menulis, membuat set section tertimpa dua kali.
+    const { challenge, updated } = await this.prisma.$transaction(
+      async (tx) => {
+        const existing = await tx.challenge.findFirst({
+          where: {
+            id,
+            OR: [{ companyId: profileId }, { talentId: profileId }],
+          },
+        });
+
+        if (!existing) {
+          throw new NotFoundException('Challenge tidak ditemukan');
+        }
+
+        if (existing.status === ChallengeStatus.PUBLISHED) {
+          throw new ForbiddenException(
+            'Studi kasus yang sudah diterbitkan tidak dapat diedit. Silakan buat yang baru.',
+          );
+        }
+
+        const result = await tx.challenge.update({
+          where: { id },
+          data: {
+            title: updateDto.title,
+            summary: updateDto.summary,
+            description: updateDto.description,
+            category: updateDto.category,
+            difficulty: updateDto.difficulty,
+            datasetUrl: updateDto.datasetUrl,
+            mockApiUrl: updateDto.mockApiUrl,
+            brandGuidelineUrl: updateDto.brandGuidelineUrl,
+            gradingRubric:
+              updateDto.gradingRubric !== undefined
+                ? updateDto.gradingRubric
+                : undefined,
+            rewardDescription: updateDto.difficulty
+              ? this.generateSystemRewardDescription(updateDto.difficulty)
+              : undefined,
+            startsAt: updateDto.startsAt
+              ? new Date(updateDto.startsAt)
+              : undefined,
+            status: updateDto.status,
+            sections:
+              updateDto.sections && updateDto.sections.length > 0
+                ? {
+                    deleteMany: {},
+                    ...this.buildSectionsCreateInput(id, updateDto.sections)!,
+                  }
+                : undefined,
+          },
+        });
+
+        return { challenge: existing, updated: result };
       },
-    });
-
-    if (!challenge) {
-      throw new NotFoundException('Challenge tidak ditemukan');
-    }
-
-    if (
-      challenge.status === ChallengeStatus.PUBLISHED &&
-      updateDto.status !== ChallengeStatus.PUBLISHED
-    ) {
-      // You can't unpublish or edit a published challenge
-      throw new ForbiddenException(
-        'Studi kasus yang sudah diterbitkan tidak dapat diubah lagi.',
-      );
-    }
-
-    if (challenge.status === ChallengeStatus.PUBLISHED) {
-      throw new ForbiddenException(
-        'Studi kasus yang sudah diterbitkan tidak dapat diedit. Silakan buat yang baru.',
-      );
-    }
-
-    // Now update the challenge
-    const updated = await this.prisma.challenge.update({
-      where: { id },
-      data: {
-        title: updateDto.title,
-        summary: updateDto.summary,
-        description: updateDto.description,
-        category: updateDto.category,
-        difficulty: updateDto.difficulty,
-        datasetUrl: updateDto.datasetUrl,
-        mockApiUrl: updateDto.mockApiUrl,
-        brandGuidelineUrl: updateDto.brandGuidelineUrl,
-        gradingRubric:
-          updateDto.gradingRubric !== undefined
-            ? updateDto.gradingRubric
-            : undefined,
-        rewardDescription: updateDto.difficulty
-          ? this.generateSystemRewardDescription(updateDto.difficulty)
-          : undefined,
-        startsAt: updateDto.startsAt ? new Date(updateDto.startsAt) : undefined,
-        status: updateDto.status,
-        sections:
-          updateDto.sections && updateDto.sections.length > 0
-            ? {
-                deleteMany: {},
-                create: updateDto.sections.map((s) => ({
-                  title: s.title,
-                  description: s.description,
-                  order: s.order ?? 0,
-                  components:
-                    s.components && s.components.length > 0
-                      ? {
-                          create: s.components.map((c) => ({
-                            challengeId: id,
-                            type: c.type as any,
-                            question: c.question,
-                            description: c.description,
-                            options: c.options || undefined,
-                            metadata: c.metadata || undefined,
-                            points: c.points ?? 10,
-                            order: c.order ?? 0,
-                          })),
-                        }
-                      : undefined,
-                })),
-              }
-            : undefined,
-      },
-    });
+      { timeout: ChallengesService.TX_TIMEOUT_MS },
+    );
 
     if (role === Role.COMPANY && userId && challenge.companyId) {
       const changedKeys = Object.keys(updateDto);
@@ -791,54 +920,60 @@ export class ChallengesService {
       throw new NotFoundException('Template tidak ditemukan');
     }
 
-    const company = await this.prisma.companyProfile.findUnique({
-      where: { id: companyId },
-    });
-    if (!company) throw new NotFoundException('Perusahaan tidak ditemukan');
+    const newChallenge = await this.withSlugRetry(template.title, (slug) =>
+      this.prisma.$transaction(
+        async (tx) => {
+          const company = await this.lockCompany(tx, companyId);
+          await this.assertCompanyQuota(tx, company);
 
-    const slug = this.generateSlug(template.title);
-    const challengeId = crypto.randomUUID();
+          const challengeId = crypto.randomUUID();
 
-    const newChallenge = await this.prisma.challenge.create({
-      data: {
-        id: challengeId,
-        companyId,
-        title: template.title,
-        slug,
-        summary: template.summary,
-        description: template.description,
-        category: template.category,
-        difficulty: template.difficulty,
-        datasetUrl: template.datasetUrl,
-        mockApiUrl: template.mockApiUrl,
-        brandGuidelineUrl: template.brandGuidelineUrl,
-        gradingRubric: template.gradingRubric ?? {},
-        rewardDescription: template.rewardDescription,
-        status: ChallengeStatus.DRAFT, // Always draft on clone
-        isPrivate: false,
-        isTemplate: false, // Ensure it's not a template
-        challengeType: ChallengeType.COMPANY,
-        sections: {
-          create: template.sections.map((s) => ({
-            title: s.title,
-            description: s.description,
-            order: s.order,
-            components: {
-              create: s.components.map((c) => ({
-                challengeId: challengeId,
-                type: c.type,
-                question: c.question,
-                description: c.description,
-                options: c.options || undefined,
-                metadata: c.metadata || undefined,
-                points: c.points,
-                order: c.order,
-              })),
+          return tx.challenge.create({
+            data: {
+              id: challengeId,
+              companyId,
+              title: template.title,
+              slug,
+              summary: template.summary,
+              description: template.description,
+              category: template.category,
+              difficulty: template.difficulty,
+              datasetUrl: template.datasetUrl,
+              mockApiUrl: template.mockApiUrl,
+              brandGuidelineUrl: template.brandGuidelineUrl,
+              gradingRubric: template.gradingRubric ?? {},
+              rewardDescription: template.rewardDescription,
+              status: ChallengeStatus.DRAFT, // Always draft on clone
+              isPrivate: false,
+              isTemplate: false, // Ensure it's not a template
+              challengeType: ChallengeType.COMPANY,
+              sections: {
+                create: template.sections.map((s) => ({
+                  title: s.title,
+                  description: s.description,
+                  order: s.order,
+                  stageType: s.stageType,
+                  timeLimit: s.timeLimit,
+                  components: {
+                    create: s.components.map((c) => ({
+                      challengeId: challengeId,
+                      type: c.type,
+                      question: c.question,
+                      description: c.description,
+                      options: c.options ?? undefined,
+                      metadata: c.metadata ?? undefined,
+                      points: c.points,
+                      order: c.order,
+                    })),
+                  },
+                })),
+              },
             },
-          })),
+          });
         },
-      },
-    });
+        { timeout: ChallengesService.TX_TIMEOUT_MS },
+      ),
+    );
 
     await this.companiesService.logAction(
       companyId,
@@ -853,12 +988,69 @@ export class ChallengesService {
   }
 
   private generateSlug(title: string): string {
-    const baseSlug = title
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/(^-|-$)/g, '');
-    const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+    const baseSlug =
+      title
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)/g, '')
+        .slice(0, 80) || 'challenge';
+    const randomSuffix = crypto.randomBytes(4).toString('hex');
     return `${baseSlug}-${randomSuffix}`;
+  }
+
+  /**
+   * Kolom `slug` bersifat unique. Sufiks acak saja tidak cukup: tanpa
+   * pemeriksaan, judul yang sama berpeluang bentrok dan Prisma melempar P2002
+   * yang muncul ke pengguna sebagai galat 500. Kandidat karena itu diperiksa
+   * lebih dulu, dan sisa peluang balapan ditangani `withSlugRetry`.
+   */
+  private async generateUniqueSlug(
+    title: string,
+    client: Prisma.TransactionClient | PrismaService = this.prisma,
+  ): Promise<string> {
+    for (let i = 0; i < ChallengesService.SLUG_ATTEMPTS; i++) {
+      const candidate = this.generateSlug(title);
+      const taken = await client.challenge.findUnique({
+        where: { slug: candidate },
+        select: { id: true },
+      });
+      if (!taken) return candidate;
+    }
+    return `${this.generateSlug(title)}-${crypto.randomUUID()}`;
+  }
+
+  private isSlugConflict(error: unknown): boolean {
+    return (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === 'P2002' &&
+      String((error.meta as { target?: string[] })?.target ?? '').includes(
+        'slug',
+      )
+    );
+  }
+
+  /**
+   * Menjalankan operasi tulis dengan slug segar, mengulang bila dua permintaan
+   * bersamaan sempat memilih slug yang sama.
+   */
+  private async withSlugRetry<T>(
+    title: string,
+    operation: (slug: string) => Promise<T>,
+  ): Promise<T> {
+    for (let i = 0; i < ChallengesService.SLUG_ATTEMPTS; i++) {
+      const slug = await this.generateUniqueSlug(title);
+      try {
+        return await operation(slug);
+      } catch (error) {
+        if (!this.isSlugConflict(error)) throw error;
+        this.logger.warn(
+          `Slug "${slug}" bentrok saat penulisan, mencoba ulang.`,
+        );
+      }
+    }
+    throw new ConflictException(
+      'Gagal membuat tautan unik untuk studi kasus ini. Silakan coba lagi.',
+    );
   }
 
   private generateSystemRewardDescription(

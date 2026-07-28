@@ -8,6 +8,8 @@ import {
   IsArray,
   ValidateNested,
   IsNumber,
+  IsInt,
+  Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import {
@@ -15,6 +17,7 @@ import {
   ChallengeDifficulty,
   ChallengeStatus,
   ComponentType,
+  SectionStageType,
 } from '@prisma/client';
 
 export class ChallengeComponentDto {
@@ -56,6 +59,17 @@ export class ChallengeSectionDto {
   @IsNumber()
   @IsOptional()
   order?: number;
+
+  @IsEnum(SectionStageType)
+  @IsOptional()
+  stageType?: SectionStageType;
+
+  // Menit pengerjaan tahap ini. null berarti tak terbatas, jadi nilai null
+  // sengaja dibiarkan lolos oleh @IsOptional.
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  timeLimit?: number | null;
 
   @IsArray()
   @ValidateNested({ each: true })

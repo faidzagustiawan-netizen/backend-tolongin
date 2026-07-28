@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { TokenType } from '@prisma/client';
+import { Prisma, TokenType } from '@prisma/client';
 
 @Injectable()
 export class TokensService {
@@ -55,71 +55,98 @@ export class TokensService {
     });
   }
 
-  async spendTokens(userId: string, amount: number, description: string) {
-    return this.prisma.$transaction(async (tx) => {
-      const talent = await tx.talentProfile.findUnique({ where: { userId } });
-      if (!talent) throw new NotFoundException('Talent tidak ditemukan');
+  /**
+   * Varian `spendTokens` yang ikut serta pada transaksi milik pemanggil.
+   *
+   * Dipakai ketika pemotongan token harus batal bersama pekerjaan yang
+   * membayarinya — misalnya pembuatan Public Challenge, yang dulu memotong
+   * token lebih dulu di transaksinya sendiri lalu meninggalkan saldo terpotong
+   * begitu pembuatan challenge gagal.
+   */
+  async spendTokensWithin(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    amount: number,
+    description: string,
+  ) {
+    const talent = await tx.talentProfile.findUnique({ where: { userId } });
+    if (!talent) throw new NotFoundException('Talent tidak ditemukan');
 
-      if (talent.tokenBalance < amount) {
-        throw new BadRequestException('Token tidak mencukupi.');
-      }
+    if (talent.tokenBalance < amount) {
+      throw new BadRequestException('Token tidak mencukupi.');
+    }
 
-      await tx.talentProfile.update({
-        where: { userId },
-        data: { tokenBalance: { decrement: amount } },
-      });
-
-      await tx.tokenTransaction.create({
-        data: {
-          userId,
-          amount,
-          type: TokenType.SPEND,
-          description,
-        },
-      });
-
-      await tx.notification.create({
-        data: {
-          userId,
-          title: 'Token Digunakan',
-          content: `Anda telah menggunakan -${amount} Token. Keterangan: ${description}`,
-          linkUrl: '/profile',
-        },
-      });
-
-      return { success: true };
+    await tx.talentProfile.update({
+      where: { userId },
+      data: { tokenBalance: { decrement: amount } },
     });
+
+    await tx.tokenTransaction.create({
+      data: {
+        userId,
+        amount,
+        type: TokenType.SPEND,
+        description,
+      },
+    });
+
+    await tx.notification.create({
+      data: {
+        userId,
+        title: 'Token Digunakan',
+        content: `Anda telah menggunakan -${amount} Token. Keterangan: ${description}`,
+        linkUrl: '/profile',
+      },
+    });
+
+    return { success: true };
+  }
+
+  async spendTokens(userId: string, amount: number, description: string) {
+    return this.prisma.$transaction((tx) =>
+      this.spendTokensWithin(tx, userId, amount, description),
+    );
+  }
+
+  /** Varian `earnTokens` yang ikut serta pada transaksi milik pemanggil. */
+  async earnTokensWithin(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    amount: number,
+    description: string,
+  ) {
+    const talent = await tx.talentProfile.findUnique({ where: { userId } });
+    if (!talent) throw new NotFoundException('Talent tidak ditemukan');
+
+    await tx.talentProfile.update({
+      where: { userId },
+      data: { tokenBalance: { increment: amount } },
+    });
+
+    await tx.tokenTransaction.create({
+      data: {
+        userId,
+        amount,
+        type: TokenType.EARN,
+        description,
+      },
+    });
+
+    await tx.notification.create({
+      data: {
+        userId,
+        title: 'Token Diterima',
+        content: `Anda menerima +${amount} Token! Keterangan: ${description}`,
+        linkUrl: '/profile',
+      },
+    });
+
+    return { success: true };
   }
 
   async earnTokens(userId: string, amount: number, description: string) {
-    return this.prisma.$transaction(async (tx) => {
-      const talent = await tx.talentProfile.findUnique({ where: { userId } });
-      if (!talent) throw new NotFoundException('Talent tidak ditemukan');
-
-      await tx.talentProfile.update({
-        where: { userId },
-        data: { tokenBalance: { increment: amount } },
-      });
-
-      await tx.tokenTransaction.create({
-        data: {
-          userId,
-          amount,
-          type: TokenType.EARN,
-          description,
-        },
-      });
-
-      await tx.notification.create({
-        data: {
-          userId,
-          title: 'Token Diterima',
-          content: `Anda menerima +${amount} Token! Keterangan: ${description}`,
-          linkUrl: '/profile',
-        },
-      });
-
-      return { success: true };
-    });
+    return this.prisma.$transaction((tx) =>
+      this.earnTokensWithin(tx, userId, amount, description),
+    );
   }
 }

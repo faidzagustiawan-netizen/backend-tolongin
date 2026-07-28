@@ -335,6 +335,11 @@ model Challenge {
   @@map("challenges")
 }
 
+enum SectionStageType {
+  QUIZ
+  ASSIGNMENT
+}
+
 model ChallengeSection {
   id          String    @id @default(uuid())
   challengeId String
@@ -343,6 +348,12 @@ model ChallengeSection {
   title       String
   description String?
   order       Int     @default(0)
+
+  // Builder soal sudah lama mengirim kedua kolom ini, tetapi sebelumnya tidak
+  // ada tempat menyimpannya sehingga "Waktu Pengerjaan Per Tahap" selalu
+  // hilang setelah disimpan.
+  stageType SectionStageType @default(ASSIGNMENT)
+  timeLimit Int? // menit; null = tak terbatas
 
   components ChallengeComponent[]
 

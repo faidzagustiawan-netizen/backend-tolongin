@@ -18,6 +18,7 @@ import {
 } from '@nestjs/swagger';
 import { ChallengesService } from './challenges.service';
 import { CreateChallengeDto } from './dto/create-challenge.dto';
+import { UpdateChallengeDto } from './dto/update-challenge.dto';
 import { GenerateAiChallengeDto } from './dto/generate-ai-challenge.dto';
 import { GenerateAiBlueprintDto } from './dto/generate-ai-blueprint.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -161,7 +162,7 @@ export class ChallengesController {
   async update(
     @Request() req: any,
     @Param('id') id: string,
-    @Body() updateDto: Partial<CreateChallengeDto>,
+    @Body() updateDto: UpdateChallengeDto,
   ) {
     const profileId = req.user.profileId;
     return this.challengesService.updateChallenge(
