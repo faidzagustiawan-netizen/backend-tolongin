@@ -55,6 +55,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import cv2  # noqa: E402
 from verify_face import (  # noqa: E402
+    COMPARISON_SELFIE_VS_KTP,
     FaceEngineUnavailable,
     compare_faces,
     extract_hash_from_base64,
@@ -91,6 +92,9 @@ def decode_to_tempfile(data_url):
 def op_verify_face(payload):
     selfie_b64 = payload.get("selfiePhotoUrl", "")
     ktp_b64 = payload.get("idCardPhotoUrl", "")
+    # Bawaan sengaja jalur KTP: pemanggil lama yang belum mengirim field ini
+    # memang selalu membandingkan selfie dengan KTP.
+    comparison = payload.get("comparison") or COMPARISON_SELFIE_VS_KTP
 
     result = {
         "isMatch": False,
@@ -110,7 +114,7 @@ def op_verify_face(payload):
         if cv2.imread(s_path) is None:
             raise ValueError("OpenCV gagal membaca berkas selfie.")
         if cv2.imread(k_path) is None:
-            raise ValueError("OpenCV gagal membaca berkas KTP.")
+            raise ValueError("OpenCV gagal membaca berkas pembanding.")
 
         resize_image_if_needed(s_path)
         resize_image_if_needed(k_path)
@@ -123,7 +127,7 @@ def op_verify_face(payload):
             degraded,
             distance,
             needs_review,
-        ) = compare_faces(s_path, k_path)
+        ) = compare_faces(s_path, k_path, comparison)
 
         result["isMatch"] = is_match
         result["confidenceScore"] = confidence if is_match else 0
@@ -133,8 +137,9 @@ def op_verify_face(payload):
         result["needsReview"] = needs_review
 
         # Sama seperti jalur skrip mandiri: vektor hanya disimpan bila wajah
-        # cocok DAN selfie benar-benar ter-align.
-        if is_match and not degraded:
+        # cocok DAN selfie benar-benar ter-align. Foto dari pengecekan
+        # anti-joki tidak pernah dijadikan acuan identitas.
+        if is_match and not degraded and comparison == COMPARISON_SELFIE_VS_KTP:
             result["featureVector"] = selfie_vec
 
         return result

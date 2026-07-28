@@ -105,6 +105,49 @@ DEGRADED_REVIEW_DISTANCE = float(
     os.environ.get('FACE_DEGRADED_REVIEW_DISTANCE', FACE_REVIEW_DISTANCE * 0.875)
 )
 
+# --------------------------------------------------------------------------
+# Dua jenis pembandingan, dua ambang.
+#
+# Pelonggaran di atas HANYA sah untuk pasangan selfie-vs-KTP, karena foto pada
+# kartu cetak memang menghasilkan jarak besar untuk orang yang sama.
+#
+# Pengecekan anti-joki membandingkan foto kamera langsung dengan SELFIE yang
+# tersimpan — dua foto digital dengan kualitas setara. Itu domain foto-vs-foto
+# biasa, dan memakai ambang KTP di sini adalah lubang: batas 0,60 untuk
+# Facenet512 melampaui jarak khas antar-orang-berbeda, sehingga dua orang yang
+# berlainan sama-sama diloloskan terhadap satu wajah terdaftar.
+#
+# Karena itu pembandingan selfie-vs-selfie memakai ambang baku model, tanpa
+# zona tinjau (tidak ada "cukup mirip" yang diloloskan), dan tanpa jalur wajah
+# tak-terdeteksi — foto tanpa wajah tidak boleh menghasilkan embedding acak
+# yang kebetulan lolos.
+# --------------------------------------------------------------------------
+COMPARISON_SELFIE_VS_KTP = "selfie_vs_ktp"
+COMPARISON_SELFIE_VS_SELFIE = "selfie_vs_selfie"
+
+SELFIE_MATCH_DISTANCE = float(
+    os.environ.get('FACE_SELFIE_MATCH_DISTANCE', _baseline)
+)
+
+
+def resolve_thresholds(comparison, degraded):
+    """
+    Mengembalikan (match_at, review_at, confidence_at) untuk jenis pembandingan.
+
+    `review_at` sama dengan `match_at` berarti tidak ada zona tinjau: apa pun di
+    atas ambang langsung ditolak. `confidence_at` adalah jarak yang dipetakan
+    menjadi 0%.
+    """
+    if comparison == COMPARISON_SELFIE_VS_SELFIE:
+        match_at = SELFIE_MATCH_DISTANCE
+        # Ambang dipetakan ke 50% supaya angka yang ditampilkan tetap terbaca
+        # sebagai "pas di batas", bukan 0%.
+        return match_at, match_at, match_at * 2
+
+    match_at = DEGRADED_MATCH_DISTANCE if degraded else FACE_MATCH_DISTANCE
+    review_at = DEGRADED_REVIEW_DISTANCE if degraded else FACE_REVIEW_DISTANCE
+    return match_at, review_at, review_at
+
 
 class FaceEngineUnavailable(RuntimeError):
     """
@@ -212,9 +255,17 @@ def cosine_distance(a, b):
     return 1.0 - sum(x * y for x, y in zip(a, b))
 
 
-def compare_faces(s_path, k_path):
+def compare_faces(s_path, k_path, comparison=COMPARISON_SELFIE_VS_KTP):
     """
-    Membandingkan selfie dengan foto pada KTP.
+    Membandingkan selfie dengan gambar pembanding.
+
+    `comparison` menentukan ambang yang dipakai:
+    - COMPARISON_SELFIE_VS_KTP: pembanding adalah foto pada KTP. Ambang longgar
+      tiga zona, dan wajah yang tak terdeteksi pada kartu tetap diproses tanpa
+      pelurusan.
+    - COMPARISON_SELFIE_VS_SELFIE: pembanding adalah selfie tersimpan (anti-joki).
+      Ambang baku model, tanpa zona tinjau, dan wajah wajib terdeteksi di kedua
+      sisi.
 
     Mengembalikan (is_match, confidence, reason, selfie_vector, degraded,
     distance, needs_review).
@@ -222,7 +273,11 @@ def compare_faces(s_path, k_path):
     `needs_review` menandai zona tengah: cukup mirip untuk diloloskan, tetapi
     belum cukup meyakinkan untuk dinyatakan otomatis. Kasus seperti itu tetap
     lolos agar pengguna tidak terhalang, lalu ditandai untuk diperiksa petugas.
+    Zona ini tidak pernah aktif pada pembandingan selfie-vs-selfie.
     """
+    is_ktp_pair = comparison != COMPARISON_SELFIE_VS_SELFIE
+    ref_label = "foto pada KTP" if is_ktp_pair else "wajah terdaftar"
+
     try:
         selfie_vec, _selfie_backend, selfie_degraded = represent_face(
             s_path, allow_unaligned=False
@@ -238,29 +293,36 @@ def compare_faces(s_path, k_path):
                 False,
             )
 
-        ktp_vec, _ktp_backend, ktp_degraded = represent_face(
-            k_path, allow_unaligned=True
+        ref_vec, _ref_backend, ref_degraded = represent_face(
+            k_path, allow_unaligned=is_ktp_pair
         )
-        if ktp_vec is None:
+        if ref_vec is None:
             return (
                 False,
                 0,
-                "Wajah tidak terdeteksi pada foto KTP. Pastikan kartu difoto tegak lurus, tidak buram, dan tidak terkena pantulan cahaya.",
+                (
+                    "Wajah tidak terdeteksi pada foto KTP. Pastikan kartu difoto tegak lurus, tidak buram, dan tidak terkena pantulan cahaya."
+                    if is_ktp_pair
+                    else "Wajah tidak terdeteksi pada foto acuan yang tersimpan. Silakan ulangi verifikasi KTP & selfie di halaman profil."
+                ),
                 selfie_vec,
                 False,
                 None,
                 False,
             )
 
-        degraded = selfie_degraded or ktp_degraded
-        distance = cosine_distance(selfie_vec, ktp_vec)
+        degraded = selfie_degraded or ref_degraded
+        distance = cosine_distance(selfie_vec, ref_vec)
 
-        match_at = DEGRADED_MATCH_DISTANCE if degraded else FACE_MATCH_DISTANCE
-        review_at = DEGRADED_REVIEW_DISTANCE if degraded else FACE_REVIEW_DISTANCE
+        match_at, review_at, confidence_at = resolve_thresholds(
+            comparison, degraded
+        )
 
-        # Kepercayaan dipetakan terhadap batas peninjauan, sehingga tepat di
+        # Kepercayaan dipetakan terhadap batas penolakan, sehingga tepat di
         # batas bernilai 0% dan jarak nol bernilai 100%.
-        confidence = max(0, min(100, round((1.0 - distance / review_at) * 100)))
+        confidence = max(
+            0, min(100, round((1.0 - distance / confidence_at) * 100))
+        )
 
         note = " (kualitas foto rendah, dinilai dengan ambang lebih ketat)" if degraded else ""
 
@@ -268,7 +330,7 @@ def compare_faces(s_path, k_path):
             return (
                 True,
                 confidence,
-                f"Wajah cocok dengan foto pada KTP (jarak biometrik {distance:.3f}){note}.",
+                f"Wajah cocok dengan {ref_label} (jarak biometrik {distance:.3f}){note}.",
                 selfie_vec,
                 degraded,
                 distance,
@@ -279,7 +341,7 @@ def compare_faces(s_path, k_path):
             return (
                 True,
                 confidence,
-                f"Wajah cukup mirip dengan foto pada KTP (jarak biometrik {distance:.3f}), "
+                f"Wajah cukup mirip dengan {ref_label} (jarak biometrik {distance:.3f}), "
                 f"namun berada di zona yang perlu diperiksa petugas{note}.",
                 selfie_vec,
                 degraded,
@@ -290,7 +352,7 @@ def compare_faces(s_path, k_path):
         return (
             False,
             confidence,
-            f"Wajah pada selfie tidak cocok dengan foto pada KTP (jarak biometrik {distance:.3f}, batas {review_at:.2f}){note}.",
+            f"Wajah pada foto tidak cocok dengan {ref_label} (jarak biometrik {distance:.3f}, batas {review_at:.2f}){note}.",
             selfie_vec,
             degraded,
             distance,
@@ -321,6 +383,7 @@ def main():
         payload = json.loads(input_data)
         selfie_b64 = payload.get("selfiePhotoUrl", "")
         ktp_b64 = payload.get("idCardPhotoUrl", "")
+        comparison = payload.get("comparison") or COMPARISON_SELFIE_VS_KTP
 
         result = {
             "isMatch": False,
@@ -369,7 +432,7 @@ def main():
                 degraded,
                 distance,
                 needs_review,
-            ) = compare_faces(s_path, k_path)
+            ) = compare_faces(s_path, k_path, comparison)
 
             result["isMatch"] = face_match
             result["confidenceScore"] = conf_score if face_match else 0
@@ -380,8 +443,9 @@ def main():
 
             # Vektor hanya disimpan bila wajah cocok dengan KTP DAN selfie-nya
             # benar-benar ter-align. Embedding dari wajah mentah tidak layak
-            # dijadikan acuan pembanding antar-pengguna.
-            if face_match and not degraded:
+            # dijadikan acuan pembanding antar-pengguna. Foto dari pengecekan
+            # anti-joki juga tidak pernah dijadikan acuan identitas.
+            if face_match and not degraded and comparison == COMPARISON_SELFIE_VS_KTP:
                 result["featureVector"] = selfie_vec
         finally:
             if os.path.exists(s_path): os.remove(s_path)

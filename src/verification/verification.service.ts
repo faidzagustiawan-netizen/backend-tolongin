@@ -253,12 +253,38 @@ export class VerificationService {
     // Dekripsi foto wajah asli (Private)
     const decryptedFace = EncryptionUtil.decrypt(profile.encryptedPrivateFace);
 
-    const matchResult = await this.aiService.verifyFaceMatch(
-      dto.livePhotoUrl,
-      decryptedFace,
-    );
+    // Pembandingan di sini adalah foto kamera vs selfie tersimpan — dua gambar
+    // digital sekualitas, bukan pasangan selfie-vs-KTP. aiService.verifyFaceMatch
+    // karena itu memakai ambang foto-vs-foto yang ketat; ambang longgar milik
+    // jalur KTP meloloskan orang yang berbeda terhadap satu wajah terdaftar.
+    let matchResult: Awaited<ReturnType<AiService['verifyFaceMatch']>>;
+    try {
+      matchResult = await this.aiService.verifyFaceMatch(
+        dto.livePhotoUrl,
+        decryptedFace,
+      );
+    } catch (error: any) {
+      if (error instanceof FaceEngineUnavailableError) {
+        // Mesin mati bukan bukti bahwa orangnya benar. Akses tetap ditahan,
+        // tetapi pesannya tidak menuduh pengguna.
+        this.logger.error(
+          `Mesin biometrik tidak tersedia saat pengecekan anti-joki ${talentId}: ${error.message}`,
+        );
+        return {
+          verified: false,
+          matchScore: 0,
+          engineUnavailable: true,
+          message:
+            'Layanan verifikasi wajah sedang tidak tersedia. Ini bukan karena foto Anda. Silakan coba lagi beberapa saat lagi.',
+        };
+      }
+      throw error;
+    }
 
     if (!matchResult.isMatch) {
+      this.logger.warn(
+        `Pengecekan anti-joki ${talentId} ditolak (jarak wajah ${matchResult.faceDistance ?? 'n/a'}).`,
+      );
       return {
         verified: false,
         matchScore: matchResult.confidenceScore,

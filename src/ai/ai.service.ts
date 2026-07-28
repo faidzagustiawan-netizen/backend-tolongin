@@ -118,8 +118,15 @@ export class AiService {
   private async verifyWithPythonEngine(
     selfieUrl: string,
     ktpUrl: string,
-    mode: string = 'full',
+    mode: 'full' | 'match_only' = 'full',
   ): Promise<KycVerificationResult> {
+    // Jenis pembandingan menentukan ambang di sisi Python. Mode `full` adalah
+    // pendaftaran identitas (selfie vs foto cetak pada KTP, ambang longgar);
+    // `match_only` adalah pengecekan anti-joki yang membandingkan dua foto
+    // digital, sehingga harus dinilai dengan ambang foto-vs-foto yang ketat.
+    const comparison =
+      mode === 'full' ? 'selfie_vs_ktp' : 'selfie_vs_selfie';
+
     // Dijalankan di pool proses Python yang tetap hidup. Versi sebelumnya
     // memanggil `exec` per permintaan, sehingga TensorFlow dan bobot model
     // dimuat ulang setiap kali — beberapa detik yang dibayar berulang pada
@@ -129,6 +136,7 @@ export class AiService {
       const faceResult = await this.pythonWorker.call<any>('verify_face', {
         selfiePhotoUrl: selfieUrl,
         idCardPhotoUrl: ktpUrl,
+        comparison,
       });
 
       if (!faceResult.isMatch) {
@@ -153,6 +161,8 @@ export class AiService {
           ktpName: 'MATCH_ONLY_MODE',
           reason: faceResult.reason,
           biometricHash: faceResult.biometricHash,
+          faceDistance: faceResult.faceDistance ?? null,
+          needsReview: !!faceResult.needsReview,
         };
       }
 
@@ -517,10 +527,22 @@ Berikan respons HANYA dalam format JSON dengan struktur ini (tanpa markdown blok
     };
   }
 
+  /**
+   * Mencocokkan dua foto wajah digital (kamera langsung vs selfie tersimpan).
+   *
+   * Dinilai dengan ambang foto-vs-foto yang ketat, bukan ambang longgar milik
+   * pasangan selfie-vs-KTP: pelonggaran itu hanya sah untuk foto cetak pada
+   * kartu, dan memakainya di sini meloloskan orang yang berbeda.
+   */
   async verifyFaceMatch(
     photo1Url: string,
     photo2Url: string,
-  ): Promise<{ isMatch: boolean; confidenceScore: number; reason: string }> {
+  ): Promise<{
+    isMatch: boolean;
+    confidenceScore: number;
+    reason: string;
+    faceDistance: number | null;
+  }> {
     this.logger.log(
       'Mencocokkan wajah secara lokal menggunakan DeepFace ML...',
     );
@@ -533,6 +555,7 @@ Berikan respons HANYA dalam format JSON dengan struktur ini (tanpa markdown blok
       isMatch: pythonRes.isMatch,
       confidenceScore: pythonRes.confidenceScore,
       reason: pythonRes.reason,
+      faceDistance: pythonRes.faceDistance ?? null,
     };
   }
 
