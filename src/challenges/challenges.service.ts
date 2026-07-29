@@ -17,6 +17,7 @@ import { GenerateAiChallengeDto } from './dto/generate-ai-challenge.dto';
 import { GenerateAiBlueprintDto } from './dto/generate-ai-blueprint.dto';
 import { ChallengeSectionDto } from './dto/create-challenge.dto';
 import { DISCUSSION_AUTHOR_SELECT } from '../common/selects/discussion-author.select';
+import { subscriptionLimitsEnforced } from '../common/dev-flags';
 import {
   ChallengeCategory,
   ChallengeDifficulty,
@@ -28,6 +29,21 @@ import {
   SectionStageType,
 } from '@prisma/client';
 import crypto from 'crypto';
+
+/**
+ * Bentuk minimal yang dibutuhkan pemeriksaan konsistensi. Sengaja longgar
+ * supaya satu fungsi bisa memeriksa section yang datang dari badan permintaan
+ * maupun yang dibaca kembali dari basis data.
+ */
+type ValidatableComponent = {
+  type: ComponentType;
+  question: string;
+  options?: unknown;
+};
+
+type ValidatableSection = {
+  components?: ValidatableComponent[] | null;
+};
 
 @Injectable()
 export class ChallengesService {
@@ -123,7 +139,12 @@ export class ChallengesService {
    */
   private assertChallengeConsistency(
     dto: UpdateChallengeDto,
-    existing?: { startsAt: Date | null; deadlineAt: Date | null },
+    existing?: {
+      status?: ChallengeStatus;
+      startsAt: Date | null;
+      deadlineAt: Date | null;
+      sections?: ValidatableSection[];
+    },
   ) {
     const startsAt = dto.startsAt
       ? new Date(dto.startsAt)
@@ -138,11 +159,29 @@ export class ChallengesService {
       );
     }
 
-    const isPublishing =
-      (dto.status ?? ChallengeStatus.PUBLISHED) === ChallengeStatus.PUBLISHED;
-    if (!isPublishing) return;
+    // Status yang berlaku setelah penulisan: yang diminta, kalau tidak ada
+    // yang sudah tersimpan, dan barulah PUBLISHED sebagai bawaan pembuatan.
+    // Tanpa lapisan tengah itu, setiap penyimpanan draf yang tidak menyebut
+    // status ikut diperlakukan sebagai penerbitan.
+    const effectiveStatus =
+      dto.status ?? existing?.status ?? ChallengeStatus.PUBLISHED;
 
-    const sections = dto.sections ?? [];
+    if (effectiveStatus !== ChallengeStatus.PUBLISHED) return;
+
+    // Yang diperiksa adalah section yang benar-benar akan tersimpan. Bila
+    // permintaan tidak menyertakan `sections`, yang berlaku adalah isi basis
+    // data — tanpa ini `PATCH { status: 'PUBLISHED' }` polos melewati seluruh
+    // pemeriksaan di bawah karena daftarnya dianggap kosong, dan soal pilihan
+    // ganda yang rusak ikut terbit.
+    const sections: ValidatableSection[] =
+      dto.sections ?? existing?.sections ?? [];
+
+    if (sections.length === 0) {
+      throw new BadRequestException(
+        'Studi kasus harus memiliki minimal satu tahap sebelum diterbitkan.',
+      );
+    }
+
     const hasComponents = sections.some((s) => (s.components?.length ?? 0) > 0);
 
     for (const section of sections) {
@@ -264,17 +303,19 @@ export class ChallengesService {
       },
     });
 
+    if (!subscriptionLimitsEnforced()) {
+      return;
+    }
+
     if (company.subscriptionTier === 'STARTUP' && activeCount >= 1) {
-      // DEV_MODE: Disable subscription limits
-      // throw new ForbiddenException(
-      //   'Paket Murah hanya mengizinkan 1 studi kasus aktif/draf. Silakan tingkatkan langganan Anda.',
-      // );
+      throw new ForbiddenException(
+        'Paket Murah hanya mengizinkan 1 studi kasus aktif/draf. Silakan tingkatkan langganan Anda.',
+      );
     }
     if (company.subscriptionTier === 'KONGLOMERAT' && activeCount >= 5) {
-      // DEV_MODE: Disable subscription limits
-      // throw new ForbiddenException(
-      //   'Paket Pro hanya mengizinkan 5 studi kasus aktif/draf. Silakan tingkatkan langganan Anda.',
-      // );
+      throw new ForbiddenException(
+        'Paket Pro hanya mengizinkan 5 studi kasus aktif/draf. Silakan tingkatkan langganan Anda.',
+      );
     }
   }
 
@@ -507,11 +548,26 @@ export class ChallengesService {
       where.isPrivate = false;
     }
 
+    // Studi kasus yang diarsipkan ikut disertakan untuk pemiliknya. Tanpa itu
+    // mengarsipkan sama saja dengan menghilangkan: barangnya lenyap dari satu-
+    // satunya daftar tempat pemilik bisa menemukannya kembali.
     if (query.includeDrafts === 'true' && canSeeRestricted) {
-      where.status = { in: [ChallengeStatus.PUBLISHED, ChallengeStatus.DRAFT] };
+      where.status = {
+        in: [
+          ChallengeStatus.PUBLISHED,
+          ChallengeStatus.DRAFT,
+          ChallengeStatus.CLOSED,
+        ],
+      };
     } else if (wantsOwn) {
       // Halaman "milik saya" tidak ada gunanya bila draf disembunyikan.
-      where.status = { in: [ChallengeStatus.PUBLISHED, ChallengeStatus.DRAFT] };
+      where.status = {
+        in: [
+          ChallengeStatus.PUBLISHED,
+          ChallengeStatus.DRAFT,
+          ChallengeStatus.CLOSED,
+        ],
+      };
     } else {
       where.status = ChallengeStatus.PUBLISHED;
     }
@@ -696,11 +752,13 @@ export class ChallengesService {
       throw new NotFoundException('Profil Perusahaan tidak ditemukan');
     }
 
-    if (company.subscriptionTier === 'STARTUP') {
-      // DEV_MODE: Disable subscription limits
-      // throw new ForbiddenException(
-      //   'Fitur AI Generator dikunci pada Paket Murah. Silakan tingkatkan langganan Anda.',
-      // );
+    if (
+      subscriptionLimitsEnforced() &&
+      company.subscriptionTier === 'STARTUP'
+    ) {
+      throw new ForbiddenException(
+        'Fitur AI Generator dikunci pada Paket Murah. Silakan tingkatkan langganan Anda.',
+      );
     }
 
     const activeCount = await this.prisma.challenge.count({
@@ -710,11 +768,14 @@ export class ChallengesService {
       },
     });
 
-    if (company.subscriptionTier === 'KONGLOMERAT' && activeCount >= 5) {
-      // DEV_MODE: Disable subscription limits
-      // throw new ForbiddenException(
-      //   'Paket Pro hanya mengizinkan 5 studi kasus aktif/draf. Silakan tingkatkan langganan Anda.',
-      // );
+    if (
+      subscriptionLimitsEnforced() &&
+      company.subscriptionTier === 'KONGLOMERAT' &&
+      activeCount >= 5
+    ) {
+      throw new ForbiddenException(
+        'Paket Pro hanya mengizinkan 5 studi kasus aktif/draf. Silakan tingkatkan langganan Anda.',
+      );
     }
 
     const blueprint = await this.aiService.generateChallengeBlueprint(
@@ -881,7 +942,10 @@ export class ChallengesService {
 
             // Diperiksa sebelum kuota supaya paket Murah menerima pesan
             // "fitur AI dikunci", bukan pesan kuota yang menyesatkan.
-            if (company.subscriptionTier === 'STARTUP') {
+            if (
+              subscriptionLimitsEnforced() &&
+              company.subscriptionTier === 'STARTUP'
+            ) {
               throw new ForbiddenException(
                 'Fitur AI Generator dikunci pada Paket Murah. Silakan tingkatkan langganan Anda.',
               );
@@ -1009,77 +1073,137 @@ export class ChallengesService {
     // Pembacaan status dan penulisannya berada dalam satu transaksi: tanpa
     // itu dua penyimpanan bersamaan bisa sama-sama melihat status DRAFT dan
     // sama-sama menulis, membuat set section tertimpa dua kali.
-    const { challenge, updated } = await this.prisma.$transaction(
-      async (tx) => {
-        const existing = await tx.challenge.findFirst({
-          where: isAdmin
-            ? { id }
-            : {
-                id,
-                OR: [{ companyId: profileId }, { talentId: profileId }],
+    const { challenge, updated } = await this.retryOnSlugConflict(() =>
+      this.prisma.$transaction(
+        async (tx) => {
+          const existing = await tx.challenge.findFirst({
+            where: isAdmin
+              ? { id }
+              : {
+                  id,
+                  OR: [{ companyId: profileId }, { talentId: profileId }],
+                },
+            // Section ikut dibaca supaya pemeriksaan penerbitan punya bahan
+            // ketika permintaan hanya mengubah status tanpa mengirim ulang
+            // seluruh soal.
+            include: {
+              sections: {
+                select: {
+                  components: {
+                    select: { type: true, question: true, options: true },
+                  },
+                },
               },
-        });
+            },
+          });
 
-        if (!existing) {
-          throw new NotFoundException('Challenge tidak ditemukan');
-        }
+          if (!existing) {
+            throw new NotFoundException('Challenge tidak ditemukan');
+          }
 
-        if (existing.status === ChallengeStatus.PUBLISHED) {
-          throw new ForbiddenException(
-            'Studi kasus yang sudah diterbitkan tidak dapat diedit. Silakan buat yang baru.',
-          );
-        }
+          if (existing.status === ChallengeStatus.PUBLISHED) {
+            throw new ForbiddenException(
+              'Studi kasus yang sudah diterbitkan tidak dapat diedit. Silakan buat yang baru.',
+            );
+          }
 
-        this.assertChallengeConsistency(updateDto, existing);
+          if (existing.status === ChallengeStatus.CLOSED) {
+            throw new ForbiddenException(
+              'Studi kasus yang sudah diarsipkan tidak dapat diubah.',
+            );
+          }
 
-        const result = await tx.challenge.update({
-          where: { id },
-          data: {
-            title: updateDto.title,
-            summary: updateDto.summary,
-            description: updateDto.description,
-            category: updateDto.category,
-            difficulty: updateDto.difficulty,
-            datasetUrl: updateDto.datasetUrl,
-            mockApiUrl: updateDto.mockApiUrl,
-            brandGuidelineUrl: updateDto.brandGuidelineUrl,
-            gradingRubric:
-              updateDto.gradingRubric !== undefined
-                ? updateDto.gradingRubric
+          this.assertChallengeConsistency(updateDto, existing);
+
+          // Slug ikut disegarkan bila judul draf berubah. Tanpa ini tautan
+          // publik selamanya memakai judul lama — draf hasil AI, misalnya,
+          // terbit dengan slug "draft-ai-challenge".
+          const isRenamed =
+            !!updateDto.title && updateDto.title !== existing.title;
+
+          const result = await tx.challenge.update({
+            where: { id },
+            data: {
+              slug: isRenamed
+                ? await this.generateUniqueSlug(updateDto.title!, tx)
                 : undefined,
-            proctoringSettings:
-              updateDto.proctoringSettings !== undefined
-                ? updateDto.proctoringSettings
+              title: updateDto.title,
+              summary: updateDto.summary,
+              description: updateDto.description,
+              category: updateDto.category,
+              difficulty: updateDto.difficulty,
+              datasetUrl: updateDto.datasetUrl,
+              mockApiUrl: updateDto.mockApiUrl,
+              brandGuidelineUrl: updateDto.brandGuidelineUrl,
+              gradingRubric:
+                updateDto.gradingRubric !== undefined
+                  ? updateDto.gradingRubric
+                  : undefined,
+              proctoringSettings:
+                updateDto.proctoringSettings !== undefined
+                  ? updateDto.proctoringSettings
+                  : undefined,
+              rewardDescription: updateDto.difficulty
+                ? this.generateSystemRewardDescription(updateDto.difficulty)
                 : undefined,
-            rewardDescription: updateDto.difficulty
-              ? this.generateSystemRewardDescription(updateDto.difficulty)
-              : undefined,
-            startsAt: updateDto.startsAt
-              ? new Date(updateDto.startsAt)
-              : undefined,
-            // Keduanya dulu tidak ikut disalin, jadi batas akhir yang diisi di
-            // formulir hilang tanpa jejak begitu draf disimpan ulang.
-            deadlineAt: updateDto.deadlineAt
-              ? new Date(updateDto.deadlineAt)
-              : undefined,
-            isPrivate: updateDto.isPrivate,
-            status: updateDto.status,
-            sections:
-              updateDto.sections && updateDto.sections.length > 0
-                ? {
-                    deleteMany: {},
-                    ...this.buildSectionsCreateInput(id, updateDto.sections)!,
-                  }
+              startsAt: updateDto.startsAt
+                ? new Date(updateDto.startsAt)
                 : undefined,
-          },
-        });
+              // Keduanya dulu tidak ikut disalin, jadi batas akhir yang diisi di
+              // formulir hilang tanpa jejak begitu draf disimpan ulang.
+              deadlineAt: updateDto.deadlineAt
+                ? new Date(updateDto.deadlineAt)
+                : undefined,
+              isPrivate: updateDto.isPrivate,
+              status: updateDto.status,
+              // Syaratnya `!== undefined`, bukan "ada isinya". Dengan syarat
+              // lama, menghapus seluruh tahap lalu menyimpan tidak mengubah
+              // apa pun: antarmuka melaporkan sukses sementara section lama
+              // tetap utuh di basis data.
+              sections:
+                updateDto.sections !== undefined
+                  ? {
+                      deleteMany: {},
+                      ...(this.buildSectionsCreateInput(
+                        id,
+                        updateDto.sections,
+                      ) ?? {}),
+                    }
+                  : undefined,
+            },
+          });
 
-        return { challenge: existing, updated: result };
-      },
-      { timeout: ChallengesService.TX_TIMEOUT_MS },
+          // Penerbitan lewat PATCH dulu tidak memberi kabar apa pun, padahal
+          // jalur AI selalu berakhir di sini: draf dibuat mesin, lalu manusia
+          // menerbitkannya.
+          if (
+            existing.status === ChallengeStatus.DRAFT &&
+            result.status === ChallengeStatus.PUBLISHED
+          ) {
+            const ownerUserId = await this.resolveOwnerUserId(tx, existing);
+
+            if (ownerUserId) {
+              await tx.notification.create({
+                data: {
+                  userId: ownerUserId,
+                  title: 'Studi Kasus Diterbitkan',
+                  content: `Studi Kasus "${result.title}" berhasil diterbitkan.`,
+                  linkUrl: `/challenges/${result.slug}`,
+                },
+              });
+            }
+          }
+
+          return { challenge: existing, updated: result };
+        },
+        { timeout: ChallengesService.TX_TIMEOUT_MS },
+      ),
     );
 
-    if (role === Role.COMPANY && userId && challenge.companyId) {
+    // Syarat peran dilepas: moderasi oleh ADMIN juga menyentuh studi kasus
+    // milik perusahaan dan sama-sama perlu tercatat. Public Challenge milik
+    // talenta tidak punya perusahaan, jadi tidak ada barisnya untuk ditulis.
+    if (userId && challenge.companyId) {
       const changedKeys = Object.keys(updateDto);
       await this.companiesService.logAction(
         challenge.companyId,
@@ -1087,11 +1211,92 @@ export class ChallengesService {
         'UPDATE_CHALLENGE',
         'CHALLENGE',
         challenge.id,
-        { changedFields: changedKeys },
+        { changedFields: changedKeys, actorRole: role },
       );
     }
 
     return updated;
+  }
+
+  /**
+   * Menutup studi kasus.
+   *
+   * Status CLOSED tidak ikut dihitung `assertCompanyQuota`, jadi ini satu-
+   * satunya cara pemilik membebaskan slot paketnya sendiri: studi kasus yang
+   * sudah terbit tidak bisa disunting maupun dihapus siapa pun selain admin.
+   */
+  async archiveChallenge(
+    id: string,
+    profileId: string,
+    userId?: string,
+    role?: string,
+  ) {
+    const isAdmin = role === Role.ADMIN;
+
+    if (!isAdmin && !profileId) {
+      throw new ForbiddenException(
+        'Sesi tidak memiliki profil. Silakan masuk ulang.',
+      );
+    }
+
+    const existing = await this.prisma.challenge.findFirst({
+      where: isAdmin
+        ? { id }
+        : {
+            id,
+            OR: [{ companyId: profileId }, { talentId: profileId }],
+          },
+    });
+
+    if (!existing) {
+      throw new NotFoundException('Challenge tidak ditemukan');
+    }
+
+    if (existing.status === ChallengeStatus.CLOSED) {
+      throw new BadRequestException('Studi kasus ini sudah diarsipkan.');
+    }
+
+    const updated = await this.prisma.challenge.update({
+      where: { id },
+      data: { status: ChallengeStatus.CLOSED },
+    });
+
+    if (userId && existing.companyId) {
+      await this.companiesService.logAction(
+        existing.companyId,
+        userId,
+        'ARCHIVE_CHALLENGE',
+        'CHALLENGE',
+        existing.id,
+        { previousStatus: existing.status, actorRole: role },
+      );
+    }
+
+    return updated;
+  }
+
+  /** Akun pemilik studi kasus, baik lewat perusahaan maupun talenta. */
+  private async resolveOwnerUserId(
+    tx: Prisma.TransactionClient,
+    challenge: { companyId: string | null; talentId: string | null },
+  ): Promise<string | null> {
+    if (challenge.companyId) {
+      const company = await tx.companyProfile.findUnique({
+        where: { id: challenge.companyId },
+        select: { userId: true },
+      });
+      return company?.userId ?? null;
+    }
+
+    if (challenge.talentId) {
+      const talent = await tx.talentProfile.findUnique({
+        where: { id: challenge.talentId },
+        select: { userId: true },
+      });
+      return talent?.userId ?? null;
+    }
+
+    return null;
   }
 
   async getTemplates() {
@@ -1248,6 +1453,28 @@ export class ChallengesService {
         );
       }
     }
+    throw new ConflictException(
+      'Gagal membuat tautan unik untuk studi kasus ini. Silakan coba lagi.',
+    );
+  }
+
+  /**
+   * Sama seperti `withSlugRetry`, tetapi untuk operasi yang memilih slugnya
+   * sendiri di tengah jalan — pembaruan baru tahu perlu slug baru setelah
+   * membaca judul lama di dalam transaksi.
+   */
+  private async retryOnSlugConflict<T>(
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    for (let i = 0; i < ChallengesService.SLUG_ATTEMPTS; i++) {
+      try {
+        return await operation();
+      } catch (error) {
+        if (!this.isSlugConflict(error)) throw error;
+        this.logger.warn('Slug bentrok saat pembaruan, mencoba ulang.');
+      }
+    }
+
     throw new ConflictException(
       'Gagal membuat tautan unik untuk studi kasus ini. Silakan coba lagi.',
     );

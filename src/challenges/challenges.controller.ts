@@ -180,6 +180,31 @@ export class ChallengesController {
 
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
+    summary: 'Mengarsipkan challenge (menutup dan membebaskan kuota paket)',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Challenge ditutup; slot kuota paket kembali tersedia.',
+  })
+  @ApiResponse({ status: 400, description: 'Challenge sudah diarsipkan.' })
+  @ApiResponse({ status: 404, description: 'Challenge tidak ditemukan.' })
+  // Rutenya berdiri sendiri, bukan bagian dari PATCH biasa: menerbitkan dan
+  // menyunting hanya boleh saat DRAFT, sementara mengarsipkan justru paling
+  // dibutuhkan untuk studi kasus yang sudah terbit.
+  @UseGuards(JwtAuthGuard, RolesGuard, VerifiedCompanyGuard)
+  @Roles(Role.COMPANY, Role.ADMIN, Role.TALENT)
+  @Patch(':id/archive')
+  async archive(@Request() req: any, @Param('id') id: string) {
+    return this.challengesService.archiveChallenge(
+      id,
+      req.user.profileId,
+      req.user.sub,
+      req.user.role,
+    );
+  }
+
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
     summary: 'Memperbarui challenge (khusus status DRAFT)',
   })
   @UseGuards(JwtAuthGuard, RolesGuard, VerifiedCompanyGuard)
