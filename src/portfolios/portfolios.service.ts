@@ -60,6 +60,71 @@ export class PortfoliosService {
     });
   }
 
+  /**
+   * Direktori talenta publik.
+   *
+   * Sebelum ini profil talenta hanya bisa dicapai lewat papan peringkat, jadi
+   * perusahaan sama sekali tidak punya cara menelusuri kandidat — sementara
+   * menu "Direktori Perusahaan" justru menampilkan sesama perusahaan.
+   *
+   * Yang dikembalikan hanya bidang yang memang publik. Email, NIK, dan data
+   * biometrik tidak pernah ikut.
+   */
+  async getPublicTalents(query: {
+    search?: string;
+    skill?: string;
+    roleCategory?: string;
+    page?: number;
+    limit?: number;
+  }) {
+    const where: any = {};
+
+    if (query.skill) {
+      where.skills = { has: query.skill };
+    }
+
+    if (query.roleCategory) {
+      where.roleCategory = query.roleCategory;
+    }
+
+    const search = query.search?.trim();
+    if (search) {
+      where.OR = [
+        { fullName: { contains: search, mode: 'insensitive' } },
+        { headline: { contains: search, mode: 'insensitive' } },
+        { skills: { has: search } },
+      ];
+    }
+
+    const page = Math.max(1, Number(query.page) || 1);
+    const limit = Math.min(60, Math.max(1, Number(query.limit) || 24));
+
+    const [data, total] = await this.prisma.$transaction([
+      this.prisma.talentProfile.findMany({
+        where,
+        select: {
+          id: true,
+          slug: true,
+          fullName: true,
+          avatarUrl: true,
+          headline: true,
+          xp: true,
+          level: true,
+          skills: true,
+          location: true,
+          roleCategory: true,
+          faceVerificationStatus: true,
+        },
+        orderBy: [{ xp: 'desc' }, { fullName: 'asc' }],
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.talentProfile.count({ where }),
+    ]);
+
+    return { data, total, page, limit };
+  }
+
   async getLeaderboard(limit: number = 10) {
     return this.prisma.talentProfile.findMany({
       select: {

@@ -14,6 +14,7 @@ import { EnrollDto } from './dto/enroll.dto';
 import { SubmitSolutionDto } from './dto/submit-solution.dto';
 import { SaveDraftDto } from './dto/save-draft.dto';
 import { GradeSubmissionDto } from './dto/grade-submission.dto';
+import { UpdateHiringStatusDto } from './dto/update-hiring-status.dto';
 import { CompaniesService } from '../companies/companies.service';
 import {
   EnrollmentStatus,
@@ -402,30 +403,47 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
         });
       }
 
-      // Notify the creator of the challenge
-      let creatorUserId: string | null = null;
+      // Kabar submisi baru dikirim ke seluruh orang yang berhak menilainya,
+      // bukan hanya pemilik akun. Anggota tim yang diundang lewat kode
+      // undangan sebelumnya tidak pernah menerima pemberitahuan apa pun,
+      // sehingga fitur tim berhenti di penambahan anggota saja.
+      const recipientUserIds = new Set<string>();
+
       if (enrollment.challenge.companyId) {
         const company = await tx.companyProfile.findUnique({
           where: { id: enrollment.challenge.companyId },
+          select: { userId: true },
         });
-        if (company) creatorUserId = company.userId;
+        if (company) recipientUserIds.add(company.userId);
+
+        const members = await tx.companyMember.findMany({
+          where: { companyId: enrollment.challenge.companyId },
+          select: { userId: true },
+        });
+        for (const member of members) recipientUserIds.add(member.userId);
       } else if (enrollment.challenge.talentId) {
         const creatorTalent = await tx.talentProfile.findUnique({
           where: { id: enrollment.challenge.talentId },
+          select: { userId: true },
         });
-        if (creatorTalent) creatorUserId = creatorTalent.userId;
+        if (creatorTalent) recipientUserIds.add(creatorTalent.userId);
       }
 
-      if (creatorUserId) {
-        await tx.notification.create({
-          data: {
-            userId: creatorUserId,
+      if (recipientUserIds.size > 0) {
+        // Tautan lama menunjuk `/company/submissions` yang tidak pernah ada
+        // sebagai rute, jadi pemberitahuan ini selalu berujung 404. Kini
+        // menunjuk daftar kandidat challenge yang bersangkutan.
+        const linkUrl = enrollment.challenge.companyId
+          ? `/company/submissions/challenge/${enrollment.challengeId}`
+          : `/challenges/${enrollment.challenge.slug}`;
+
+        await tx.notification.createMany({
+          data: [...recipientUserIds].map((userId) => ({
+            userId,
             title: 'Submisi Baru Masuk',
             content: `Seseorang telah mengumpulkan solusi untuk studi kasus "${enrollment.challenge.title}". Segera lakukan peninjauan!`,
-            linkUrl: enrollment.challenge.companyId
-              ? `/company/submissions`
-              : `/challenges/${enrollment.challenge.slug}`,
-          },
+            linkUrl,
+          })),
         });
       }
 
@@ -477,7 +495,14 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
   async getSubmissionsForCompany(
     companyId: string,
     challengeId?: string,
-    pagination: { page?: number; limit?: number } = {},
+    options: {
+      page?: number;
+      limit?: number;
+      search?: string;
+      status?: SubmissionStatus;
+      hiringStatus?: HiringStatus;
+      sort?: 'recent' | 'oldest' | 'score';
+    } = {},
   ) {
     const where: Prisma.SubmissionWhereInput = {
       challenge: { companyId },
@@ -487,11 +512,36 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
       where.challengeId = challengeId;
     }
 
+    // Penyaringan dikerjakan di basis data, bukan di peramban. Versi lama
+    // menyaring larik yang sudah terpaginasi, sehingga mencari kandidat yang
+    // ada di halaman tiga selalu memberi hasil nihil.
+    const search = options.search?.trim();
+    if (search) {
+      where.talent = {
+        fullName: { contains: search, mode: 'insensitive' },
+      };
+    }
+
+    if (options.status) {
+      where.status = options.status;
+    }
+
+    if (options.hiringStatus) {
+      where.hiringStatus = options.hiringStatus;
+    }
+
     // Setiap baris membawa seluruh jawaban kandidat beserta definisi soalnya.
     // Tanpa paginasi, satu challenge dengan ratusan pelamar menarik semuanya
     // sekaligus dalam satu permintaan.
-    const page = Math.max(1, Number(pagination.page) || 1);
-    const limit = Math.min(100, Math.max(1, Number(pagination.limit) || 25));
+    const page = Math.max(1, Number(options.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(options.limit) || 25));
+
+    const orderBy: Prisma.SubmissionOrderByWithRelationInput =
+      options.sort === 'score'
+        ? { finalScore: { sort: 'desc', nulls: 'last' } }
+        : options.sort === 'oldest'
+          ? { createdAt: 'asc' }
+          : { createdAt: 'desc' };
 
     const [data, total] = await this.prisma.$transaction([
       this.prisma.submission.findMany({
@@ -499,27 +549,40 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
         include: {
           talent: {
             select: {
+              slug: true,
               fullName: true,
+              headline: true,
               avatarUrl: true,
               skills: true,
               githubUrl: true,
             },
           },
           challenge: {
-            select: { title: true, difficulty: true, category: true },
+            select: { id: true, title: true, difficulty: true, category: true },
           },
           componentResponses: {
             include: { component: true },
           },
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy,
         skip: (page - 1) * limit,
         take: limit,
       }),
       this.prisma.submission.count({ where }),
     ]);
 
-    return { data, total, page, limit };
+    // Judul studi kasus dulu diambil dari `data[0].challenge`, sehingga
+    // halaman kandidat kehilangan judulnya persis ketika paling dibutuhkan:
+    // saat belum ada satu pun kandidat, atau saat penyaring tidak memberi
+    // hasil.
+    const challenge = challengeId
+      ? await this.prisma.challenge.findFirst({
+          where: { id: challengeId, companyId },
+          select: { id: true, title: true, difficulty: true, category: true },
+        })
+      : null;
+
+    return { data, total, page, limit, challenge };
   }
 
   /**
@@ -535,10 +598,14 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
       include: {
         talent: {
           select: {
+            slug: true,
             fullName: true,
+            headline: true,
             avatarUrl: true,
             skills: true,
             githubUrl: true,
+            linkedinUrl: true,
+            user: { select: { email: true } },
           },
         },
         challenge: {
@@ -554,7 +621,30 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
       throw new NotFoundException('Submisi tidak ditemukan');
     }
 
-    return submission;
+    // Email kandidat dibuka hanya setelah rekruter benar-benar melanjutkan
+    // prosesnya. Sebelumnya rekruter sama sekali tidak punya cara menghubungi
+    // orang yang baru saja ditandai HIRED; membukanya untuk semua pelamar
+    // justru menjadikan setiap challenge alat panen alamat email. Sampai
+    // kandidat masuk daftar pendek, yang tersedia adalah profil publiknya.
+    const contactUnlockedStates: HiringStatus[] = [
+      HiringStatus.SHORTLISTED,
+      HiringStatus.INTERVIEW_INVITED,
+      HiringStatus.HIRED,
+    ];
+    const isContactUnlocked = contactUnlockedStates.includes(
+      submission.hiringStatus,
+    );
+
+    const { user, ...talentRest } = submission.talent;
+
+    return {
+      ...submission,
+      talent: {
+        ...talentRest,
+        email: isContactUnlocked ? user?.email : null,
+      },
+      isContactUnlocked,
+    };
   }
 
   async getTalentEnrollments(talentId: string) {
@@ -709,6 +799,95 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
     }
 
     return result;
+  }
+
+  /**
+   * Memindahkan kandidat antar-tahap rekrutmen.
+   *
+   * Terpisah dari `gradeSubmission` karena sifatnya berbeda: penilaian sekali
+   * jalan dan berhadiah, tahap rekrutmen berpindah berkali-kali dan tidak
+   * memberi apa pun. Sebelum ini `hiringStatus` hanya bisa diisi di dalam
+   * formulir penilaian, sehingga corong SHORTLISTED -> INTERVIEW_INVITED ->
+   * HIRED tidak pernah bisa dijalankan.
+   */
+  async updateHiringStatus(
+    profileId: string,
+    submissionId: string,
+    dto: UpdateHiringStatusDto,
+    userId?: string,
+    role?: string,
+  ) {
+    const submission = await this.prisma.submission.findUnique({
+      where: { id: submissionId },
+      include: {
+        challenge: { include: { company: true } },
+        talent: true,
+      },
+    });
+
+    if (!submission) {
+      throw new NotFoundException('Submisi tidak ditemukan');
+    }
+
+    const isAdmin = role === Role.ADMIN;
+    const isCompanyOwner =
+      !!profileId && submission.challenge.companyId === profileId;
+    const isTalentOwner =
+      !!profileId && submission.challenge.talentId === profileId;
+
+    if (!isAdmin && !isCompanyOwner && !isTalentOwner) {
+      throw new ForbiddenException(
+        'Akses ditolak: Hanya pembuat Challenge yang dapat mengubah tahap rekrutmen',
+      );
+    }
+
+    if (submission.hiringStatus === dto.hiringStatus) {
+      return submission;
+    }
+
+    const updated = await this.prisma.submission.update({
+      where: { id: submissionId },
+      data: { hiringStatus: dto.hiringStatus },
+    });
+
+    // Hanya tahap yang menuntut tindakan kandidat yang dikabarkan. SHORTLISTED
+    // dan NONE adalah pembukuan internal rekruter — mengirimkannya akan
+    // memberi harapan atas keputusan yang belum diambil.
+    const talentFacingMessage: Partial<Record<HiringStatus, string>> = {
+      [HiringStatus.INTERVIEW_INVITED]: `Perusahaan mengundang Anda ke tahap wawancara untuk studi kasus "${submission.challenge.title}".`,
+      [HiringStatus.HIRED]: `Selamat! Anda diterima untuk posisi terkait studi kasus "${submission.challenge.title}".`,
+      [HiringStatus.REJECTED]: `Proses rekrutmen Anda untuk studi kasus "${submission.challenge.title}" dinyatakan selesai. Terima kasih sudah berpartisipasi.`,
+    };
+
+    const message = talentFacingMessage[dto.hiringStatus];
+    if (message) {
+      await this.prisma.notification.create({
+        data: {
+          userId: submission.talent.userId,
+          title: 'Kabar Proses Rekrutmen',
+          content: message,
+          linkUrl: `/workspace/${submission.enrollmentId}`,
+        },
+      });
+    }
+
+    if (role === Role.COMPANY && userId && submission.challenge.companyId) {
+      await this.companiesService.logAction(
+        submission.challenge.companyId,
+        userId,
+        'UPDATE_HIRING_STATUS',
+        'SUBMISSION',
+        submissionId,
+        {
+          from: submission.hiringStatus,
+          to: dto.hiringStatus,
+          talentId: submission.talentId,
+          note: dto.note,
+        },
+      );
+    }
+
+    return updated;
   }
 
   /**

@@ -15,8 +15,12 @@ export class CreateUserDto {
   @IsNotEmpty({ message: 'Email tidak boleh kosong' })
   email: string;
 
+  // Dinaikkan dari 6 ke 8. Akun perusahaan di sini memegang data pelamar dan
+  // dapat memindahkan kandidat ke tahap "diterima kerja"; enam karakter terlalu
+  // tipis untuk itu. Akun lama tidak terpengaruh — aturan ini hanya berlaku
+  // saat pendaftaran dan penggantian kata sandi.
   @IsString()
-  @MinLength(6, { message: 'Password minimal 6 karakter' })
+  @MinLength(8, { message: 'Password minimal 8 karakter' })
   password: string;
 
   @IsIn(['TALENT', 'COMPANY'], { message: 'Role harus TALENT atau COMPANY' })

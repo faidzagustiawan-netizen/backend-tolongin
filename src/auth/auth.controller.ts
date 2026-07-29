@@ -4,6 +4,8 @@ import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { CreateUserDto } from '../users/dto/create-user.dto';
 import { LoginDto } from './dto/login.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -50,5 +52,32 @@ export class AuthController {
   @Post('login')
   async login(@Body() loginDto: LoginDto) {
     return this.authService.login(loginDto);
+  }
+
+  @ApiOperation({ summary: 'Meminta tautan pemulihan kata sandi' })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Selalu berhasil. Jawabannya sengaja tidak membedakan email terdaftar dari yang tidak.',
+  })
+  // Pembatasan ketat: endpoint ini mengirim email dan menerima email sembarang.
+  @Throttle({ default: { limit: 3, ttl: 60_000 } })
+  @HttpCode(HttpStatus.OK)
+  @Post('forgot-password')
+  async forgotPassword(@Body() dto: ForgotPasswordDto) {
+    return this.authService.forgotPassword(dto);
+  }
+
+  @ApiOperation({ summary: 'Menukar token pemulihan dengan kata sandi baru' })
+  @ApiResponse({ status: 200, description: 'Kata sandi berhasil diperbarui.' })
+  @ApiResponse({
+    status: 400,
+    description: 'Token tidak berlaku, sudah dipakai, atau kedaluwarsa.',
+  })
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @HttpCode(HttpStatus.OK)
+  @Post('reset-password')
+  async resetPassword(@Body() dto: ResetPasswordDto) {
+    return this.authService.resetPassword(dto);
   }
 }

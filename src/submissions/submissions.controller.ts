@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Param,
+  Patch,
   Post,
   Put,
   Query,
@@ -20,11 +21,12 @@ import { SubmissionsService } from './submissions.service';
 import { EnrollDto } from './dto/enroll.dto';
 import { SubmitSolutionDto } from './dto/submit-solution.dto';
 import { GradeSubmissionDto } from './dto/grade-submission.dto';
+import { UpdateHiringStatusDto } from './dto/update-hiring-status.dto';
 import { SaveDraftDto } from './dto/save-draft.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
-import { Role } from '@prisma/client';
+import { HiringStatus, Role, SubmissionStatus } from '@prisma/client';
 import { VerifiedCompanyGuard } from '../auth/guards/verified-company.guard';
 import { resolveCompanyScope } from '../common/utils/company-scope';
 
@@ -128,6 +130,10 @@ export class SubmissionsController {
     @Query('companyId') companyId?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @Query('search') search?: string,
+    @Query('status') status?: SubmissionStatus,
+    @Query('hiringStatus') hiringStatus?: HiringStatus,
+    @Query('sort') sort?: 'recent' | 'oldest' | 'score',
   ) {
     return this.submissionsService.getSubmissionsForCompany(
       resolveCompanyScope(req.user, companyId),
@@ -135,6 +141,19 @@ export class SubmissionsController {
       {
         page: page ? Number(page) : undefined,
         limit: limit ? Number(limit) : undefined,
+        search,
+        // Nilai sembarang dari query string tidak boleh sampai ke `where`
+        // Prisma sebagai filter enum yang tidak sah.
+        status:
+          status && status in SubmissionStatus ? (status as SubmissionStatus) : undefined,
+        hiringStatus:
+          hiringStatus && hiringStatus in HiringStatus
+            ? (hiringStatus as HiringStatus)
+            : undefined,
+        sort:
+          sort === 'score' || sort === 'oldest' || sort === 'recent'
+            ? sort
+            : undefined,
       },
     );
   }
@@ -202,6 +221,29 @@ export class SubmissionsController {
     const profileId = req.user.profileId;
     return this.submissionsService.gradeSubmission(
       profileId,
+      submissionId,
+      dto,
+      req.user.sub,
+      req.user.role,
+    );
+  }
+
+  @ApiOperation({
+    summary: 'Memindahkan kandidat antar-tahap rekrutmen',
+    description:
+      'Berbeda dari penilaian, tahap rekrutmen boleh berpindah berkali-kali dan tidak memberi XP atau token.',
+  })
+  @ApiResponse({ status: 200, description: 'Tahap rekrutmen diperbarui.' })
+  @ApiResponse({ status: 404, description: 'Submisi tidak ditemukan.' })
+  @Roles(Role.COMPANY, Role.ADMIN, Role.TALENT)
+  @Patch('submissions/:id/hiring-status')
+  async updateHiringStatus(
+    @Request() req: any,
+    @Param('id') submissionId: string,
+    @Body() dto: UpdateHiringStatusDto,
+  ) {
+    return this.submissionsService.updateHiringStatus(
+      req.user.profileId,
       submissionId,
       dto,
       req.user.sub,

@@ -44,8 +44,28 @@ model User {
   systemAuditLogs     SystemAuditLog[]
   supportTickets      SupportTicket[]
   ticketReplies       TicketReply[]
+  passwordResetTokens PasswordResetToken[]
 
   @@map("users")
+}
+
+/// Token pemulihan kata sandi.
+///
+/// Yang disimpan adalah SHA-256 dari token, bukan tokennya. Kebocoran isi tabel
+/// karena itu tidak cukup untuk mengambil alih akun. Token sekali pakai:
+/// `usedAt` diisi saat ditukar, dan seluruh token milik pengguna yang sama
+/// dihapus setelah kata sandi berhasil diganti.
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@map("password_reset_tokens")
 }
 
 model TalentProfile {

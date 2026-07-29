@@ -46,6 +46,32 @@ export class PortfoliosController {
   }
 
   @ApiOperation({
+    summary: 'Direktori talenta publik yang bisa ditelusuri perusahaan',
+  })
+  @ApiQuery({ name: 'search', required: false })
+  @ApiQuery({ name: 'skill', required: false })
+  @ApiQuery({ name: 'roleCategory', required: false })
+  @ApiQuery({ name: 'page', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  @ApiResponse({ status: 200, description: 'Daftar profil talenta publik.' })
+  @Get('talents')
+  async getPublicTalents(
+    @Query('search') search?: string,
+    @Query('skill') skill?: string,
+    @Query('roleCategory') roleCategory?: string,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page = 1,
+    @Query('limit', new DefaultValuePipe(24), ParseIntPipe) limit = 24,
+  ) {
+    return this.portfoliosService.getPublicTalents({
+      search,
+      skill,
+      roleCategory,
+      page,
+      limit,
+    });
+  }
+
+  @ApiOperation({
     summary:
       'Mendapatkan papan peringkat (Leaderboard) talenta berdasarkan XP & Gamifikasi',
   })

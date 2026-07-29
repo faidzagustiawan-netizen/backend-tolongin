@@ -21,7 +21,6 @@ export class UsersService {
       fullName,
       companyName,
       industry,
-      subscriptionTier,
     } = createUserDto;
 
     const existingUser = await this.prisma.user.findUnique({
@@ -66,7 +65,15 @@ export class UsersService {
             userId: user.id,
             companyName: cName,
             industry: industry || 'Teknologi Informasi',
-            subscriptionTier: subscriptionTier || 'STARTUP',
+            // Paket selalu dimulai dari STARTUP, apa pun yang dikirim klien.
+            //
+            // Sebelumnya nilainya diambil dari `createUserDto.subscriptionTier`,
+            // sehingga satu permintaan pendaftaran biasa cukup untuk memberi
+            // diri sendiri paket berbayar tanpa pernah melewati Midtrans.
+            // Peningkatan paket yang sah hanya lewat webhook pembayaran
+            // (payments.service) atau penyesuaian manual admin
+            // (subscriptions.service), yang keduanya meninggalkan jejak.
+            subscriptionTier: 'STARTUP',
             // Kode undangan tidak dibuat otomatis saat pendaftaran. Pemilik
             // harus menerbitkannya sendiri lewat POST /companies/workspace/invite-code
             // agar kode tidak berumur panjang tanpa disadari.
