@@ -61,6 +61,17 @@ export class ChallengeComponentDto {
   @Min(0)
   @IsOptional()
   order?: number;
+
+  /**
+   * Id soal di bank bila komponen ini dipungut dari sana.
+   *
+   * Hanya jejak asal — isinya sudah disalin ke kolom di atas. Id yang tidak
+   * dikenal dibuang saat penyimpanan, jadi klien tidak bisa memakainya untuk
+   * menunjuk soal milik perusahaan lain.
+   */
+  @IsString()
+  @IsOptional()
+  sourceItemId?: string;
 }
 
 export class ChallengeSectionDto {

@@ -16,7 +16,10 @@ import { SaveDraftDto } from './dto/save-draft.dto';
 import { GradeSubmissionDto } from './dto/grade-submission.dto';
 import { UpdateHiringStatusDto } from './dto/update-hiring-status.dto';
 import { CompaniesService } from '../companies/companies.service';
+import { subscriptionLimitsEnforced } from '../common/dev-flags';
+import { computePsychometricProfile } from './psychometric';
 import {
+  ComponentType,
   EnrollmentStatus,
   SubmissionStatus,
   HiringStatus,
@@ -311,9 +314,12 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
 
     const isCompanyChallenge = enrollment.challenge.challengeType === 'COMPANY';
     const companyTier = enrollment.challenge.company?.subscriptionTier;
-    // AI HANYA BERJALAN JIKA: Dibuat oleh perusahaan DAN perusahaan BUKAN paket gratis (STARTUP)
-    // DEV_MODE: Remove tier restriction for AI
-    const shouldRunAi = isCompanyChallenge; // && companyTier !== 'STARTUP';
+    // AI berjalan untuk challenge milik perusahaan. Penguncian paket Murah
+    // hanya berlaku ketika batas langganan sedang ditegakkan — selama
+    // pengembangan seluruh paket mendapat penilaian AI.
+    const shouldRunAi =
+      isCompanyChallenge &&
+      (!subscriptionLimitsEnforced() || companyTier !== 'STARTUP');
 
     const candidateAnswers = '';
     const componentEvaluations: {
@@ -336,6 +342,23 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
     }
 
     const hasComponents = allComponents.size > 0;
+
+    // Profil psikometrik dihitung di sini, bukan menunggu antrean AI.
+    // Perhitungannya murni aritmetika atas jawaban skala, jadi menundanya
+    // hanya membuat hasil yang sudah pasti tertahan sampai cron berikutnya —
+    // dan hilang sama sekali bila panggilan AI gagal.
+    const psychometricProfile = computePsychometricProfile(
+      (dto.responses ?? [])
+        .map((r) => ({ component: allComponents.get(r.componentId), r }))
+        .filter(
+          ({ component }) =>
+            component?.type === ComponentType.PSYCHOMETRIC,
+        )
+        .map(({ component, r }) => ({
+          metadata: component.metadata,
+          value: r.textValue,
+        })),
+    );
 
     // AI tidak lagi dieksekusi secara sinkronus di sini karena akan memperlambat respon untuk talenta
     // dan menghabiskan token saat submit.
@@ -367,6 +390,7 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
           aiPlagiarismScore,
           aiCorrectionSummary,
           aiScore,
+          psychometricProfile: psychometricProfile ?? undefined,
           status: initialStatus,
           componentResponses:
             dto.responses && dto.responses.length > 0

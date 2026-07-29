@@ -3,6 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiService } from '../ai/ai.service';
 import {
+  ComponentType,
   SubmissionStatus,
   EnrollmentStatus,
   ChallengeType,
@@ -151,6 +152,14 @@ export class SubmissionsCronService {
                 challenge.sections
                   .flatMap((s: any) => s.components)
                   .find((c: any) => c.id === r.componentId);
+
+              // Soal psikotes tidak dikirim ke AI. Jawaban skala Likert tidak
+              // punya jawaban benar, jadi menilainya sebagai "seberapa tepat"
+              // hanya menghasilkan angka karangan yang ikut menyeret aiScore.
+              // Profilnya sudah dihitung saat pengumpulan.
+              if (compData && compData.type === ComponentType.PSYCHOMETRIC) {
+                continue;
+              }
 
               if (compData) {
                 // Determine skillCategory from component's metadata

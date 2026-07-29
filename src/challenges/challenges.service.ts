@@ -18,6 +18,7 @@ import { GenerateAiBlueprintDto } from './dto/generate-ai-blueprint.dto';
 import { ChallengeSectionDto } from './dto/create-challenge.dto';
 import { DISCUSSION_AUTHOR_SELECT } from '../common/selects/discussion-author.select';
 import { subscriptionLimitsEnforced } from '../common/dev-flags';
+import { assertPsychometricMetadata } from '../submissions/psychometric';
 import {
   ChallengeCategory,
   ChallengeDifficulty,
@@ -39,6 +40,7 @@ type ValidatableComponent = {
   type: ComponentType;
   question: string;
   options?: unknown;
+  metadata?: unknown;
 };
 
 type ValidatableSection = {
@@ -103,6 +105,7 @@ export class ChallengesService {
                   metadata: c.metadata ?? undefined,
                   points: c.points ?? 10,
                   order: c.order ?? cIdx,
+                  sourceItemId: c.sourceItemId ?? null,
                 })),
               }
             : undefined,
@@ -186,6 +189,14 @@ export class ChallengesService {
 
     for (const section of sections) {
       for (const component of section.components ?? []) {
+        // Soal psikotes tidak punya opsi jawaban benar, tetapi skalanya harus
+        // sah — tanpa dimensi dan batas skala, jawabannya tidak bisa
+        // diringkas menjadi profil apa pun setelah kandidat mengerjakannya.
+        if (component.type === ComponentType.PSYCHOMETRIC) {
+          assertPsychometricMetadata(component.question, component.metadata);
+          continue;
+        }
+
         if (component.type !== ComponentType.MULTIPLE_CHOICE) continue;
 
         const options = Array.isArray(component.options)
@@ -1090,7 +1101,15 @@ export class ChallengesService {
               sections: {
                 select: {
                   components: {
-                    select: { type: true, question: true, options: true },
+                    // `metadata` ikut dibaca karena pemeriksaan soal psikotes
+                    // membacanya; tanpa itu penerbitan lewat PATCH tanpa
+                    // sections akan menganggap skalanya belum diisi.
+                    select: {
+                      type: true,
+                      question: true,
+                      options: true,
+                      metadata: true,
+                    },
                   },
                 },
               },
@@ -1297,99 +1316,6 @@ export class ChallengesService {
     }
 
     return null;
-  }
-
-  async getTemplates() {
-    return this.prisma.challenge.findMany({
-      where: { isTemplate: true },
-      include: {
-        sections: {
-          include: { components: true },
-        },
-      },
-    });
-  }
-
-  async cloneTemplate(templateId: string, companyId: string, userId: string) {
-    const template = await this.prisma.challenge.findUnique({
-      where: { id: templateId, isTemplate: true },
-      include: {
-        sections: {
-          include: { components: true },
-        },
-      },
-    });
-
-    if (!template) {
-      throw new NotFoundException('Template tidak ditemukan');
-    }
-
-    const newChallenge = await this.withSlugRetry(template.title, (slug) =>
-      this.prisma.$transaction(
-        async (tx) => {
-          const company = await this.lockCompany(tx, companyId);
-          await this.assertCompanyQuota(tx, company);
-
-          const challengeId = crypto.randomUUID();
-
-          return tx.challenge.create({
-            data: {
-              id: challengeId,
-              companyId,
-              title: template.title,
-              slug,
-              summary: template.summary,
-              description: template.description,
-              category: template.category,
-              difficulty: template.difficulty,
-              datasetUrl: template.datasetUrl,
-              mockApiUrl: template.mockApiUrl,
-              brandGuidelineUrl: template.brandGuidelineUrl,
-              gradingRubric: template.gradingRubric ?? {},
-              proctoringSettings: template.proctoringSettings ?? undefined,
-              rewardDescription: template.rewardDescription,
-              status: ChallengeStatus.DRAFT, // Always draft on clone
-              isPrivate: false,
-              isTemplate: false, // Ensure it's not a template
-              challengeType: ChallengeType.COMPANY,
-              sections: {
-                create: template.sections.map((s) => ({
-                  title: s.title,
-                  description: s.description,
-                  order: s.order,
-                  stageType: s.stageType,
-                  timeLimit: s.timeLimit,
-                  components: {
-                    create: s.components.map((c) => ({
-                      challengeId: challengeId,
-                      type: c.type,
-                      question: c.question,
-                      description: c.description,
-                      options: c.options ?? undefined,
-                      metadata: c.metadata ?? undefined,
-                      points: c.points,
-                      order: c.order,
-                    })),
-                  },
-                })),
-              },
-            },
-          });
-        },
-        { timeout: ChallengesService.TX_TIMEOUT_MS },
-      ),
-    );
-
-    await this.companiesService.logAction(
-      companyId,
-      userId,
-      'CLONE_TEMPLATE',
-      'CHALLENGE',
-      newChallenge.id,
-      { templateId },
-    );
-
-    return newChallenge;
   }
 
   private generateSlug(title: string): string {

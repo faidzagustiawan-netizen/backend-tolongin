@@ -1,6 +1,7 @@
 datasource db {
   provider = "postgresql"
 }
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -84,12 +85,12 @@ model TalentProfile {
   figmaUrl    String?
 
   // AI Identity & Security
-  faceVerificationStatus VerificationStatus @default(UNVERIFIED)
-  ktpNik                 String?            @unique // Untuk memastikan 1 identitas KTP 1 akun
+  faceVerificationStatus VerificationStatus          @default(UNVERIFIED)
+  ktpNik                 String?                     @unique // Untuk memastikan 1 identitas KTP 1 akun
   // Hash berkas selfie. Hanya menangkap unggahan gambar yang identik byte-per-byte,
   // jadi perannya sebatas saringan awal yang murah. Pemeriksaan "1 wajah 1 akun"
   // yang sebenarnya memakai biometricFeatureVector di bawah.
-  biometricDataHash      String?            @unique
+  biometricDataHash      String?                     @unique
   // Embedding wajah Facenet512, sudah di-L2-normalize sehingga jarak cosine
   // antar-baris sebanding. Ditulis HANYA oleh VerificationService dari selfie
   // yang sudah ter-align dan cocok dengan KTP.
@@ -102,10 +103,10 @@ model TalentProfile {
   // Selfie atau KTP gagal diluruskan (wajah tidak terdeteksi). Verifikasi tetap
   // bisa lolos dengan ambang lebih ketat, tetapi embedding-nya tidak disimpan
   // karena tidak layak dijadikan acuan pembanding.
-  faceAlignmentDegraded  Boolean            @default(false)
+  faceAlignmentDegraded Boolean @default(false)
 
   // Hasil pemeriksaan duplikat wajah saat verifikasi.
-  needsIdentityReview    Boolean            @default(false)
+  needsIdentityReview    Boolean   @default(false)
   duplicateCheckDistance Float?
   duplicateCheckMatchId  String?
   identityReviewedAt     DateTime?
@@ -135,8 +136,8 @@ model TalentProfile {
   earnedBadges      TalentBadge[]
   createdChallenges Challenge[]           @relation("CreatedChallenges")
 
-  experiences       Experience[]
-  educations        Education[]
+  experiences Experience[]
+  educations  Education[]
 
   // Leaderboard mengurutkan berdasarkan XP menurun.
   @@index([xp(sort: Desc)])
@@ -146,18 +147,18 @@ model TalentProfile {
 }
 
 model Experience {
-  id          String        @id @default(uuid())
-  talentId    String
-  talent      TalentProfile @relation(fields: [talentId], references: [id], onDelete: Cascade)
+  id             String        @id @default(uuid())
+  talentId       String
+  talent         TalentProfile @relation(fields: [talentId], references: [id], onDelete: Cascade)
   title          String
   companyName    String
   employmentType String?
   locationType   String?
   location       String?
-  startDate   DateTime?
-  endDate     DateTime?
-  isCurrent   Boolean       @default(false)
-  description String?
+  startDate      DateTime?
+  endDate        DateTime?
+  isCurrent      Boolean       @default(false)
+  description    String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -189,6 +190,12 @@ model Skill {
   name      String   @unique
   createdAt DateTime @default(now())
 
+  // Kosakata keahlian dipakai ulang sebagai penanda topik soal di bank.
+  // Membuat daftar tag tersendiri berarti dua perbendaharaan kata yang harus
+  // dijaga sinkron: "Node.js" milik talenta tidak akan cocok dengan "NodeJS"
+  // milik soal, dan rekomendasi berdasarkan keahlian jadi meleset.
+  questionTags QuestionBankItemSkill[]
+
   @@map("skills")
 }
 
@@ -217,16 +224,27 @@ model CompanyProfile {
   linkedinUrl String?
 
   // Validasi KYB (Know Your Business) & Subscription
+  //
+  // Berkas legalitas yang dikirim perusahaan disimpan di sini. Sebelumnya
+  // POST /verification/kyb menerima nomor registrasi dan tautan dokumennya
+  // lalu membuangnya — hanya kybStatus yang berubah. Akibatnya antrean
+  // verifikasi admin menampilkan kartu tanpa satu pun dokumen untuk ditinjau,
+  // dan persetujuannya menjadi formalitas kosong.
+  legalEntityName            String?
+  businessRegistrationNumber String?
+  legalDocumentUrl           String?
+  kybSubmittedAt             DateTime?
+
   kybStatus             VerificationStatus @default(UNVERIFIED)
   subscriptionTier      SubscriptionTier   @default(STARTUP)
   subscriptionExpiresAt DateTime?
 
   // Accountability & Team
-  trustScore Int     @default(100)
+  trustScore          Int       @default(100)
   // Kode undangan sekali-pakai dan berumur pendek. Dikosongkan setelah dipakai
   // atau setelah inviteCodeExpiresAt terlewat.
-  inviteCode           String?   @unique
-  inviteCodeExpiresAt  DateTime?
+  inviteCode          String?   @unique
+  inviteCodeExpiresAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -234,6 +252,11 @@ model CompanyProfile {
   challenges   Challenge[]
   teamMembers  CompanyMember[]
   activityLogs CompanyActivityLog[]
+
+  /**
+   * Soal simpanan milik perusahaan ini; bank platform punya companyId null.
+   */
+  questionBankItems QuestionBankItem[]
 
   // Direktori perusahaan diurutkan berdasarkan trustScore menurun.
   @@index([trustScore(sort: Desc)])
@@ -339,9 +362,8 @@ model Challenge {
   createdByAi  Boolean @default(false)
   aiPromptUsed String?
 
-  // Template System
-  isTemplate   Boolean @default(false)
-  templateRole String? // e.g. "Junior Frontend Developer"
+  // Konsep template dibubarkan; bahannya pindah ke QuestionBankItem, yang
+  // satuannya satu soal dan bukan satu ujian utuh.
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -396,6 +418,11 @@ enum ComponentType {
   VIDEO_UPLOAD
   URL_SUBMISSION
   LIVE_CODING
+
+  /// Soal skala Likert untuk psikotes. Tidak punya jawaban benar dan tidak
+  /// menyumbang poin; hasilnya diringkas jadi profil per dimensi di
+  /// `Submission.psychometricProfile`.
+  PSYCHOMETRIC
 }
 
 model ChallengeComponent {
@@ -414,12 +441,95 @@ model ChallengeComponent {
   points      Int           @default(10)
   order       Int           @default(0)
 
+  // Jejak asal bila soal ini dipungut dari bank.
+  //
+  // Sengaja hanya jejak, bukan sumber isi: soal disalin saat dipungut. Kalau
+  // isinya dibaca lewat relasi ini, menyunting soal di bank akan mengubah
+  // ujian yang sedang dikerjakan kandidat — dan ComponentResponse menunjuk
+  // baris ini, sehingga jawaban yang sudah masuk menggantung ke pertanyaan
+  // yang berbeda dari yang dijawab.
+  sourceItemId String?
+  sourceItem   QuestionBankItem? @relation(fields: [sourceItemId], references: [id], onDelete: SetNull)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   responses ComponentResponse[]
 
+  @@index([sourceItemId])
   @@map("challenge_components")
+}
+
+// ==========================================
+// 3b. BANK SOAL MODULAR
+// ==========================================
+
+/**
+ * Satu soal yang berdiri sendiri, lepas dari challenge mana pun.
+ * Sebelum ini satuan terkecil yang bisa dipakai ulang adalah satu ujian utuh
+ * (`Challenge.isTemplate`), yang hanya bisa disalin seluruhnya. Perusahaan
+ * yang mencari Backend Engineer tidak bisa memungut tiga soal Database dan
+ * dua soal API lalu menyusun tahapannya sendiri.
+ */
+model QuestionBankItem {
+  id String @id @default(uuid())
+
+  // null = bank platform, terlihat semua perusahaan.
+  // terisi = koleksi pribadi, hanya terlihat pemiliknya.
+  companyId String?
+  company   CompanyProfile? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  type        ComponentType
+  question    String
+  description String?
+  options     Json?
+  metadata    Json?
+
+  /**
+   * Usulan poin saat dipungut; tahapan tetap boleh menimpanya.
+   */
+  defaultPoints Int @default(10)
+
+  /**
+   * null berarti berlaku lintas bidang.
+   *
+   * Soal soft skill, wawancara, dan etika kerja tidak dimiliki satu kategori
+   * pekerjaan pun. Memaksanya memilih salah satu — katakanlah BACKEND —
+   * membuatnya lenyap begitu perusahaan mencari marketer, padahal justru
+   * soal semacam inilah yang paling luas dipakai.
+   */
+  category   ChallengeCategory?
+  difficulty ChallengeDifficulty
+
+  /**
+   * Soal yang ditarik peredarannya tetap disimpan demi ujian yang sudah memakainya.
+   */
+  isActive Boolean @default(true)
+
+  tags QuestionBankItemSkill[]
+
+  usedBy ChallengeComponent[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId, category, difficulty])
+  @@index([isActive, category])
+  @@map("question_bank_items")
+}
+
+/**
+ * Penanda topik soal, memakai kosakata `Skill` yang sudah ada.
+ */
+model QuestionBankItemSkill {
+  itemId  String
+  item    QuestionBankItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  skillId String
+  skill   Skill            @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@id([itemId, skillId])
+  @@index([skillId])
+  @@map("question_bank_item_skills")
 }
 
 // ==========================================
@@ -497,13 +607,24 @@ model Submission {
   aiPlagiarismScore   Float? // 0.0 - 100.0%
   aiCorrectionSummary String? // Analisis otomatis dari AI
   aiScore             Float? // Skor awal dari AI (0-100)
-  
+
   // Soft Skills
-  softSkillScore      Float? // Agregasi skor soft skill (0-100)
-  softSkillFeedback   String? // Feedback AI khusus kepribadian/soft skill
-  
+  softSkillScore    Float? // Agregasi skor soft skill (0-100)
+  softSkillFeedback String? // Feedback AI khusus kepribadian/soft skill
+
+  /// Hasil soal psikometrik, berbentuk profil per dimensi — bukan skor
+  /// benar-salah.
+  ///
+  /// Sengaja terpisah dari `aiScore` dan `finalScore`. Jawaban skala Likert
+  /// tidak punya jawaban benar, jadi memasukkannya ke nilai akhir akan
+  /// mengubah ukuran "seberapa benar" menjadi campuran yang tidak bisa
+  /// ditafsirkan. Bentuknya:
+  /// `{ dimensions: [{ name, score, itemCount }], computedAt }` dengan skor
+  /// 0-100 hasil normalisasi skala tiap soal.
+  psychometricProfile Json?
+
   // Career Development
-  weaknessTags        String[] @default([])
+  weaknessTags String[] @default([])
 
   // Review Manusia & Keputusan
   finalScore       Float? // Skor dari rekruter

@@ -26,6 +26,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { MailModule } from './mail/mail.module';
 import { AdminModule } from './admin/admin.module';
 import { SkillsModule } from './skills/skills.module';
+import { QuestionBankModule } from './question-bank/question-bank.module';
 
 @Module({
   imports: [
@@ -60,6 +61,7 @@ import { SkillsModule } from './skills/skills.module';
     MailModule,
     AdminModule,
     SkillsModule,
+    QuestionBankModule,
   ],
   controllers: [AppController],
   providers: [
