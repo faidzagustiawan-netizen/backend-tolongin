@@ -175,6 +175,7 @@ export class AuthService {
         user.talentProfile?.id ||
         user.companyProfile?.id ||
         approvedMembership?.companyId,
+      memberRole: approvedMembership?.role || (user.companyProfile ? 'OWNER' : undefined),
     };
 
     return {
@@ -189,7 +190,7 @@ export class AuthService {
           user.talentProfile ||
           user.companyProfile ||
           (approvedMembership
-            ? { ...approvedMembership.company, isTeamMember: true }
+            ? { ...approvedMembership.company, isTeamMember: true, memberRole: approvedMembership.role }
             : null),
       },
     };
