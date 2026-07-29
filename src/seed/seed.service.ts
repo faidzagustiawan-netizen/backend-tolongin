@@ -116,7 +116,7 @@ export class SeedService {
           },
         });
         await this.prisma.companyMember.create({
-          data: { userId: memUser.id, companyId: profile.id, role: 'MEMBER' },
+          data: { userId: memUser.id, companyId: profile.id },
         });
         await this.prisma.companyActivityLog.create({
           data: {
