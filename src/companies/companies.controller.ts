@@ -8,14 +8,13 @@ import {
   Request,
   Patch,
   Body,
+  ForbiddenException,
 } from '@nestjs/common';
 import { ApiQuery } from '@nestjs/swagger';
 import { CompaniesService } from './companies.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
-import { CompanyRoles } from '../auth/decorators/company-roles.decorator';
-import { CompanyRolesGuard } from '../auth/guards/company-roles.guard';
 import { resolveCompanyScope } from '../common/utils/company-scope';
 import { Role } from '@prisma/client';
 
@@ -54,13 +53,15 @@ export class CompaniesController {
   @Patch('workspace/team/:memberId/status')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.COMPANY, Role.ADMIN)
-  @CompanyRoles('OWNER', 'ADMIN')
   updateMemberStatus(
     @Request() req: any,
     @Param('memberId') memberId: string,
     @Body('status') status: 'APPROVED' | 'REJECTED',
     @Query('companyId') companyId?: string,
   ) {
+    if (req.user.role === Role.COMPANY && req.user.isTeamMember) {
+      throw new ForbiddenException('Aksi ini hanya dapat dilakukan oleh Owner perusahaan.');
+    }
     return this.companiesService.updateMemberStatus(
       resolveCompanyScope(req.user, companyId),
       memberId,
@@ -78,16 +79,17 @@ export class CompaniesController {
   }
 
   // Kode undangan memberi siapa pun yang memegangnya akses ke ruang kerja,
-  // jadi penerbitannya dibatasi ke pemilik dan admin perusahaan — bukan setiap
-  // rekruter yang kebetulan ada di dalam tim.
-  @UseGuards(JwtAuthGuard, RolesGuard, CompanyRolesGuard)
+  // jadi penerbitannya dibatasi ke pemilik perusahaan.
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.COMPANY, Role.ADMIN)
-  @CompanyRoles('OWNER', 'ADMIN')
   @Post('workspace/invite-code')
   generateInviteCode(
     @Request() req: any,
     @Query('companyId') companyId?: string,
   ) {
+    if (req.user.role === Role.COMPANY && req.user.isTeamMember) {
+      throw new ForbiddenException('Aksi ini hanya dapat dilakukan oleh Owner perusahaan.');
+    }
     return this.companiesService.generateInviteCode(
       resolveCompanyScope(req.user, companyId),
     );

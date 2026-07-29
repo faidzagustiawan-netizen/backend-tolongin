@@ -9,9 +9,8 @@ import { NotificationsModule } from '../../notifications/notifications.module';
 import { MailModule } from '../../mail/mail.module';
 import { AuthModule } from '../auth.module';
 import { VerifiedCompanyGuard } from './verified-company.guard';
-import { CompanyRolesGuard } from './company-roles.guard';
 
-// VerifiedCompanyGuard dan CompanyRolesGuard baru saja berubah dari kelas
+// VerifiedCompanyGuard baru saja berubah dari kelas
 // tanpa dependensi menjadi kelas yang menyuntik PrismaService. Kegagalan
 // resolusinya hanya muncul saat boot, bukan saat kompilasi — dan artinya
 // seluruh API mati. SeedModule sengaja tidak ikut: @faker-js/faker v10 murni
@@ -30,13 +29,12 @@ describe('DI guard yang menyuntik Prisma', () => {
         DiscussionsModule,
         SubmissionsModule,
       ],
-      providers: [VerifiedCompanyGuard, CompanyRolesGuard],
+      providers: [VerifiedCompanyGuard],
     }).compile();
 
     expect(moduleRef.get(VerifiedCompanyGuard)).toBeInstanceOf(
       VerifiedCompanyGuard,
     );
-    expect(moduleRef.get(CompanyRolesGuard)).toBeInstanceOf(CompanyRolesGuard);
 
     await moduleRef.close();
   }, 60000);

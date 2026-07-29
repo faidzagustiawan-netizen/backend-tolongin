@@ -155,9 +155,6 @@ export class UsersService {
         data: {
           userId: user.id,
           companyId: company.id,
-          // Undangan memberi akses tingkat anggota. Peningkatan ke ADMIN
-          // dilakukan pemilik lewat manajemen tim, bukan otomatis saat daftar.
-          role: 'MEMBER',
           status: 'PENDING',
         },
       });
