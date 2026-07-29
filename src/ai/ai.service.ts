@@ -219,6 +219,13 @@ export class AiService {
     gradingRubric?: Record<string, number>,
     candidateAnswers?: string,
   ): Promise<EvaluationResult> {
+    // DEV_MODE: return mock data
+    return {
+      aiScore: 85,
+      aiPlagiarismScore: 5,
+      aiCorrectionSummary: 'DEV_MODE: Evaluasi holistik berhasil (Mock).',
+    };
+    
     const prompt = `Anda adalah AI Evaluator Senior untuk platform Tolongin.co. Evaluasi penyerahan solusi studi kasus berikut:
 Judul Studi Kasus: "${challengeTitle}"
 Kategori: "${challengeCategory}"
@@ -280,6 +287,21 @@ Berikan penilaian akhir berupa objek JSON dengan struktur persis berikut:
     }[],
     gradingRubric?: Record<string, number>,
   ): Promise<ComponentEvaluationResult> {
+    // DEV_MODE: return mock data
+    return {
+      aiScore: 90,
+      softSkillScore: null,
+      softSkillFeedback: null,
+      aiPlagiarismScore: 2,
+      aiCorrectionSummary: 'DEV_MODE: Evaluasi komponen berhasil (Mock).',
+      weaknessTags: [],
+      components: componentsData.map(c => ({
+        componentId: c.id,
+        score: c.maxPoints,
+        aiFeedback: 'DEV_MODE: Jawaban yang bagus (Mock).'
+      }))
+    };
+
     const prompt = `Anda adalah AI Evaluator Senior untuk platform Tolongin.co. Evaluasi penyerahan solusi studi kasus multi-tahap berikut:
 Judul Studi Kasus: "${challengeTitle}"
 Kategori: "${challengeCategory}"
@@ -363,6 +385,26 @@ Berikan penilaian akhir berupa objek JSON dengan struktur persis berikut:
     companyName: string,
     previousBlueprint?: any,
   ): Promise<any> {
+    // DEV_MODE: return mock data
+    return {
+      reasoning: "DEV_MODE: Ini adalah alasan mengapa blueprint ini dirancang seperti ini (Mock).",
+      requiredAssets: [],
+      title: "DEV_MODE: Challenge " + category,
+      summary: "DEV_MODE: Ringkasan studi kasus (Mock)",
+      description: "DEV_MODE: Deskripsi rinci skenario bisnis (Mock). Prompt: " + promptStr,
+      rubric: {
+        "Kriteria 1": 40,
+        "Kriteria 2": 60
+      },
+      sections_outline: [
+        {
+          title: "Tahap 1: Analisis",
+          description: "Deskripsi tahap 1 yang sangat detail (Mock).",
+          competencies: ["Problem Solving"]
+        }
+      ]
+    };
+
     const baseInstruction = previousBlueprint
       ? `Anda adalah AI Technical Recruiter Senior. Pengguna (user) ingin MEREVISI blueprint kerangka studi kasus yang sudah ada. Berikan Blueprint baru berdasarkan masukan berikut.\n\nBlueprint Sebelumnya:\n${JSON.stringify(previousBlueprint, null, 2)}\n\nMasukan Revisi (Prompt): "${promptStr}"`
       : `Anda adalah AI Technical Recruiter Senior. Buatlah KERANGKA (blueprint) studi kasus (challenge) rekrutmen IT berdasarkan kebutuhan berikut:\nPerusahaan: ${companyName}\nKategori Pekerjaan: ${category}\nTingkat Kesulitan: ${difficulty}\nKebutuhan Khusus / Prompt: "${promptStr}"`;
@@ -429,6 +471,27 @@ Berikan respons HANYA dalam format JSON persis dengan struktur ini:
     deadlineAt?: string;
     sections: any[];
   }> {
+    // DEV_MODE: return mock data
+    return {
+      title: blueprint.title || "DEV_MODE: Challenge",
+      summary: blueprint.summary || "DEV_MODE: Summary",
+      description: blueprint.description || "DEV_MODE: Description",
+      rubric: blueprint.rubric || { "Logic": 100 },
+      sections: [
+        {
+          title: "Tahap 1 (Mock)",
+          description: "Deskripsi Tahap 1",
+          components: [
+            {
+              type: "ESSAY",
+              question: "DEV_MODE: Pertanyaan nomor 1 (Mock)",
+              points: 100
+            }
+          ]
+        }
+      ]
+    };
+
     const difficultyInstruction =
       difficulty === 'ADVANCED'
         ? 'Level: ADVANCED. Buat soal SANGAT SULIT SEKALI, menguji edge-cases ekstrem, optimasi kompleks, dan problem-solving tingkat arsitek senior.'
