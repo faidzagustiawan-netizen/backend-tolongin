@@ -265,14 +265,16 @@ export class ChallengesService {
     });
 
     if (company.subscriptionTier === 'STARTUP' && activeCount >= 1) {
-      throw new ForbiddenException(
-        'Paket Murah hanya mengizinkan 1 studi kasus aktif/draf. Silakan tingkatkan langganan Anda.',
-      );
+      // DEV_MODE: Disable subscription limits
+      // throw new ForbiddenException(
+      //   'Paket Murah hanya mengizinkan 1 studi kasus aktif/draf. Silakan tingkatkan langganan Anda.',
+      // );
     }
     if (company.subscriptionTier === 'KONGLOMERAT' && activeCount >= 5) {
-      throw new ForbiddenException(
-        'Paket Pro hanya mengizinkan 5 studi kasus aktif/draf. Silakan tingkatkan langganan Anda.',
-      );
+      // DEV_MODE: Disable subscription limits
+      // throw new ForbiddenException(
+      //   'Paket Pro hanya mengizinkan 5 studi kasus aktif/draf. Silakan tingkatkan langganan Anda.',
+      // );
     }
   }
 
@@ -695,9 +697,10 @@ export class ChallengesService {
     }
 
     if (company.subscriptionTier === 'STARTUP') {
-      throw new ForbiddenException(
-        'Fitur AI Generator dikunci pada Paket Murah. Silakan tingkatkan langganan Anda.',
-      );
+      // DEV_MODE: Disable subscription limits
+      // throw new ForbiddenException(
+      //   'Fitur AI Generator dikunci pada Paket Murah. Silakan tingkatkan langganan Anda.',
+      // );
     }
 
     const activeCount = await this.prisma.challenge.count({
@@ -708,9 +711,10 @@ export class ChallengesService {
     });
 
     if (company.subscriptionTier === 'KONGLOMERAT' && activeCount >= 5) {
-      throw new ForbiddenException(
-        'Paket Pro hanya mengizinkan 5 studi kasus aktif/draf. Silakan tingkatkan langganan Anda.',
-      );
+      // DEV_MODE: Disable subscription limits
+      // throw new ForbiddenException(
+      //   'Paket Pro hanya mengizinkan 5 studi kasus aktif/draf. Silakan tingkatkan langganan Anda.',
+      // );
     }
 
     const blueprint = await this.aiService.generateChallengeBlueprint(

@@ -312,7 +312,8 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
     const isCompanyChallenge = enrollment.challenge.challengeType === 'COMPANY';
     const companyTier = enrollment.challenge.company?.subscriptionTier;
     // AI HANYA BERJALAN JIKA: Dibuat oleh perusahaan DAN perusahaan BUKAN paket gratis (STARTUP)
-    const shouldRunAi = isCompanyChallenge && companyTier !== 'STARTUP';
+    // DEV_MODE: Remove tier restriction for AI
+    const shouldRunAi = isCompanyChallenge; // && companyTier !== 'STARTUP';
 
     const candidateAnswers = '';
     const componentEvaluations: {
