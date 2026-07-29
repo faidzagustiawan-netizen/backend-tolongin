@@ -35,7 +35,10 @@ export class AdminService {
   async getPendingCompanies() {
     return this.prisma.companyProfile.findMany({
       where: {
-        kybStatus: 'PENDING',
+        OR: [
+          { kybStatus: 'PENDING' },
+          { kybStatus: 'VERIFIED', user: { isVerified: false } }
+        ]
       },
       include: {
         user: true,
@@ -49,6 +52,13 @@ export class AdminService {
     });
     if (!company) {
       throw new NotFoundException('Company not found');
+    }
+
+    if (status === 'VERIFIED') {
+      await this.prisma.user.update({
+        where: { id: company.userId },
+        data: { isVerified: true },
+      });
     }
 
     return this.prisma.companyProfile.update({

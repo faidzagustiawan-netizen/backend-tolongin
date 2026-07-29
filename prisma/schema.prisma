@@ -246,6 +246,7 @@ model CompanyMember {
   companyId String
   userId    String   @unique
   role      String   @default("MEMBER") // OWNER, ADMIN, RECRUITER
+  status    String   @default("APPROVED") // PENDING, APPROVED, REJECTED
   joinedAt  DateTime @default(now())
 
   company CompanyProfile @relation(fields: [companyId], references: [id], onDelete: Cascade)

@@ -185,6 +185,30 @@ export class CompaniesService {
     return updated;
   }
 
+  async updateMemberStatus(
+    companyId: string,
+    memberId: string,
+    status: 'APPROVED' | 'REJECTED',
+  ) {
+    const member = await this.prisma.companyMember.findFirst({
+      where: { id: memberId, companyId },
+    });
+    if (!member) {
+      throw new NotFoundException('Anggota tim tidak ditemukan');
+    }
+
+    if (status === 'REJECTED') {
+      return this.prisma.companyMember.delete({
+        where: { id: memberId },
+      });
+    }
+
+    return this.prisma.companyMember.update({
+      where: { id: memberId },
+      data: { status },
+    });
+  }
+
   async getTeamMembers(companyId: string) {
     return this.prisma.companyMember.findMany({
       where: { companyId },

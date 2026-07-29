@@ -49,6 +49,23 @@ export class CompaniesController {
     required: false,
     description: 'Wajib untuk admin; diabaikan untuk peran perusahaan',
   })
+  @Patch('workspace/team/:memberId/status')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.COMPANY, Role.ADMIN)
+  @CompanyRoles('OWNER', 'ADMIN')
+  updateMemberStatus(
+    @Request() req: any,
+    @Param('memberId') memberId: string,
+    @Body('status') status: 'APPROVED' | 'REJECTED',
+    @Query('companyId') companyId?: string,
+  ) {
+    return this.companiesService.updateMemberStatus(
+      resolveCompanyScope(req.user, companyId),
+      memberId,
+      status,
+    );
+  }
+
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.COMPANY, Role.ADMIN)
   @Get('workspace/team')

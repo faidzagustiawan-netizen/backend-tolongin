@@ -158,6 +158,7 @@ export class UsersService {
           // Undangan memberi akses tingkat anggota. Peningkatan ke ADMIN
           // dilakukan pemilik lewat manajemen tim, bukan otomatis saat daftar.
           role: 'MEMBER',
+          status: 'PENDING',
         },
       });
 
@@ -200,6 +201,7 @@ export class UsersService {
         },
         companyProfile: true,
         teamMemberships: {
+          where: { status: 'APPROVED' },
           include: {
             company: true,
           },

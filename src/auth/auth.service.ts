@@ -161,6 +161,10 @@ export class AuthService {
   }
 
   private generateToken(user: any) {
+    const approvedMembership = user.teamMemberships?.find(
+      (m: any) => m.status === 'APPROVED',
+    );
+
     const payload = {
       sub: user.id,
       email: user.email,
@@ -170,7 +174,7 @@ export class AuthService {
       profileId:
         user.talentProfile?.id ||
         user.companyProfile?.id ||
-        user.teamMemberships?.[0]?.companyId,
+        approvedMembership?.companyId,
     };
 
     return {
@@ -184,8 +188,8 @@ export class AuthService {
         profile:
           user.talentProfile ||
           user.companyProfile ||
-          (user.teamMemberships?.length > 0
-            ? { ...user.teamMemberships[0].company, isTeamMember: true }
+          (approvedMembership
+            ? { ...approvedMembership.company, isTeamMember: true }
             : null),
       },
     };
