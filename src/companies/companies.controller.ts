@@ -6,6 +6,8 @@ import {
   UseGuards,
   Post,
   Request,
+  Patch,
+  Body,
 } from '@nestjs/common';
 import { ApiQuery } from '@nestjs/swagger';
 import { CompaniesService } from './companies.service';
