@@ -1,7 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
-import { faker } from '@faker-js/faker';
 import {
   Role,
   VerificationStatus,
@@ -22,6 +21,28 @@ export class SeedService {
   constructor(private readonly prisma: PrismaService) {}
 
   async seed() {
+    // `@faker-js/faker` dimuat di sini, bukan di puncak berkas, karena dua
+    // alasan yang keduanya berakar pada satu fakta: paket itu `devDependencies`
+    // dan sejak v10 murni ESM tanpa jalur CommonJS sama sekali.
+    //
+    // 1. Impor tingkat-modul menariknya masuk ke graf boot AppModule
+    //    (app.module -> seed.module -> seed.controller -> seed.service). Instalasi
+    //    tanpa dependensi pengembangan (`pnpm install --prod`, `npm ci
+    //    --omit=dev`, atau tahap runtime pada build Docker berlapis) membuat
+    //    `node dist/src/main.js` mati MODULE_NOT_FOUND saat memuat modul — bukan
+    //    saat endpoint ini dipanggil, melainkan seluruh API gagal menyala.
+    //    Alur penyebaran sekarang memakai `pnpm install --frozen-lockfile`
+    //    sehingga belum terkena, tetapi jaraknya ke bencana cuma satu flag.
+    //
+    // 2. Registry modul Jest berjalan CommonJS dan tidak mengenal `require(esm)`
+    //    milik Node 20.19+, sehingga impor tingkat-modul membuat AppModule tidak
+    //    bisa dimuat satu pun uji. Lihat komentar di `guards-di.spec.ts`.
+    //
+    // Sebagai impor dinamis di dalam badan fungsi, biayanya hanya dibayar saat
+    // seeding betul-betul dijalankan. Itu memang perilaku yang benar untuk
+    // endpoint khusus pengembangan.
+    const { faker } = await import('@faker-js/faker');
+
     this.logger.log(
       'Memulai proses seeding data MASSAL (30 Challenges, 30 Talents)...',
     );

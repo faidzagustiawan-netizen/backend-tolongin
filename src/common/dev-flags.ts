@@ -18,3 +18,31 @@
 export function subscriptionLimitsEnforced(): boolean {
   return process.env.ENFORCE_SUBSCRIPTION_LIMITS === 'true';
 }
+
+/**
+ * Saklar pendaftaran `SeedModule` — lapisan kedua di depan endpoint seeding.
+ *
+ * Hal pertama yang dikerjakan `POST /api/v1/seed` adalah
+ * `TRUNCATE TABLE "users" CASCADE` beserta `"badges"` dan `"challenges"`.
+ * Lapisan pertamanya adalah `@UseGuards(JwtAuthGuard, RolesGuard)` dengan
+ * `@Roles(Role.ADMIN)` di `SeedController`.
+ *
+ * Saklar ini sengaja DIPERTAHANKAN sesudah guard itu dipasang, dan bukan karena
+ * lupa dibersihkan. Guard bergantung pada rantai yang bisa keliru: satu akun
+ * ADMIN yang bocor, satu salah penetapan peran, atau satu dekorator yang hilang
+ * saat refactor sudah cukup untuk mengosongkan tabel produksi. Konsekuensi
+ * kegagalannya tidak setara dengan biaya menahan satu modul tetap tidak
+ * terdaftar, jadi keduanya dipakai bersama.
+ *
+ * Bila seeding memang dibutuhkan pada mesin produksi — misalnya menyegarkan data
+ * demo — setel `ENABLE_SEED_ENDPOINT=true` di environment mesin itu. Yang
+ * dibuka hanyalah lapisan kedua; permintaannya tetap wajib membawa token ADMIN.
+ *
+ * Berbeda dari `subscriptionLimitsEnforced`, nilainya dibaca sekali saat modul
+ * dimuat, bukan per pemanggilan — daftar `imports` sebuah dekorator `@Module`
+ * dievaluasi satu kali pada waktu boot.
+ */
+export function seedModuleEnabled(): boolean {
+  if (process.env.ENABLE_SEED_ENDPOINT === 'true') return true;
+  return process.env.NODE_ENV !== 'production';
+}
