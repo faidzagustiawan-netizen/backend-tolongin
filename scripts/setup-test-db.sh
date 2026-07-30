@@ -11,15 +11,16 @@
 #
 # ## Kenapa `db push`, bukan `migrate deploy`
 #
-# Riwayat migrasi di repositori ini tidak lengkap: skema dasarnya pernah dibuat
-# lewat `prisma db push`, sehingga beberapa tabel dan kolom tidak pernah punya
-# migrasi sendiri. `challenge_sections` tidak pernah dibuat oleh satu pun berkas
-# migrasi, dan `20260727120000` menyunting `company_profiles.inviteCode` yang
-# juga tidak pernah dibuat. Menjalankan seluruh riwayat pada basis data kosong
-# karena itu gagal — sudah dicoba, dan gagal di migrasi kedua.
+# Alasannya BUKAN lagi riwayat migrasi yang rusak. Itu sudah diperbaiki:
+# `prisma/migrations/0_init` kini membangun seluruh skema dari kosong, dan
+# riwayat lama yang gagal di migrasi kedua dipindahkan ke
+# `prisma/migrations-archive/`.
 #
-# `schema.prisma` adalah satu-satunya sumber kebenaran yang utuh, jadi skema uji
-# dibangun dari sana.
+# Yang tersisa adalah alasan pgvector di bawah. `0_init` memuat
+# `CREATE EXTENSION vector` beserta kolom `vector(512)`, sehingga
+# `migrate deploy` gagal pada instalasi PostgreSQL yang tidak punya pgvector —
+# termasuk runner CI dan kebanyakan mesin pengembang. `db push` atas salinan
+# skema yang sudah dipangkas tetap jalan di mana pun.
 #
 # ## Kenapa kolom pgvector dibuang
 #
