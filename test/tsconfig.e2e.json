@@ -1,0 +1,27 @@
+{
+  // Sengaja TIDAK `extends` tsconfig.json di akar repositori.
+  //
+  // Runtime memakai `module: "nodenext"`, dan itu memang benar di sana: Node
+  // 20.19+ bisa `require()` paket ESM. Jest tidak bisa — registry modulnya
+  // CommonJS, jadi berkas uji harus dikompilasi ke CommonJS.
+  //
+  // `extends` pun tidak cukup: `resolvePackageJsonExports` milik akar hanya sah
+  // bersama moduleResolution node16/nodenext/bundler, sehingga menimpa
+  // `module` saja langsung memicu TS5098.
+  "compilerOptions": {
+    "module": "commonjs",
+    "moduleResolution": "node10",
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "target": "ES2023",
+    "sourceMap": true,
+    "skipLibCheck": true,
+    "strictNullChecks": true,
+    "forceConsistentCasingInFileNames": true,
+    "noImplicitAny": false,
+    "strictBindCallApply": false,
+    "noFallthroughCasesInSwitch": false
+  }
+}

@@ -213,7 +213,10 @@ export class ChallengesController {
       'sedang berjalan tidak dipotong.',
   })
   @ApiResponse({ status: 200, description: 'Pengaturan tahap diperbarui.' })
-  @ApiResponse({ status: 404, description: 'Challenge atau tahap tidak ditemukan.' })
+  @ApiResponse({
+    status: 404,
+    description: 'Challenge atau tahap tidak ditemukan.',
+  })
   // Rutenya berdiri sendiri, seperti :id/archive: PATCH biasa hanya boleh saat
   // DRAFT, sementara ambang lolos justru paling perlu disesuaikan setelah
   // kandidat sungguhan mengerjakannya.

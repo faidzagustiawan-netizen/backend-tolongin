@@ -82,11 +82,7 @@ export class EncryptionUtil {
 
     // 12 bytes IV is standard for GCM
     const iv = crypto.randomBytes(12);
-    const cipher = crypto.createCipheriv(
-      ALGORITHM,
-      getKey(),
-      iv,
-    );
+    const cipher = crypto.createCipheriv(ALGORITHM, getKey(), iv);
 
     let encrypted = cipher.update(text, 'utf8', 'hex');
     encrypted += cipher.final('hex');

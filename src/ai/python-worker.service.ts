@@ -99,10 +99,10 @@ class WorkerPool {
     worker.ready = false;
     worker.busy = false;
 
-    const rl = readline.createInterface({ input: child.stdout! });
+    const rl = readline.createInterface({ input: child.stdout });
     rl.on('line', (line) => this.handleLine(worker, index, line));
 
-    child.stderr!.on('data', (chunk) => {
+    child.stderr.on('data', (chunk) => {
       const text = String(chunk).trim();
       if (text) this.logger.debug(`${this.name}#${index}: ${text}`);
     });
@@ -213,9 +213,7 @@ class WorkerPool {
       // `exit` menjalankannya ulang dengan keadaan bersih.
       worker.process?.kill();
       job.reject(
-        new Error(
-          `Permintaan "${job.op}" melewati batas ${job.timeoutMs}ms.`,
-        ),
+        new Error(`Permintaan "${job.op}" melewati batas ${job.timeoutMs}ms.`),
       );
     }, job.timeoutMs);
 
@@ -333,9 +331,7 @@ export class PythonWorkerService implements OnModuleInit, OnModuleDestroy {
 
     const pool = this.pools.get(poolName);
     if (!pool) {
-      return Promise.reject(
-        new Error(`Pool "${poolName}" belum dijalankan.`),
-      );
+      return Promise.reject(new Error(`Pool "${poolName}" belum dijalankan.`));
     }
 
     return pool.call<T>(op, payload, timeoutMs);

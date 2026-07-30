@@ -49,7 +49,7 @@ export class UsersController {
       // Filter submissions to only show those in showcasedSubmissionIds
       if (tp.submissions && tp.showcasedSubmissionIds) {
         tp.submissions = tp.submissions.filter((sub: any) =>
-          tp.showcasedSubmissionIds.includes(sub.id)
+          tp.showcasedSubmissionIds.includes(sub.id),
         );
       } else {
         tp.submissions = [];

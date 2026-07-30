@@ -254,7 +254,7 @@ export class VerificationService {
         isEngineFailure
           ? 'Layanan verifikasi identitas sedang tidak tersedia. Ini bukan karena dokumen Anda. Silakan coba lagi beberapa saat lagi.'
           : error.message ||
-            'Terjadi kesalahan sistem saat memverifikasi identitas Anda. Silakan coba lagi.',
+              'Terjadi kesalahan sistem saat memverifikasi identitas Anda. Silakan coba lagi.',
         '/settings/kyc',
       );
     }

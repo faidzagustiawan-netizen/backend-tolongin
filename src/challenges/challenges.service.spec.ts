@@ -599,7 +599,7 @@ describe('ChallengesService', () => {
             { id: 'sec-1', title: 'Tahap 1', order: 0, components: [] },
             { title: 'Tahap 2', order: 1, components: [] },
           ],
-        } as any,
+        },
         'u-1',
         'COMPANY',
       );
@@ -632,9 +632,14 @@ describe('ChallengesService', () => {
         'co-1',
         {
           sections: [
-            { id: 'sec-milik-orang-lain', title: 'Tahap 1', order: 0, components: [] },
+            {
+              id: 'sec-milik-orang-lain',
+              title: 'Tahap 1',
+              order: 0,
+              components: [],
+            },
           ],
-        } as any,
+        },
         'u-1',
         'COMPANY',
       );

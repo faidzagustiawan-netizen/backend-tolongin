@@ -14,8 +14,12 @@ import { CompanyOwnerGuard } from './company-owner.guard';
 // VerifiedCompanyGuard baru saja berubah dari kelas
 // tanpa dependensi menjadi kelas yang menyuntik PrismaService. Kegagalan
 // resolusinya hanya muncul saat boot, bukan saat kompilasi — dan artinya
-// seluruh API mati. SeedModule sengaja tidak ikut: @faker-js/faker v10 murni
-// ESM dan tidak bisa dimuat transformer CJS milik Jest.
+// seluruh API mati.
+//
+// Cakupannya sengaja sempit: hanya modul yang memakai guard perusahaan, tanpa
+// environment palsu. Seluruh graf aplikasi kini dijaga `app.module.spec.ts`.
+// (SeedModule dulu tidak bisa ikut karena @faker-js/faker v10 murni ESM; sejak
+// impornya dipindahkan ke dalam `seed()` hambatan itu hilang.)
 describe('DI guard yang menyuntik Prisma', () => {
   it('teresolusi di modul-modul yang memakainya', async () => {
     const moduleRef = await Test.createTestingModule({

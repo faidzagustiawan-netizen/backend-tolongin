@@ -37,8 +37,8 @@ export class AdminService {
       where: {
         OR: [
           { kybStatus: 'PENDING' },
-          { kybStatus: 'VERIFIED', user: { isVerified: false } }
-        ]
+          { kybStatus: 'VERIFIED', user: { isVerified: false } },
+        ],
       },
       include: {
         user: true,

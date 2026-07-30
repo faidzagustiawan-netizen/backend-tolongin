@@ -127,7 +127,9 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
               rewards.tokens,
               `Reward: Lulus Otomatis - ${sub.challenge.title}`,
             )
-            .catch((err) => console.error('Gagal memberi token auto-pass', err));
+            .catch((err) =>
+              console.error('Gagal memberi token auto-pass', err),
+            );
 
           // Tambah ke portfolio
           await tx.portfolio.upsert({
@@ -346,10 +348,7 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
         enrollmentId,
         id: { not: currentAttemptId },
         status: {
-          in: [
-            StageAttemptStatus.LOCKED,
-            StageAttemptStatus.IN_PROGRESS,
-          ],
+          in: [StageAttemptStatus.LOCKED, StageAttemptStatus.IN_PROGRESS],
         },
         // Tahap terkunci hanya dihitung bila masih punya harapan terbuka.
         // `unlockedAt` terisi berarti gerbangnya sudah lolos.
@@ -503,8 +502,7 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
       (dto.responses ?? [])
         .map((r) => ({ component: allComponents.get(r.componentId), r }))
         .filter(
-          ({ component }) =>
-            component?.type === ComponentType.PSYCHOMETRIC,
+          ({ component }) => component?.type === ComponentType.PSYCHOMETRIC,
         )
         .map(({ component, r }) => ({
           metadata: component.metadata,

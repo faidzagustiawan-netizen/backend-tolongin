@@ -22,6 +22,7 @@ import { CompaniesModule } from './companies/companies.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { UserThrottlerGuard } from './common/guards/user-throttler.guard';
+import { seedModuleEnabled } from './common/dev-flags';
 import { APP_GUARD } from '@nestjs/core';
 import { MailModule } from './mail/mail.module';
 import { AdminModule } from './admin/admin.module';
@@ -54,7 +55,9 @@ import { StagesModule } from './stages/stages.module';
     PortfoliosModule,
     SubscriptionsModule,
     NotificationsModule,
-    SeedModule,
+    // Endpoint seeding menghapus tabel dan tidak berguard. Lihat
+    // `seedModuleEnabled` untuk alasan lengkap dan cara membukanya kembali.
+    ...(seedModuleEnabled() ? [SeedModule] : []),
     StorageModule,
     AiModule,
     TokensModule,

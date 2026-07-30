@@ -144,11 +144,10 @@ export class SubmissionsController {
         search,
         // Nilai sembarang dari query string tidak boleh sampai ke `where`
         // Prisma sebagai filter enum yang tidak sah.
-        status:
-          status && status in SubmissionStatus ? (status as SubmissionStatus) : undefined,
+        status: status && status in SubmissionStatus ? status : undefined,
         hiringStatus:
           hiringStatus && hiringStatus in HiringStatus
-            ? (hiringStatus as HiringStatus)
+            ? hiringStatus
             : undefined,
         sort:
           sort === 'score' || sort === 'oldest' || sort === 'recent'

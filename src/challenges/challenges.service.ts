@@ -255,7 +255,9 @@ export class ChallengesService {
       .sort((a, b) => a.order - b.order);
 
     const label = (section: ValidatableSection, order: number) =>
-      section.title?.trim() ? `"${section.title.trim()}"` : `urutan ${order + 1}`;
+      section.title?.trim()
+        ? `"${section.title.trim()}"`
+        : `urutan ${order + 1}`;
 
     // Id tahap yang boleh dirujuk: hanya yang sudah tersimpan. Tahap baru belum
     // punya id, jadi belum bisa menjadi sumber nilai bagi tahap lain.
@@ -330,7 +332,8 @@ export class ChallengesService {
       // Gerbang berbasis nilai butuh sumber nilai. Sisanya tidak membaca nilai
       // sama sekali, jadi pemeriksaan sumber tidak berlaku.
       const readsScore =
-        gateMode === StageGateMode.MIN_SCORE || gateMode === StageGateMode.TOP_N;
+        gateMode === StageGateMode.MIN_SCORE ||
+        gateMode === StageGateMode.TOP_N;
       if (!readsScore) continue;
 
       const scoreBasis = section.scoreBasis ?? GateScoreBasis.PREVIOUS_STAGE;
@@ -1613,7 +1616,8 @@ export class ChallengesService {
                   : null
                 : section.closesAt,
             gateMode: dto.gateMode ?? section.gateMode,
-            minScore: dto.minScore !== undefined ? dto.minScore : section.minScore,
+            minScore:
+              dto.minScore !== undefined ? dto.minScore : section.minScore,
             maxAdvancing:
               dto.maxAdvancing !== undefined
                 ? dto.maxAdvancing

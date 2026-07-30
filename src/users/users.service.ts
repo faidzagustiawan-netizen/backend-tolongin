@@ -64,7 +64,13 @@ export class UsersService {
       });
 
       const createSlug = (text: string) => {
-        const base = (text || 'user').toString().toLowerCase().trim().replace(/\s+/g, '-').replace(/[^\w\-]+/g, '').replace(/\-\-+/g, '-');
+        const base = (text || 'user')
+          .toString()
+          .toLowerCase()
+          .trim()
+          .replace(/\s+/g, '-')
+          .replace(/[^\w-]+/g, '')
+          .replace(/--+/g, '-');
         return `${base}-${Math.random().toString(36).substring(2, 8)}`;
       };
 
