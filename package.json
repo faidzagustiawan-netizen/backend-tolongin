@@ -21,6 +21,8 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
+    "test:e2e:setup": "bash scripts/setup-test-db.sh",
+    "test:e2e:local": "bash -c 'TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:5433/tolongin_test jest --config ./test/jest-e2e.json'",
     "seed": "prisma db seed",
     "postinstall": "prisma generate"
   },
