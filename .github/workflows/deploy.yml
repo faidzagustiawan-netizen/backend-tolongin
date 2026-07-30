@@ -5,9 +5,84 @@ on:
     branches: [ main ] # Akan trigger otomatis saat ada push ke branch main
 
 jobs:
+  # Gerbang sebelum apa pun menyentuh mesin produksi.
+  #
+  # Sebelumnya tidak ada satu pun uji yang berjalan di alur ini: push ke `main`
+  # langsung menjadi `git reset --hard` plus `pm2 reload` di dua VPS. Kesalahan
+  # penyuntikan dependensi tidak terlihat `tsc` dan baru muncul saat Nest
+  # membangun container — artinya seluruh API mati, dan diketahuinya setelah
+  # rilis. `app.module.spec.ts` menangkap hal itu dalam hitungan detik.
+  #
+  # Ujinya sengaja dijalankan di runner, bukan lewat SSH di VPS. Mesin produksi
+  # punya `.env` produksi; menjalankan uji di sana berarti menaruh kode uji satu
+  # langkah dari basis data sungguhan tanpa alasan.
+  test:
+    name: Uji
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          # Tanpa kata sandi: `scripts/setup-test-db.sh` menyusun URL tanpa
+          # kata sandi, dan basis data ini hidup selama satu job lalu dibuang.
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # `prisma.config.ts` membaca DIRECT_URL/DATABASE_URL saat CLI dipanggil,
+      # termasuk oleh `prisma generate` di postinstall. Nilai ini tidak pernah
+      # dihubungi; yang dipakai uji integrasi adalah TEST_DATABASE_URL.
+      DATABASE_URL: postgresql://postgres@127.0.0.1:5432/postgres
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # Klien Prisma dihasilkan otomatis oleh postinstall.
+      - name: Pasang dependensi
+        run: pnpm install --frozen-lockfile
+
+      - name: Periksa tipe
+        run: pnpm exec tsc -p tsconfig.build.json --noEmit
+
+      # `lint` tidak lagi memakai `--fix`, jadi hasilnya berarti di sini.
+      # Untuk memperbaiki otomatis di mesin sendiri: `pnpm run lint:fix`.
+      - name: Lint
+        run: pnpm run lint
+
+      - name: Uji satuan
+        run: pnpm test
+
+      - name: Siapkan basis data uji
+        run: pnpm run test:e2e:setup
+
+      - name: Uji integrasi
+        env:
+          TEST_DATABASE_URL: postgresql://postgres@127.0.0.1:5432/tolongin_test
+        run: pnpm exec jest --config ./test/jest-e2e.json
+
   deploy-vps1:
     name: Deploy ke VPS 1 (Utama Laptop)
     runs-on: ubuntu-latest
+    needs: test
     steps:
 
       # --- LANGKAH BARU: Sambungkan GitHub runner ke Tailscale ---
@@ -53,6 +128,7 @@ jobs:
   deploy-vps2:
     name: Deploy ke VPS 2 (Cadangan Sumapod)
     runs-on: ubuntu-latest
+    needs: test
     steps:
       - name: Eksekusi SSH dan Deploy VPS 2
         uses: appleboy/ssh-action@v1.0.3
