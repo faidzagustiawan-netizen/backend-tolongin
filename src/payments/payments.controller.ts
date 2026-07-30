@@ -9,6 +9,7 @@ import {
 import { PaymentsService } from './payments.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import { CompanyOwnerGuard } from '../auth/guards/company-owner.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { Role } from '@prisma/client';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
@@ -33,8 +34,20 @@ export class PaymentsController {
     );
   }
 
+  // Hanya pemilik perusahaan yang boleh membelanjakan uang perusahaan.
+  //
+  // Sebelumnya `@Roles(Role.COMPANY)` berdiri sendiri, sehingga akun undangan
+  // pun bisa memulai pembayaran. Akibatnya bukan sekadar izin: webhook
+  // mengaktifkan langganan lewat `companyProfile where userId`, dan akun
+  // undangan tidak punya baris itu — uangnya tertagih, paketnya tidak pernah
+  // aktif.
+  //
+  // `VerifiedCompanyGuard` sengaja tidak dipasang di sini selama pengembangan:
+  // menuntut persetujuan admin lebih dulu membuat alur pembayaran tidak bisa
+  // dicoba sama sekali. Pasang kembali bila pembelian paket memang harus
+  // menunggu legalitas disetujui.
   @ApiBearerAuth('JWT-auth')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, CompanyOwnerGuard)
   @Roles(Role.COMPANY)
   @ApiOperation({ summary: 'Berlangganan paket Premium untuk Company' })
   @Post('subscribe')

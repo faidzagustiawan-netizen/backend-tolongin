@@ -9,6 +9,7 @@ import { NotificationsModule } from '../../notifications/notifications.module';
 import { MailModule } from '../../mail/mail.module';
 import { AuthModule } from '../auth.module';
 import { VerifiedCompanyGuard } from './verified-company.guard';
+import { CompanyOwnerGuard } from './company-owner.guard';
 
 // VerifiedCompanyGuard baru saja berubah dari kelas
 // tanpa dependensi menjadi kelas yang menyuntik PrismaService. Kegagalan
@@ -29,12 +30,13 @@ describe('DI guard yang menyuntik Prisma', () => {
         DiscussionsModule,
         SubmissionsModule,
       ],
-      providers: [VerifiedCompanyGuard],
+      providers: [VerifiedCompanyGuard, CompanyOwnerGuard],
     }).compile();
 
     expect(moduleRef.get(VerifiedCompanyGuard)).toBeInstanceOf(
       VerifiedCompanyGuard,
     );
+    expect(moduleRef.get(CompanyOwnerGuard)).toBeInstanceOf(CompanyOwnerGuard);
 
     await moduleRef.close();
   }, 60000);

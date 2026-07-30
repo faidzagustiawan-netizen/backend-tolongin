@@ -352,7 +352,19 @@ export class VerificationService {
     };
   }
 
-  async verifyCompanyKyb(companyId: string, dto: VerifyKybDto) {
+  /**
+   * Menerima berkas legalitas usaha dan mengantrekannya untuk ditinjau admin.
+   *
+   * Sebelumnya fungsi ini menetapkan `kybStatus: VERIFIED` seketika pada
+   * permintaan itu juga. Artinya perusahaan memverifikasi dirinya sendiri:
+   * nomor registrasi apa pun — termasuk yang diketik asal — langsung berbuah
+   * status terverifikasi, sementara isi `dto` tidak disimpan ke mana pun
+   * sehingga tidak ada yang tersisa untuk ditinjau siapa pun.
+   *
+   * Yang menyetujui adalah admin lewat `AdminService.verifyCompany`, dan itu
+   * pula yang menyalakan `user.isVerified`. Fungsi ini berhenti di PENDING.
+   */
+  async submitCompanyKyb(companyId: string, dto: VerifyKybDto) {
     const profile = await this.prisma.companyProfile.findUnique({
       where: { id: companyId },
       include: { user: true },
@@ -365,24 +377,28 @@ export class VerificationService {
     await this.prisma.companyProfile.update({
       where: { id: companyId },
       data: {
-        kybStatus: VerificationStatus.VERIFIED,
+        legalEntityName: dto.legalEntityName ?? profile.companyName,
+        businessRegistrationNumber: dto.businessRegistrationNumber,
+        legalDocumentUrl: dto.documentUrl,
+        kybSubmittedAt: new Date(),
+        kybStatus: VerificationStatus.PENDING,
       },
     });
 
     await this.prisma.notification.create({
       data: {
         userId: profile.userId,
-        title: 'Verifikasi Legalitas KYB Berhasil',
-        content: `Perusahaan ${dto.legalEntityName ?? profile.companyName} dengan nomor registrasi ${dto.businessRegistrationNumber} telah resmi terverifikasi.`,
-        linkUrl: '/profile',
+        title: 'Dokumen Legalitas Diterima',
+        content: `Dokumen legalitas ${dto.legalEntityName ?? profile.companyName} sudah kami terima dan sedang ditinjau tim admin. Kami kabari begitu hasilnya keluar.`,
+        linkUrl: '/settings',
       },
     });
 
     return {
-      status: VerificationStatus.VERIFIED,
+      status: VerificationStatus.PENDING,
       companyName: profile.companyName,
       message:
-        'Dokumen KYB berhasil divalidasi. Perusahaan Anda mendapatkan lencana Verified Partner.',
+        'Dokumen legalitas berhasil dikirim dan sedang ditinjau admin. Akun aktif setelah peninjauan selesai.',
     };
   }
 

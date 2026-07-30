@@ -19,6 +19,7 @@ import { VerifyKybDto } from './dto/verify-kyb.dto';
 import { VerifyExecutionDto } from './dto/verify-execution.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import { CompanyOwnerGuard } from '../auth/guards/company-owner.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { Role } from '@prisma/client';
 
@@ -45,18 +46,22 @@ export class VerificationController {
   }
 
   @ApiOperation({
-    summary: 'Verifikasi KYB (Know Your Business) legalitas perusahaan',
+    summary: 'Pengiriman dokumen KYB (legalitas usaha) untuk ditinjau admin',
   })
   @ApiResponse({
     status: 200,
-    description:
-      'Dokumen KYB terverifikasi dan lencana Verified Partner aktif.',
+    description: 'Dokumen KYB diterima dan berstatus menunggu tinjauan admin.',
   })
+  // Legalitas adalah dokumen milik badan usaha, bukan milik anggota tim yang
+  // diundang. `profileId` di bawah bernilai sama dengan companyId untuk
+  // keduanya, sehingga tanpa penjaga ini anggota tim bisa mengganti dokumen
+  // legalitas perusahaan tempatnya bekerja.
   @Roles(Role.COMPANY, Role.ADMIN)
+  @UseGuards(CompanyOwnerGuard)
   @Post('kyb')
-  async verifyCompanyKyb(@Request() req: any, @Body() dto: VerifyKybDto) {
+  async submitCompanyKyb(@Request() req: any, @Body() dto: VerifyKybDto) {
     const companyId = req.user.profileId;
-    return this.verificationService.verifyCompanyKyb(companyId, dto);
+    return this.verificationService.submitCompanyKyb(companyId, dto);
   }
 
   @ApiOperation({

@@ -41,6 +41,22 @@ export class CreateUserDto {
   @IsOptional()
   industry?: string;
 
+  // Legalitas usaha, wajib untuk pendaftaran perusahaan yang berdiri sendiri.
+  // Kewajibannya ditegakkan di UsersService.create, bukan di sini, karena
+  // DTO yang sama dipakai jalur talenta dan jalur bergabung lewat undangan —
+  // keduanya tidak mengirimkan legalitas apa pun.
+  @IsString()
+  @IsOptional()
+  legalEntityName?: string;
+
+  @IsString()
+  @IsOptional()
+  businessRegistrationNumber?: string;
+
+  @IsString()
+  @IsOptional()
+  legalDocumentUrl?: string;
+
   @IsEnum(SubscriptionTier)
   @IsOptional()
   subscriptionTier?: SubscriptionTier;

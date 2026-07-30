@@ -165,6 +165,15 @@ export class AuthService {
       (m: any) => m.status === 'APPROVED',
     );
 
+    // Pemilik perusahaan adalah akun yang punya CompanyProfile sendiri.
+    //
+    // `isTeamMember` di bawah tidak bisa dipakai sebagai kebalikannya: nilainya
+    // baru `true` setelah keanggotaan disetujui, sehingga anggota berstatus
+    // PENDING mendapat `false` — sama dengan pemilik — dan ikut lolos setiap
+    // pemeriksaan `if (isTeamMember)`. Penanda kepemilikan karena itu berdiri
+    // sendiri dan diturunkan langsung dari ada-tidaknya profil perusahaan.
+    const isCompanyOwner = !!user.companyProfile;
+
     const payload = {
       sub: user.id,
       email: user.email,
@@ -176,6 +185,7 @@ export class AuthService {
         user.companyProfile?.id ||
         approvedMembership?.companyId,
       isTeamMember: !!approvedMembership && !user.companyProfile,
+      isCompanyOwner,
     };
 
     return {
@@ -186,6 +196,7 @@ export class AuthService {
         fullName: user.fullName,
         role: user.role,
         isVerified: user.isVerified,
+        isCompanyOwner,
         profile:
           user.talentProfile ||
           user.companyProfile ||

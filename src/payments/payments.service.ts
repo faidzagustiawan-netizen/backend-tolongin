@@ -233,14 +233,26 @@ export class PaymentsService {
         data: { status: PaymentStatus.SUCCESS },
       });
 
+      // Pembayarannya sudah diterima Midtrans, jadi kegagalan menaruh hasilnya
+      // ke profil tidak boleh melempar galat: Midtrans akan mengulang webhook
+      // dan pengulangannya berhenti di penjaga "already processed" di atas.
+      // Yang dibutuhkan adalah catatan yang keras supaya kasusnya bisa
+      // diselesaikan manual — bukan `update` yang melempar P2025 diam-diam
+      // karena profilnya memang tidak ada.
       if (tx.paymentType === PaymentType.TOKEN_TOPUP) {
         const metadata: any = tx.metadata;
         const addedTokens = metadata?.tokenAmount || 0;
 
-        await this.prisma.talentProfile.update({
+        const credited = await this.prisma.talentProfile.updateMany({
           where: { userId: tx.userId },
           data: { tokenBalance: { increment: addedTokens } },
         });
+
+        if (credited.count === 0) {
+          console.error(
+            `Top-up ${order_id} lunas tetapi userId ${tx.userId} tidak punya TalentProfile. Perlu penanganan manual.`,
+          );
+        }
       } else if (tx.paymentType === PaymentType.SUBSCRIPTION) {
         const metadata: any = tx.metadata;
         const tier: SubscriptionTier =
@@ -260,13 +272,19 @@ export class PaymentsService {
             : now;
         base.setMonth(base.getMonth() + durationMonths);
 
-        await this.prisma.companyProfile.update({
+        const activated = await this.prisma.companyProfile.updateMany({
           where: { userId: tx.userId },
           data: {
             subscriptionTier: tier,
             subscriptionExpiresAt: base,
           },
         });
+
+        if (activated.count === 0) {
+          console.error(
+            `Langganan ${order_id} lunas tetapi userId ${tx.userId} tidak punya CompanyProfile — kemungkinan akun undangan. Perlu penanganan manual.`,
+          );
+        }
       }
 
       return { success: true };

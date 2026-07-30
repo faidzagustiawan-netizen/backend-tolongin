@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -21,6 +22,9 @@ export class UsersService {
       fullName,
       companyName,
       industry,
+      legalEntityName,
+      businessRegistrationNumber,
+      legalDocumentUrl,
     } = createUserDto;
 
     const existingUser = await this.prisma.user.findUnique({
@@ -29,6 +33,21 @@ export class UsersService {
 
     if (existingUser) {
       throw new ConflictException('Email sudah terdaftar');
+    }
+
+    // Legalitas dikumpulkan di pendaftaran, bukan sesudahnya.
+    //
+    // Sebelumnya perusahaan bisa mendaftar tanpa melampirkan apa pun dan
+    // dokumennya baru diminta di halaman profil. Yang mendaftar lalu menunggu
+    // "persetujuan admin" yang tidak akan pernah datang, karena antrean admin
+    // hanya berisi profil ber-status PENDING dan status itu baru muncul
+    // setelah dokumennya dikirim.
+    if (role === Role.COMPANY) {
+      if (!businessRegistrationNumber?.trim() || !legalDocumentUrl?.trim()) {
+        throw new BadRequestException(
+          'Nomor legalitas usaha (NIB/NPWP) dan tautan dokumennya wajib diisi untuk mendaftarkan akun perusahaan.',
+        );
+      }
     }
 
     const saltRounds = 10;
@@ -78,6 +97,13 @@ export class UsersService {
             // harus menerbitkannya sendiri lewat POST /companies/workspace/invite-code
             // agar kode tidak berumur panjang tanpa disadari.
             inviteCode: null,
+            // Berkas legalitasnya ikut masuk sejak detik pertama, sehingga
+            // akun langsung berada di antrean tinjauan admin.
+            legalEntityName: legalEntityName?.trim() || cName,
+            businessRegistrationNumber: businessRegistrationNumber!.trim(),
+            legalDocumentUrl: legalDocumentUrl!.trim(),
+            kybSubmittedAt: new Date(),
+            kybStatus: 'PENDING',
             slug: createSlug(cName),
           },
         });

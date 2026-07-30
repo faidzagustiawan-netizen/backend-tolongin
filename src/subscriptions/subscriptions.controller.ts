@@ -19,6 +19,7 @@ import { SubscriptionsService } from './subscriptions.service';
 import { UpgradeSubscriptionDto } from './dto/upgrade-subscription.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import { CompanyOwnerGuard } from '../auth/guards/company-owner.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { Role } from '@prisma/client';
 
@@ -63,7 +64,12 @@ export class SubscriptionsController {
     required: false,
     description: 'Wajib untuk admin; diabaikan untuk peran perusahaan',
   })
+  // Masa aktif dan tingkat paket adalah urusan pemilik akun, bukan anggota tim
+  // yang diundang. `CompanyOwnerGuard` sekaligus menyegarkan `profileId` di
+  // request, sehingga nilai di bawah tidak lagi bergantung pada klaim token
+  // berumur tujuh hari.
   @Roles(Role.COMPANY, Role.ADMIN)
+  @UseGuards(CompanyOwnerGuard)
   @Get('status')
   async getStatus(@Request() req: any, @Query('companyId') companyId?: string) {
     // Token admin tidak membawa profileId. Tanpa penyelesaian eksplisit,
