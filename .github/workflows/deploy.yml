@@ -3,6 +3,16 @@ name: Deploy to Dual Prod VPS
 on:
   push:
     branches: [ main ] # Akan trigger otomatis saat ada push ke branch main
+  # PR dijalankan supaya job `test` sudah terbukti hijau SEBELUM merge, bukan
+  # baru ketahuan saat kodenya sedang dalam perjalanan ke produksi.
+  #
+  # Konsekuensinya harus disadari: sejak baris ini ada, workflow ini bisa
+  # berjalan tanpa push ke `main`. Kedua job deploy karena itu dipagari
+  # `if: github.event_name == 'push' && github.ref == 'refs/heads/main'`.
+  # Tanpa pagar itu, membuka PR akan men-deploy ke kedua VPS produksi —
+  # secretnya tersedia karena cabangnya ada di repositori yang sama.
+  pull_request:
+    branches: [ main ]
 
 jobs:
   # Gerbang sebelum apa pun menyentuh mesin produksi.
@@ -83,6 +93,7 @@ jobs:
     name: Deploy ke VPS 1 (Utama Laptop)
     runs-on: ubuntu-latest
     needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
 
       # --- LANGKAH BARU: Sambungkan GitHub runner ke Tailscale ---
@@ -129,6 +140,7 @@ jobs:
     name: Deploy ke VPS 2 (Cadangan Sumapod)
     runs-on: ubuntu-latest
     needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
       - name: Eksekusi SSH dan Deploy VPS 2
         uses: appleboy/ssh-action@v1.0.3
