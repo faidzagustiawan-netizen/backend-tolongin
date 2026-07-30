@@ -147,7 +147,13 @@ describe('SubmissionsService — penilaian', () => {
       // pengerjaan yang belum tuntas.
       prisma.submission.findUnique.mockResolvedValue(stageSubmission);
 
-      await service.gradeSubmission('co-1', 'sub-1', dto(), 'user-1', 'COMPANY');
+      await service.gradeSubmission(
+        'co-1',
+        'sub-1',
+        dto(),
+        'user-1',
+        'COMPANY',
+      );
 
       expect(tx.talentProfile.update).not.toHaveBeenCalled();
       expect(tokens.earnTokensWithin).not.toHaveBeenCalled();
@@ -157,7 +163,13 @@ describe('SubmissionsService — penilaian', () => {
     it('tidak menyatakan pendaftaran EVALUATED saat masih ada tahap berjalan', async () => {
       prisma.submission.findUnique.mockResolvedValue(stageSubmission);
 
-      await service.gradeSubmission('co-1', 'sub-1', dto(), 'user-1', 'COMPANY');
+      await service.gradeSubmission(
+        'co-1',
+        'sub-1',
+        dto(),
+        'user-1',
+        'COMPANY',
+      );
 
       expect(tx.challengeEnrollment.update).not.toHaveBeenCalled();
     });
@@ -170,7 +182,13 @@ describe('SubmissionsService — penilaian', () => {
         enrollment: { id: 'enr-1', status: 'SUBMITTED' },
       });
 
-      await service.gradeSubmission('co-1', 'sub-1', dto(), 'user-1', 'COMPANY');
+      await service.gradeSubmission(
+        'co-1',
+        'sub-1',
+        dto(),
+        'user-1',
+        'COMPANY',
+      );
 
       expect(tokens.earnTokensWithin).toHaveBeenCalledTimes(1);
       expect(tx.portfolio.upsert).toHaveBeenCalledTimes(1);

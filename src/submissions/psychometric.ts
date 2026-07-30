@@ -51,7 +51,13 @@ export function readPsychometricMetadata(
   }
 
   const meta = raw as Record<string, unknown>;
-  const dimension = String(meta.dimension ?? '').trim();
+
+  // Bukan `String(meta.dimension ?? '')`. Nilainya `unknown`, dan `String()`
+  // terhadap objek menghasilkan "[object Object]" — sebuah nama dimensi yang
+  // lolos pemeriksaan "belum diisi" di bawah lalu ikut tersimpan. Hanya string
+  // yang diterima; bentuk lain diperlakukan sama seperti kosong.
+  const dimension =
+    typeof meta.dimension === 'string' ? meta.dimension.trim() : '';
 
   if (!dimension) {
     return { ok: false, reason: 'nama dimensi belum diisi' };

@@ -103,8 +103,7 @@ export class AuthService {
     });
 
     const frontendUrl = (
-      this.configService.get<string>('FRONTEND_URL') ||
-      'http://localhost:3000'
+      this.configService.get<string>('FRONTEND_URL') || 'http://localhost:3000'
     ).replace(/\/$/, '');
     const resetUrl = `${frontendUrl}/reset-password?token=${rawToken}`;
 
@@ -157,7 +156,9 @@ export class AuthService {
       }),
     ]);
 
-    return { message: 'Kata sandi berhasil diperbarui. Silakan masuk kembali.' };
+    return {
+      message: 'Kata sandi berhasil diperbarui. Silakan masuk kembali.',
+    };
   }
 
   private generateToken(user: any) {
