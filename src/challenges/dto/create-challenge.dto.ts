@@ -21,7 +21,10 @@ import {
   ChallengeDifficulty,
   ChallengeStatus,
   ComponentType,
+  GateScoreBasis,
   SectionStageType,
+  StageGateMode,
+  StagePendingPolicy,
 } from '@prisma/client';
 
 /** Batas ukuran payload; badan permintaan sendiri dibatasi 5 MB di main.ts. */
@@ -75,6 +78,19 @@ export class ChallengeComponentDto {
 }
 
 export class ChallengeSectionDto {
+  /**
+   * Id section yang sudah tersimpan, bila tahap ini bukan tahap baru.
+   *
+   * Dipakai jalur update untuk mempertahankan baris yang sama alih-alih
+   * membuang dan membuat ulang. Penting karena pengaturan syarat masuk
+   * antar-tahap menunjuk tahap lain lewat id; id yang berganti tiap simpan
+   * membuat rujukan itu membusuk. Id yang bukan milik challenge bersangkutan
+   * diabaikan dan tahapnya diperlakukan sebagai tahap baru.
+   */
+  @IsString()
+  @IsOptional()
+  id?: string;
+
   @IsString()
   @IsNotEmpty()
   @MaxLength(300)
@@ -100,6 +116,56 @@ export class ChallengeSectionDto {
   @Min(1)
   @IsOptional()
   timeLimit?: number | null;
+
+  // Jendela buka-tutup tahap ini. Harus berada di dalam jendela global
+  // challenge; pemeriksaannya di `assertChallengeConsistency` karena
+  // melibatkan field lain.
+  @IsDateString()
+  @IsOptional()
+  opensAt?: string | null;
+
+  @IsDateString()
+  @IsOptional()
+  closesAt?: string | null;
+
+  @IsEnum(StageGateMode)
+  @IsOptional()
+  gateMode?: StageGateMode;
+
+  // Ambang lolos dalam skala 0-100, sama seperti `finalScore`.
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  @IsOptional()
+  minScore?: number | null;
+
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  maxAdvancing?: number | null;
+
+  @IsEnum(GateScoreBasis)
+  @IsOptional()
+  scoreBasis?: GateScoreBasis;
+
+  @IsArray()
+  @IsString({ each: true })
+  @ArrayMaxSize(MAX_SECTIONS_PER_CHALLENGE)
+  @IsOptional()
+  gateSourceIds?: string[];
+
+  @IsEnum(StagePendingPolicy)
+  @IsOptional()
+  pendingPolicy?: StagePendingPolicy;
+
+  // Batas atas 90 hari: lebih dari itu bukan lagi jaring pengaman terhadap
+  // tinjauan yang terlambat, melainkan gerbang yang praktis tidak pernah
+  // terbuka sendiri.
+  @IsInt()
+  @Min(1)
+  @Max(90)
+  @IsOptional()
+  graceDays?: number | null;
 
   @IsArray()
   @ArrayMaxSize(MAX_COMPONENTS_PER_SECTION)

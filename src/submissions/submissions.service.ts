@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
   OnModuleInit,
   OnModuleDestroy,
@@ -18,6 +19,7 @@ import { UpdateHiringStatusDto } from './dto/update-hiring-status.dto';
 import { CompaniesService } from '../companies/companies.service';
 import { subscriptionLimitsEnforced } from '../common/dev-flags';
 import { computePsychometricProfile } from './psychometric';
+import { StageGateService } from '../stages/stage-gate.service';
 import {
   ComponentType,
   EnrollmentStatus,
@@ -26,10 +28,12 @@ import {
   ChallengeDifficulty,
   Role,
   Prisma,
+  StageAttemptStatus,
 } from '@prisma/client';
 
 @Injectable()
 export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(SubmissionsService.name);
   private cronInterval: any;
 
   constructor(
@@ -38,6 +42,7 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
     private readonly tokensService: TokensService,
     private readonly notificationsService: NotificationsService,
     private readonly companiesService: CompaniesService,
+    private readonly stageGateService: StageGateService,
   ) {}
 
   onModuleInit() {
@@ -97,40 +102,46 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
           data: { trustScore: { decrement: 5 } },
         });
 
-        // Hitung token & xp dinamis
-        const finalScore = 75; // Asumsi nilai kelulusan auto-pass (default 75)
-        const rewards = this.calculateRewards(
-          sub.challenge.difficulty,
-          finalScore,
-        );
+        // Hadiah dan portofolio hanya untuk pengumpulan yang mewakili seluruh
+        // studi kasus. Submisi satu tahap yang lolos otomatis cukup membuka
+        // jalan ke tahap berikutnya; memberinya XP, token, dan entri portofolio
+        // berarti satu studi kasus berhadiah sebanyak jumlah tahapnya.
+        if (!sub.sectionId) {
+          // Hitung token & xp dinamis
+          const finalScore = 75; // Asumsi nilai kelulusan auto-pass (default 75)
+          const rewards = this.calculateRewards(
+            sub.challenge.difficulty,
+            finalScore,
+          );
 
-        // Berikan token ke talent
-        await tx.talentProfile.update({
-          where: { id: sub.talentId },
-          data: { xp: { increment: rewards.xp } },
-        });
+          // Berikan token ke talent
+          await tx.talentProfile.update({
+            where: { id: sub.talentId },
+            data: { xp: { increment: rewards.xp } },
+          });
 
-        // Panggil tokenService (bukan di dalam tx untuk menghindari block)
-        this.tokensService
-          .earnTokens(
-            sub.talent.userId,
-            rewards.tokens,
-            `Reward: Lulus Otomatis - ${sub.challenge.title}`,
-          )
-          .catch((err) => console.error('Gagal memberi token auto-pass', err));
+          // Panggil tokenService (bukan di dalam tx untuk menghindari block)
+          this.tokensService
+            .earnTokens(
+              sub.talent.userId,
+              rewards.tokens,
+              `Reward: Lulus Otomatis - ${sub.challenge.title}`,
+            )
+            .catch((err) => console.error('Gagal memberi token auto-pass', err));
 
-        // Tambah ke portfolio
-        await tx.portfolio.upsert({
-          where: { submissionId: sub.id },
-          create: {
-            talentId: sub.talentId,
-            submissionId: sub.id,
-            showcaseSummary: `Berhasil menyelesaikan studi kasus otomatis (Auto-Passed) dari challenge ${sub.challenge.title}.`,
-          },
-          update: {
-            showcaseSummary: `Berhasil menyelesaikan studi kasus otomatis (Auto-Passed) dari challenge ${sub.challenge.title}.`,
-          },
-        });
+          // Tambah ke portfolio
+          await tx.portfolio.upsert({
+            where: { submissionId: sub.id },
+            create: {
+              talentId: sub.talentId,
+              submissionId: sub.id,
+              showcaseSummary: `Berhasil menyelesaikan studi kasus otomatis (Auto-Passed) dari challenge ${sub.challenge.title}.`,
+            },
+            update: {
+              showcaseSummary: `Berhasil menyelesaikan studi kasus otomatis (Auto-Passed) dari challenge ${sub.challenge.title}.`,
+            },
+          });
+        }
 
         // Notifikasi untuk Talent
         await tx.notification.create({
@@ -157,6 +168,21 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
           });
         }
       });
+
+      // Nilai tahap dituliskan supaya tahap berikutnya bisa terbuka. Tanpa ini
+      // submisi tahap yang lolos otomatis tetap tanpa nilai, dan gerbang
+      // berbasis nilai menahan kandidat selamanya justru karena perusahaan
+      // tidak pernah menilai.
+      if (sub.stageAttemptId) {
+        await this.stageGateService
+          .settleStageScore(sub.stageAttemptId, 75)
+          .catch((err) =>
+            this.logger.warn(
+              `Nilai tahap gagal dituliskan untuk submisi auto-pass ${sub.id}: ${err?.message}`,
+            ),
+          );
+      }
+
       console.log(
         `[Cron] Submisi ${sub.id} di-auto-pass. Trust score company diturunkan.`,
       );
@@ -234,6 +260,109 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
     return enrollment;
   }
 
+  /**
+   * Menilai bagian yang tidak butuh pertimbangan: pilihan ganda.
+   *
+   * Nilainya keluar seketika, dan itulah yang memungkinkan gerbang berbasis
+   * nilai terbuka tanpa menunggu siapa pun. Sisanya — esai, unggahan, rekaman —
+   * ditandai `hasSubjective` supaya tahapnya berhenti di AWAITING_GRADE alih-
+   * alih dinilai dari separuh jawaban.
+   *
+   * Soal psikometrik dikeluarkan dari pembilang maupun pembagi: skala Likert
+   * tidak punya jawaban benar, jadi memasukkannya mengubah "seberapa benar"
+   * menjadi campuran yang tidak bisa ditafsirkan.
+   */
+  private scoreObjectiveResponses(
+    components: any[],
+    responses: { componentId: string; textValue?: string }[],
+  ): {
+    evaluations: { componentId: string; score: number; aiFeedback: string }[];
+    score: number | null;
+    hasSubjective: boolean;
+  } {
+    const evaluations: {
+      componentId: string;
+      score: number;
+      aiFeedback: string;
+    }[] = [];
+
+    let earned = 0;
+    let total = 0;
+    let hasSubjective = false;
+
+    for (const component of components) {
+      if (component.type === ComponentType.PSYCHOMETRIC) continue;
+
+      const points = Number(component.points) || 0;
+      total += points;
+
+      if (component.type !== ComponentType.MULTIPLE_CHOICE) {
+        hasSubjective = true;
+        continue;
+      }
+
+      const options = Array.isArray(component.options) ? component.options : [];
+      const answer = responses.find((r) => r.componentId === component.id);
+      // Jawaban disimpan sebagai id opsi, bukan teksnya — lihat komentar
+      // `ComponentResponse.textValue` di schema.
+      const chosen = options.find(
+        (o: any) => String(o?.id) === String(answer?.textValue ?? ''),
+      );
+      const isCorrect = chosen?.isCorrect === true;
+
+      earned += isCorrect ? points : 0;
+      evaluations.push({
+        componentId: component.id,
+        score: isCorrect ? points : 0,
+        aiFeedback: isCorrect ? 'Jawaban benar.' : 'Jawaban belum tepat.',
+      });
+    }
+
+    return {
+      evaluations,
+      // Tanpa satu pun soal berpoin, tidak ada nilai yang bisa dihitung —
+      // membiarkannya 0 akan membuat tahap tanpa soal objektif terbaca sebagai
+      // kegagalan.
+      score: total > 0 ? (earned / total) * 100 : null,
+      hasSubjective,
+    };
+  }
+
+  /**
+   * Apakah tahap ini yang terakhir tersisa untuk dikerjakan.
+   *
+   * Yang dihitung adalah tahap yang masih mungkin dikerjakan, bukan jumlah
+   * tahap seluruhnya: tahap yang tidak akan pernah terbuka bagi kandidat ini —
+   * karena gerbangnya tidak terpenuhi — tidak boleh menahan pendaftaran dalam
+   * keadaan menggantung selamanya.
+   */
+  private async isLastOpenStage(
+    tx: Prisma.TransactionClient,
+    enrollmentId: string,
+    currentAttemptId: string,
+  ): Promise<boolean> {
+    const remaining = await tx.stageAttempt.count({
+      where: {
+        enrollmentId,
+        id: { not: currentAttemptId },
+        status: {
+          in: [
+            StageAttemptStatus.LOCKED,
+            StageAttemptStatus.IN_PROGRESS,
+          ],
+        },
+        // Tahap terkunci hanya dihitung bila masih punya harapan terbuka.
+        // `unlockedAt` terisi berarti gerbangnya sudah lolos.
+        OR: [
+          { status: StageAttemptStatus.IN_PROGRESS },
+          { unlockedAt: { not: null } },
+        ],
+      },
+    });
+
+    return remaining === 0;
+  }
+
   async saveDraft(talentId: string, enrollmentId: string, dto: SaveDraftDto) {
     const enrollment = await this.prisma.challengeEnrollment.findUnique({
       where: { id: enrollmentId },
@@ -301,11 +430,24 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
       throw new ForbiddenException('Akses ditolak: Pendaftaran tidak valid');
     }
 
-    if (enrollment.status === EnrollmentStatus.SUBMITTED) {
+    // Penolakan "sudah dikumpulkan" hanya berlaku bagi pengumpulan menyeluruh.
+    // Pada pengerjaan bertahap, satu pendaftaran memang mengumpulkan beberapa
+    // kali — yang boleh ditolak adalah tahap yang sudah masuk, bukan seluruh
+    // pendaftarannya.
+    if (!dto.sectionId && enrollment.status === EnrollmentStatus.SUBMITTED) {
       throw new BadRequestException(
         'Solusi untuk challenge ini sudah dikumpulkan',
       );
     }
+
+    // Batas waktu tahap diperiksa terhadap `expiresAt` di basis data, bukan
+    // terhadap hitungan yang dikirim peramban.
+    const stageAttempt = dto.sectionId
+      ? await this.stageGateService.assertStageSubmittable(
+          dto.enrollmentId,
+          dto.sectionId,
+        )
+      : null;
 
     const aiScore: number | null = null;
     const aiPlagiarismScore: number | null = null;
@@ -322,11 +464,6 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
       (!subscriptionLimitsEnforced() || companyTier !== 'STARTUP');
 
     const candidateAnswers = '';
-    const componentEvaluations: {
-      componentId: string;
-      score: number;
-      aiFeedback: string;
-    }[] = [];
     const allComponents = new Map();
     if (enrollment.challenge.components) {
       enrollment.challenge.components.forEach((c: any) =>
@@ -342,6 +479,21 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
     }
 
     const hasComponents = allComponents.size > 0;
+
+    // Soal yang menjadi cakupan pengumpulan ini: satu tahap saja bila bertahap,
+    // seluruh studi kasus bila menyeluruh. Nilai tahap harus dihitung dari
+    // pembagi tahap itu sendiri — memakai total poin seluruh challenge akan
+    // membuat tahap pertama yang sempurna terbaca sebagai nilai 20.
+    const scopedComponents = dto.sectionId
+      ? (enrollment.challenge.sections ?? [])
+          .filter((s: any) => s.id === dto.sectionId)
+          .flatMap((s: any) => s.components ?? [])
+      : [...allComponents.values()];
+
+    const objective = this.scoreObjectiveResponses(
+      scopedComponents,
+      dto.responses ?? [],
+    );
 
     // Profil psikometrik dihitung di sini, bukan menunggu antrean AI.
     // Perhitungannya murni aritmetika atas jawaban skala, jadi menundanya
@@ -369,19 +521,37 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
     }
 
     return this.prisma.$transaction(async (tx) => {
-      await tx.challengeEnrollment.update({
-        where: { id: dto.enrollmentId },
-        data: {
-          status: EnrollmentStatus.SUBMITTED,
-          completedAt: new Date(),
-        },
-      });
+      // Pada pengerjaan bertahap, pendaftaran baru dinyatakan selesai setelah
+      // tidak ada lagi tahap yang bisa dikerjakan. Menandainya SUBMITTED di
+      // tahap pertama akan menutup sisa tahapnya sendiri.
+      const isFinalSubmission = stageAttempt
+        ? await this.isLastOpenStage(tx, dto.enrollmentId, stageAttempt.id)
+        : true;
+
+      if (isFinalSubmission) {
+        await tx.challengeEnrollment.update({
+          where: { id: dto.enrollmentId },
+          data: {
+            status: EnrollmentStatus.SUBMITTED,
+            completedAt: new Date(),
+          },
+        });
+      }
+
+      if (stageAttempt) {
+        await this.stageGateService.closeStage(tx, stageAttempt.id, {
+          score: objective.score,
+          pendingGrade: objective.hasSubjective,
+        });
+      }
 
       const submission = await tx.submission.create({
         data: {
           enrollmentId: dto.enrollmentId,
           talentId,
           challengeId: enrollment.challengeId,
+          sectionId: dto.sectionId ?? null,
+          stageAttemptId: stageAttempt?.id ?? null,
           solutionFilesUrl: dto.solutionFilesUrl,
           repositoryUrl: dto.repositoryUrl,
           figmaUrl: dto.figmaUrl,
@@ -396,7 +566,7 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
             dto.responses && dto.responses.length > 0
               ? {
                   create: dto.responses.map((r) => {
-                    const evalResult = componentEvaluations.find(
+                    const evalResult = objective.evaluations.find(
                       (e) => e.componentId === r.componentId,
                     );
                     return {
@@ -481,14 +651,21 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
       where: { companyId },
       include: {
         submissions: {
-          select: { status: true, createdAt: true },
+          // `enrollmentId` ikut dibaca karena satu kandidat kini bisa punya
+          // beberapa submisi — satu per tahap.
+          select: { status: true, createdAt: true, enrollmentId: true },
         },
       },
       orderBy: { createdAt: 'desc' },
     });
 
     return challenges.map((challenge) => {
-      const totalSubmissions = challenge.submissions.length;
+      // Yang dihitung adalah jumlah kandidat, bukan jumlah baris submisi. Pada
+      // pengerjaan bertahap satu orang mengumpulkan berkali-kali, dan menghitung
+      // barisnya membuat angka "Total Pelamar" berlipat sebanyak jumlah tahap.
+      const totalSubmissions = new Set(
+        challenge.submissions.map((s) => s.enrollmentId),
+      ).size;
       const unreviewedSubmissions = challenge.submissions.filter(
         (s) =>
           s.status === SubmissionStatus.PENDING_AI ||
@@ -584,6 +761,13 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
           },
           challenge: {
             select: { id: true, title: true, difficulty: true, category: true },
+          },
+          // Tahap yang dikumpulkan. Tanpa ini daftar kandidat menampilkan
+          // beberapa baris identik untuk satu orang pada studi kasus bertahap,
+          // tanpa petunjuk apa pun tentang tahap mana yang mana. Null berarti
+          // pengumpulan menyeluruh — bentuk lama.
+          section: {
+            select: { id: true, title: true, order: true },
           },
           componentResponses: {
             include: { component: true },
@@ -756,12 +940,33 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
         },
       });
 
-      await tx.challengeEnrollment.update({
-        where: { id: submission.enrollmentId },
-        data: { status: EnrollmentStatus.EVALUATED },
-      });
+      // Pada pengerjaan bertahap, menilai tahap pertama tidak berarti seluruh
+      // pendaftaran sudah dievaluasi. Pendaftaran baru dinyatakan EVALUATED
+      // setelah semua tahapnya masuk — yang ditandai `submitSolution` dengan
+      // menyetel status SUBMITTED.
+      const isStageGrading = !!submission.sectionId;
 
-      if (dto.status === SubmissionStatus.PASSED) {
+      /**
+       * Apakah penilaian ini menutup seluruh studi kasus, bukan satu tahap.
+       *
+       * Hadiah, portofolio, dan status EVALUATED semuanya melekat pada studi
+       * kasus yang selesai. Tanpa pembedaan ini, kandidat yang melewati lima
+       * tahap menerima XP dan token lima kali untuk satu studi kasus — dan
+       * mendapat lima entri portofolio, yang keempat di antaranya berbunyi
+       * "berhasil menyelesaikan" padahal pengerjaannya belum tuntas.
+       */
+      const isWholeChallengeGrading =
+        !isStageGrading ||
+        submission.enrollment.status === EnrollmentStatus.SUBMITTED;
+
+      if (isWholeChallengeGrading) {
+        await tx.challengeEnrollment.update({
+          where: { id: submission.enrollmentId },
+          data: { status: EnrollmentStatus.EVALUATED },
+        });
+      }
+
+      if (dto.status === SubmissionStatus.PASSED && isWholeChallengeGrading) {
         // `|| 60` memperlakukan nilai 0 sebagai 60 dan diam-diam memberi
         // hadiah untuk pekerjaan yang tidak bernilai.
         const finalScore = dto.finalScore ?? 60;
@@ -811,6 +1016,20 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
 
       return updatedSubmission;
     });
+
+    // Nilai tahap dituliskan setelah transaksi penilaian berhasil, dan itulah
+    // yang membuka tahap berikutnya. Dijalankan di luar transaksi karena
+    // langkahnya termasuk mengirim notifikasi — pekerjaan yang tidak boleh
+    // menahan kunci baris.
+    if (submission.stageAttemptId) {
+      await this.stageGateService
+        .settleStageScore(submission.stageAttemptId, dto.finalScore ?? 0)
+        .catch((err) =>
+          this.logger.warn(
+            `Nilai tahap gagal dituliskan untuk submisi ${submissionId}: ${err?.message}`,
+          ),
+        );
+    }
 
     if (role === Role.COMPANY && userId && submission.challenge.companyId) {
       await this.companiesService.logAction(

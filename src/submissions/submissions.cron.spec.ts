@@ -3,6 +3,7 @@ import { SubmissionsCronService } from './submissions.cron';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiService } from '../ai/ai.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { StageGateService } from '../stages/stage-gate.service';
 import { ChallengeType } from '@prisma/client';
 
 describe('SubmissionsCronService', () => {
@@ -33,6 +34,12 @@ describe('SubmissionsCronService', () => {
         { provide: PrismaService, useValue: mockPrisma },
         { provide: AiService, useValue: mockAiService },
         { provide: NotificationsService, useValue: mockNotifications },
+        // Nilai tahap dituliskan setelah AI selesai; di sini cukup dipastikan
+        // pemanggilannya tidak meledak.
+        {
+          provide: StageGateService,
+          useValue: { settleStageScore: jest.fn().mockResolvedValue(null) },
+        },
       ],
     }).compile();
 

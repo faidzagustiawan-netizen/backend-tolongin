@@ -21,6 +21,7 @@ import { Throttle } from '@nestjs/throttler';
 import { ChallengesService } from './challenges.service';
 import { CreateChallengeDto } from './dto/create-challenge.dto';
 import { UpdateChallengeDto } from './dto/update-challenge.dto';
+import { UpdateStageGateDto } from './dto/update-stage-gate.dto';
 import { GenerateAiChallengeDto } from './dto/generate-ai-challenge.dto';
 import { GenerateAiBlueprintDto } from './dto/generate-ai-blueprint.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -198,6 +199,38 @@ export class ChallengesController {
     return this.challengesService.archiveChallenge(
       id,
       req.user.profileId,
+      req.user.sub,
+      req.user.role,
+    );
+  }
+
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Mengubah jadwal dan syarat masuk satu tahap',
+    description:
+      'Boleh dilakukan walau studi kasus sudah terbit — soalnya tetap terkunci, ' +
+      'hanya ambang lolos dan jadwal yang bisa disesuaikan. Batas waktu yang ' +
+      'sedang berjalan tidak dipotong.',
+  })
+  @ApiResponse({ status: 200, description: 'Pengaturan tahap diperbarui.' })
+  @ApiResponse({ status: 404, description: 'Challenge atau tahap tidak ditemukan.' })
+  // Rutenya berdiri sendiri, seperti :id/archive: PATCH biasa hanya boleh saat
+  // DRAFT, sementara ambang lolos justru paling perlu disesuaikan setelah
+  // kandidat sungguhan mengerjakannya.
+  @UseGuards(JwtAuthGuard, RolesGuard, VerifiedCompanyGuard)
+  @Roles(Role.COMPANY, Role.ADMIN, Role.TALENT)
+  @Patch(':id/stages/:sectionId/gate')
+  async updateStageGate(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Param('sectionId') sectionId: string,
+    @Body() dto: UpdateStageGateDto,
+  ) {
+    return this.challengesService.updateStageGate(
+      id,
+      sectionId,
+      req.user.profileId,
+      dto,
       req.user.sub,
       req.user.role,
     );

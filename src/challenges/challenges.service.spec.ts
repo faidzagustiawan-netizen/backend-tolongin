@@ -47,6 +47,15 @@ describe('ChallengesService', () => {
         findUnique: jest.fn().mockResolvedValue(null),
       },
       notification: { create: jest.fn() },
+      // Section ditulis lewat kliennya sendiri, bukan sebagai nested write di
+      // dalam `challenge.update`, supaya urutan hapus-lalu-buat pasti.
+      challengeSection: {
+        findMany: jest.fn().mockResolvedValue([]),
+        deleteMany: jest.fn(),
+        update: jest.fn(),
+        create: jest.fn(),
+      },
+      challengeComponent: { deleteMany: jest.fn() },
       $queryRaw: jest.fn(),
     };
     // Kuota kosong secara bawaan; setiap pengujian kuota menimpanya sendiri.
@@ -566,9 +575,74 @@ describe('ChallengesService', () => {
         'COMPANY',
       );
 
-      expect(tx.challenge.update.mock.calls[0][0].data.sections).toEqual({
-        deleteMany: {},
+      // Tanpa satu pun tahap yang dipertahankan, penghapusan sengaja tidak
+      // membawa penyaring id — artinya "buang semua".
+      expect(tx.challengeSection.deleteMany).toHaveBeenCalledWith({
+        where: { challengeId: 'ch-1' },
       });
+      expect(tx.challengeSection.create).not.toHaveBeenCalled();
+      expect(tx.challengeSection.update).not.toHaveBeenCalled();
+    });
+
+    it('mempertahankan id tahap yang sudah ada alih-alih membuatnya ulang', async () => {
+      tx.challenge.findFirst.mockResolvedValue({
+        ...draft,
+        sections: [{ id: 'sec-1', components: [] }],
+      });
+      tx.challenge.update.mockResolvedValue(draft);
+
+      await service.updateChallenge(
+        'ch-1',
+        'co-1',
+        {
+          sections: [
+            { id: 'sec-1', title: 'Tahap 1', order: 0, components: [] },
+            { title: 'Tahap 2', order: 1, components: [] },
+          ],
+        } as any,
+        'u-1',
+        'COMPANY',
+      );
+
+      // Yang sudah ada diperbarui di tempat; hanya tahap tanpa id yang dibuat.
+      expect(tx.challengeSection.deleteMany).toHaveBeenCalledWith({
+        where: { challengeId: 'ch-1', id: { notIn: ['sec-1'] } },
+      });
+      expect(tx.challengeSection.update).toHaveBeenCalledTimes(1);
+      expect(tx.challengeSection.update.mock.calls[0][0].where).toEqual({
+        id: 'sec-1',
+      });
+      expect(tx.challengeSection.create).toHaveBeenCalledTimes(1);
+      expect(tx.challengeSection.create.mock.calls[0][0].data).toMatchObject({
+        challengeId: 'ch-1',
+        title: 'Tahap 2',
+        order: 1,
+      });
+    });
+
+    it('mengabaikan id tahap yang bukan milik challenge ini', async () => {
+      tx.challenge.findFirst.mockResolvedValue({
+        ...draft,
+        sections: [{ id: 'sec-1', components: [] }],
+      });
+      tx.challenge.update.mockResolvedValue(draft);
+
+      await service.updateChallenge(
+        'ch-1',
+        'co-1',
+        {
+          sections: [
+            { id: 'sec-milik-orang-lain', title: 'Tahap 1', order: 0, components: [] },
+          ],
+        } as any,
+        'u-1',
+        'COMPANY',
+      );
+
+      // Id asing tidak boleh menjadi sasaran update — kalau tidak, jalur ini
+      // bisa dipakai menulisi section milik perusahaan lain.
+      expect(tx.challengeSection.update).not.toHaveBeenCalled();
+      expect(tx.challengeSection.create).toHaveBeenCalledTimes(1);
     });
 
     it('menyegarkan slug ketika judul draf berubah', async () => {

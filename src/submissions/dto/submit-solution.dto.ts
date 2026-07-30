@@ -26,6 +26,17 @@ export class SubmitSolutionDto {
   @IsNotEmpty({ message: 'ID Enrollment tidak boleh kosong' })
   enrollmentId: string;
 
+  /**
+   * Tahap yang dikumpulkan.
+   *
+   * Kosong berarti pengumpulan menyeluruh — bentuk lama, satu submisi untuk
+   * seluruh studi kasus. Tetap didukung supaya studi kasus tanpa tahapan
+   * bergerbang tidak berubah perilakunya.
+   */
+  @IsString()
+  @IsOptional()
+  sectionId?: string;
+
   @IsString()
   @IsOptional()
   solutionFilesUrl?: string;

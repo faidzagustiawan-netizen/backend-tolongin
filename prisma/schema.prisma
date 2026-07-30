@@ -388,6 +388,47 @@ enum SectionStageType {
   ASSIGNMENT
 }
 
+/// Syarat yang harus dipenuhi kandidat untuk masuk sebuah tahap.
+enum StageGateMode {
+  /// Siapa pun yang sampai di sini boleh masuk. Perilaku bawaan, dan satu-
+  /// satunya yang sah untuk tahap pertama.
+  OPEN
+
+  /// Butuh nilai minimal, lihat `minScore` dan `scoreBasis`.
+  MIN_SCORE
+
+  /// Kuota: hanya `maxAdvancing` kandidat teratas yang lanjut.
+  TOP_N
+
+  /// Perusahaan meloloskan satu per satu. Tidak ada ambang otomatis.
+  MANUAL_APPROVAL
+}
+
+/// Nilai mana yang dibandingkan dengan ambang lolos.
+enum GateScoreBasis {
+  PREVIOUS_STAGE
+  CUMULATIVE
+  SPECIFIC_STAGES
+}
+
+/// Perlakuan ketika nilai tahap sumber belum siap.
+///
+/// Tahap berisi esai atau tugas tidak punya nilai sampai AI atau manusia
+/// menilainya, jadi gerbang berbasis nilai selalu punya jeda. Ini yang
+/// menentukan apa yang terjadi selama jeda itu — sengaja diatur per tahap,
+/// karena tahap pilihan ganda tidak punya masalah ini sama sekali.
+enum StagePendingPolicy {
+  /// Tahan sampai nilai keluar; kandidat dinotifikasi saat tahapnya terbuka.
+  WAIT_FOR_SCORE
+
+  /// Tahan, tetapi buka otomatis setelah `graceDays` bila penilaian terlambat.
+  /// Ambang nilai terlewati — itu harganya supaya kandidat tidak terjebak.
+  AUTO_ADVANCE_AFTER
+
+  /// Tidak ada ambang otomatis; hanya keputusan manusia yang membuka.
+  MANUAL_ONLY
+}
+
 model ChallengeSection {
   id          String    @id @default(uuid())
   challengeId String
@@ -403,12 +444,110 @@ model ChallengeSection {
   stageType SectionStageType @default(ASSIGNMENT)
   timeLimit Int? // menit; null = tak terbatas
 
-  components ChallengeComponent[]
+  // Jendela buka-tutup per tahap, di dalam jendela global challenge.
+  // Sebelumnya hanya ada `Challenge.startsAt`/`deadlineAt`, jadi seluruh
+  // tahapan terpaksa berbagi satu rentang waktu.
+  opensAt  DateTime?
+  closesAt DateTime?
+
+  // Syarat masuk. Bawaannya OPEN supaya seluruh studi kasus yang sudah ada
+  // berperilaku persis seperti sebelum kolom-kolom ini ada.
+  gateMode      StageGateMode      @default(OPEN)
+  minScore      Float? // 0-100, dipakai MIN_SCORE
+  maxAdvancing  Int? // dipakai TOP_N
+  scoreBasis    GateScoreBasis     @default(PREVIOUS_STAGE)
+  /// Tahap yang nilainya dihitung ketika `scoreBasis = SPECIFIC_STAGES`.
+  ///
+  /// Menyimpan id, bukan urutan: urutan bisa digeser company dan rujukan yang
+  /// memakainya akan berubah arti tanpa suara. Karena itu jalur update wajib
+  /// mempertahankan `ChallengeSection.id` — lihat `writeSections`.
+  gateSourceIds String[]           @default([])
+  pendingPolicy StagePendingPolicy @default(WAIT_FOR_SCORE)
+  graceDays     Int? // dipakai AUTO_ADVANCE_AFTER
+
+  components  ChallengeComponent[]
+  attempts    StageAttempt[]
+  submissions Submission[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@map("challenge_sections")
+}
+
+enum StageAttemptStatus {
+  /// Belum boleh dibuka; `lockReason` menjelaskan kenapa.
+  LOCKED
+
+  /// Sudah dibuka kandidat dan jamnya berjalan.
+  IN_PROGRESS
+
+  /// Jawaban masuk, menunggu perhitungan nilai.
+  SUBMITTED
+
+  /// Nilai objektif sudah dihitung, bagian yang butuh AI/manusia belum.
+  AWAITING_GRADE
+
+  PASSED
+  FAILED
+
+  /// Waktu habis sebelum dikumpulkan. Jawaban yang sudah tersimpan tetap
+  /// dinilai apa adanya.
+  EXPIRED
+}
+
+/// Satu baris per (pendaftaran, tahap): keadaan pengerjaan satu tahap oleh satu
+/// kandidat.
+///
+/// Sebelum model ini ada, penilaian hanya mengenal satu `Submission` untuk
+/// seluruh challenge, jadi tidak ada angka per tahap yang bisa dibandingkan
+/// dengan ambang lolos — dan `ChallengeSection.timeLimit` tersimpan tanpa ada
+/// yang menegakkannya.
+model StageAttempt {
+  id           String              @id @default(uuid())
+  enrollmentId String
+  enrollment   ChallengeEnrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  sectionId    String
+  section      ChallengeSection    @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+
+  status StageAttemptStatus @default(LOCKED)
+
+  /// Dicap saat kandidat menekan "Mulai Tahap", bukan saat halaman termuat.
+  startedAt DateTime?
+
+  /// `startedAt` + `timeLimit`. Otoritas tunggal atas batas waktu: hitungan di
+  /// peramban hanya tampilan dan bisa dipalsukan, jadi penolakan pengumpulan
+  /// selalu dibandingkan dengan kolom ini.
+  expiresAt   DateTime?
+  submittedAt DateTime?
+
+  /// Nilai tahap ini, 0-100. Komponen psikometrik tidak ikut dihitung — skala
+  /// Likert tidak punya jawaban benar.
+  score    Float?
+  gradedAt DateTime?
+
+  unlockedAt DateTime?
+
+  /// Alasan terkunci, sudah berbentuk kalimat siap tampil. Disimpan supaya
+  /// peramban tidak perlu menghitung ulang aturan gerbang — satu-satunya yang
+  /// memutuskan terbuka atau tidak adalah server.
+  lockReason String?
+
+  /// Jejak keputusan MANUAL_APPROVAL / MANUAL_ONLY.
+  approvedById String?
+  approvedAt   DateTime?
+
+  submission Submission?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([enrollmentId, sectionId])
+  // Cron kadaluarsa menyaring status lalu membandingkan expiresAt.
+  @@index([status, expiresAt])
+  // Peringkat TOP_N mengurutkan nilai di dalam satu tahap.
+  @@index([sectionId, score(sort: Desc)])
+  @@map("stage_attempts")
 }
 
 enum ComponentType {
@@ -492,7 +631,6 @@ model QuestionBankItem {
 
   /**
    * null berarti berlaku lintas bidang.
-   *
    * Soal soft skill, wawancara, dan etika kerja tidak dimiliki satu kategori
    * pekerjaan pun. Memaksanya memilih salah satu — katakanlah BACKEND —
    * membuatnya lenyap begitu perusahaan mencari marketer, padahal justru
@@ -560,7 +698,8 @@ model ChallengeEnrollment {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  submissions Submission[]
+  submissions   Submission[]
+  stageAttempts StageAttempt[]
 
   @@unique([talentId, challengeId])
   @@index([talentId, updatedAt(sort: Desc)])
@@ -591,6 +730,17 @@ model Submission {
   talent       TalentProfile       @relation(fields: [talentId], references: [id], onDelete: Cascade)
   challengeId  String
   challenge    Challenge           @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+
+  /// Tahap yang dikumpulkan, bila ini pengumpulan per tahap.
+  ///
+  /// Nullable dengan sengaja: submisi yang dibuat sebelum pengerjaan dipecah
+  /// per tahap mewakili seluruh challenge sekaligus, dan tetap sah. Baris
+  /// dengan `sectionId` terisi adalah pengumpulan satu tahap.
+  sectionId String?
+  section   ChallengeSection? @relation(fields: [sectionId], references: [id], onDelete: SetNull)
+
+  stageAttemptId String?       @unique
+  stageAttempt   StageAttempt? @relation(fields: [stageAttemptId], references: [id], onDelete: SetNull)
 
   // Solusi yang dikumpulkan
   solutionFilesUrl String?
@@ -647,6 +797,7 @@ model Submission {
   @@index([challengeId, status])
   @@index([talentId])
   @@index([enrollmentId])
+  @@index([sectionId])
   @@map("submissions")
 }
 

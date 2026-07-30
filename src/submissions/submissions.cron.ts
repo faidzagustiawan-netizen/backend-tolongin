@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiService } from '../ai/ai.service';
+import { StageGateService } from '../stages/stage-gate.service';
 import {
   ComponentType,
   SubmissionStatus,
@@ -18,6 +19,7 @@ export class SubmissionsCronService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly aiService: AiService,
+    private readonly stageGateService: StageGateService,
   ) {}
 
   /** Berapa hari perusahaan punya waktu meninjau sebelum diingatkan. */
@@ -232,6 +234,23 @@ export class SubmissionsCronService {
               }
             }
           });
+
+          // Nilai AI dipakai sebagai nilai tahap supaya gerbang berbasis nilai
+          // bisa terbuka tanpa menunggu manusia — itulah satu-satunya cara
+          // tahap berisi esai tidak menjadi ruang tunggu berhari-hari.
+          //
+          // Bukan kata akhir: `gradeSubmission` menuliskan `finalScore` ke
+          // tahap yang sama begitu perusahaan menilai, jadi penilaian manusia
+          // tetap menimpa angka ini.
+          if (submission.stageAttemptId) {
+            await this.stageGateService
+              .settleStageScore(submission.stageAttemptId, evaluation.aiScore)
+              .catch((err) =>
+                this.logger.warn(
+                  `Nilai tahap gagal dituliskan untuk submisi ${submission.id}: ${err?.message}`,
+                ),
+              );
+          }
 
           this.logger.log(
             `Sukses mengevaluasi submission ${submission.id} via AI`,

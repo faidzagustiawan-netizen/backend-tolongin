@@ -5,9 +5,10 @@ import { AiModule } from '../ai/ai.module';
 import { TokensModule } from '../tokens/tokens.module';
 import { SubmissionsCronService } from './submissions.cron';
 import { CompaniesModule } from '../companies/companies.module';
+import { StagesModule } from '../stages/stages.module';
 
 @Module({
-  imports: [AiModule, TokensModule, CompaniesModule],
+  imports: [AiModule, TokensModule, CompaniesModule, StagesModule],
   controllers: [SubmissionsController],
   providers: [SubmissionsService, SubmissionsCronService],
   exports: [SubmissionsService],

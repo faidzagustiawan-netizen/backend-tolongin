@@ -13,6 +13,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { CompaniesService } from '../companies/companies.service';
 import { CreateChallengeDto } from './dto/create-challenge.dto';
 import { UpdateChallengeDto } from './dto/update-challenge.dto';
+import { UpdateStageGateDto } from './dto/update-stage-gate.dto';
 import { GenerateAiChallengeDto } from './dto/generate-ai-challenge.dto';
 import { GenerateAiBlueprintDto } from './dto/generate-ai-blueprint.dto';
 import { ChallengeSectionDto } from './dto/create-challenge.dto';
@@ -25,9 +26,12 @@ import {
   ChallengeStatus,
   ChallengeType,
   ComponentType,
+  GateScoreBasis,
   Prisma,
   Role,
   SectionStageType,
+  StageGateMode,
+  StagePendingPolicy,
 } from '@prisma/client';
 import crypto from 'crypto';
 
@@ -44,6 +48,18 @@ type ValidatableComponent = {
 };
 
 type ValidatableSection = {
+  id?: string;
+  title?: string | null;
+  order?: number | null;
+  opensAt?: string | Date | null;
+  closesAt?: string | Date | null;
+  gateMode?: StageGateMode | null;
+  minScore?: number | null;
+  maxAdvancing?: number | null;
+  scoreBasis?: GateScoreBasis | null;
+  gateSourceIds?: string[] | null;
+  pendingPolicy?: StagePendingPolicy | null;
+  graceDays?: number | null;
   components?: ValidatableComponent[] | null;
 };
 
@@ -76,9 +92,55 @@ export class ChallengesService {
   private static readonly TX_TIMEOUT_MS = 20000;
 
   /**
+   * Kolom skalar satu section. Dipisahkan dari pembangun nested-write supaya
+   * jalur create dan jalur update menuliskan himpunan kolom yang sama — kolom
+   * baru yang hanya ditambahkan di salah satunya adalah cara paling mudah
+   * kehilangan pengaturan tanpa jejak.
+   */
+  private buildSectionScalarData(s: ChallengeSectionDto, sIdx: number) {
+    return {
+      title: s.title,
+      description: s.description,
+      order: s.order ?? sIdx,
+      stageType: s.stageType ?? SectionStageType.ASSIGNMENT,
+      timeLimit: s.timeLimit ?? null,
+      opensAt: s.opensAt ? new Date(s.opensAt) : null,
+      closesAt: s.closesAt ? new Date(s.closesAt) : null,
+      gateMode: s.gateMode ?? StageGateMode.OPEN,
+      minScore: s.minScore ?? null,
+      maxAdvancing: s.maxAdvancing ?? null,
+      scoreBasis: s.scoreBasis ?? GateScoreBasis.PREVIOUS_STAGE,
+      gateSourceIds: s.gateSourceIds ?? [],
+      pendingPolicy: s.pendingPolicy ?? StagePendingPolicy.WAIT_FOR_SCORE,
+      graceDays: s.graceDays ?? null,
+    };
+  }
+
+  private buildComponentsCreateInput(
+    challengeId: string,
+    components?: ChallengeSectionDto['components'],
+  ) {
+    if (!components || components.length === 0) return undefined;
+
+    return {
+      create: components.map((c, cIdx) => ({
+        challengeId,
+        type: c.type,
+        question: c.question,
+        description: c.description,
+        options: c.options ?? undefined,
+        metadata: c.metadata ?? undefined,
+        points: c.points ?? 10,
+        order: c.order ?? cIdx,
+        sourceItemId: c.sourceItemId ?? null,
+      })),
+    };
+  }
+
+  /**
    * Bentuk nested-create untuk section beserta komponennya. Dipakai bersama
-   * oleh create, createPublic, dan updateChallenge supaya kolom baru tidak
-   * terlewat di salah satu jalur.
+   * oleh create dan createPublic; jalur update memakai `writeSections` karena
+   * harus mempertahankan id section yang sudah ada.
    */
   private buildSectionsCreateInput(
     challengeId: string,
@@ -88,29 +150,72 @@ export class ChallengesService {
 
     return {
       create: sections.map((s, sIdx) => ({
-        title: s.title,
-        description: s.description,
-        order: s.order ?? sIdx,
-        stageType: s.stageType ?? SectionStageType.ASSIGNMENT,
-        timeLimit: s.timeLimit ?? null,
-        components:
-          s.components && s.components.length > 0
-            ? {
-                create: s.components.map((c, cIdx) => ({
-                  challengeId,
-                  type: c.type,
-                  question: c.question,
-                  description: c.description,
-                  options: c.options ?? undefined,
-                  metadata: c.metadata ?? undefined,
-                  points: c.points ?? 10,
-                  order: c.order ?? cIdx,
-                  sourceItemId: c.sourceItemId ?? null,
-                })),
-              }
-            : undefined,
+        ...this.buildSectionScalarData(s, sIdx),
+        components: this.buildComponentsCreateInput(challengeId, s.components),
       })),
     };
+  }
+
+  /**
+   * Menulis ulang daftar section sambil mempertahankan id yang sudah ada.
+   *
+   * Dulu di sini cukup `deleteMany: {}` lalu create ulang, sehingga setiap
+   * penyimpanan draf mengganti seluruh `ChallengeSection.id`. Itu tidak
+   * terlihat selama section hanya berisi soal, tetapi pengaturan syarat masuk
+   * antar-tahap menunjuk tahap lain lewat id — dengan pola lama, rujukan itu
+   * membusuk begitu company menekan simpan sekali lagi.
+   *
+   * Ketiga operasi dijalankan terpisah, bukan sebagai satu nested write,
+   * supaya urutannya pasti: hapus dulu, baru buat. Pada satu nested write
+   * `deleteMany` yang berjalan setelah `create` akan menghapus section yang
+   * baru saja dibuat.
+   */
+  private async writeSections(
+    tx: Prisma.TransactionClient,
+    challengeId: string,
+    sections: ChallengeSectionDto[],
+    existingSectionIds: Set<string>,
+  ) {
+    // Id hanya dipercaya bila memang milik challenge ini. Tanpa penyaringan
+    // itu klien bisa menyebut id section milik perusahaan lain dan menuliskan
+    // isinya lewat jalur update.
+    const kept = sections
+      .map((s) => s.id)
+      .filter((id): id is string => !!id && existingSectionIds.has(id));
+
+    await tx.challengeSection.deleteMany({
+      where: {
+        challengeId,
+        // `notIn: []` tidak menyaring apa pun, jadi daftar kosong sengaja
+        // diterjemahkan sebagai "hapus semua" — itulah artinya ketika tidak
+        // ada satu pun section lama yang dipertahankan.
+        ...(kept.length > 0 ? { id: { notIn: kept } } : {}),
+      },
+    });
+
+    for (const [sIdx, s] of sections.entries()) {
+      const scalars = this.buildSectionScalarData(s, sIdx);
+      const components = this.buildComponentsCreateInput(
+        challengeId,
+        s.components,
+      );
+
+      if (s.id && existingSectionIds.has(s.id)) {
+        // Komponen tetap dibuang dan ditulis ulang: identitasnya tidak dirujuk
+        // oleh apa pun selama challenge masih draf, dan jawaban kandidat baru
+        // ada setelah terbit — saat mana penyuntingan sudah ditolak.
+        await tx.challengeComponent.deleteMany({ where: { sectionId: s.id } });
+
+        await tx.challengeSection.update({
+          where: { id: s.id },
+          data: { ...scalars, components },
+        });
+      } else {
+        await tx.challengeSection.create({
+          data: { challengeId, ...scalars, components },
+        });
+      }
+    }
   }
 
   private static readonly DEFAULT_RUBRIC = {
@@ -130,6 +235,147 @@ export class ChallengesService {
     'durationHours',
     'requireProctoring',
   ];
+
+  /**
+   * Pemeriksaan syarat masuk antar-tahap, hanya saat penerbitan.
+   *
+   * Semua aturan di sini menjawab satu pertanyaan yang sama: apakah masih ada
+   * jalan bagi kandidat untuk sampai ke tahap terakhir? Gerbang yang salah
+   * setel tidak memunculkan galat apa pun saat dibuat — akibatnya baru terlihat
+   * berhari-hari kemudian, ketika kandidat terkunci dan studi kasus yang sudah
+   * terbit tidak bisa lagi disunting.
+   */
+  private assertStageGatesConsistent(
+    sections: ValidatableSection[],
+    challengeStartsAt: Date | null,
+    challengeDeadlineAt: Date | null,
+  ) {
+    const ordered = sections
+      .map((section, idx) => ({ section, order: section.order ?? idx }))
+      .sort((a, b) => a.order - b.order);
+
+    const label = (section: ValidatableSection, order: number) =>
+      section.title?.trim() ? `"${section.title.trim()}"` : `urutan ${order + 1}`;
+
+    // Id tahap yang boleh dirujuk: hanya yang sudah tersimpan. Tahap baru belum
+    // punya id, jadi belum bisa menjadi sumber nilai bagi tahap lain.
+    const orderById = new Map<string, number>();
+    for (const { section, order } of ordered) {
+      if (section.id) orderById.set(section.id, order);
+    }
+
+    for (const [idx, { section, order }] of ordered.entries()) {
+      const name = label(section, order);
+      const gateMode = section.gateMode ?? StageGateMode.OPEN;
+      const opensAt = section.opensAt ? new Date(section.opensAt) : null;
+      const closesAt = section.closesAt ? new Date(section.closesAt) : null;
+
+      if (opensAt && closesAt && closesAt <= opensAt) {
+        throw new BadRequestException(
+          `Tahap ${name}: waktu tutup harus lebih lambat daripada waktu buka.`,
+        );
+      }
+      // Jendela tahap di luar jendela challenge berarti tahap yang tidak pernah
+      // bisa dikerjakan: challenge sudah tertutup sebelum tahapnya terbuka.
+      if (challengeStartsAt && opensAt && opensAt < challengeStartsAt) {
+        throw new BadRequestException(
+          `Tahap ${name}: waktu buka tidak boleh lebih awal daripada tanggal mulai challenge.`,
+        );
+      }
+      if (challengeDeadlineAt && closesAt && closesAt > challengeDeadlineAt) {
+        throw new BadRequestException(
+          `Tahap ${name}: waktu tutup tidak boleh melewati batas akhir challenge.`,
+        );
+      }
+
+      // Tahap pertama tidak punya tahap sebelumnya, jadi syarat apa pun di sana
+      // menutup studi kasus untuk semua orang.
+      if (idx === 0 && gateMode !== StageGateMode.OPEN) {
+        throw new BadRequestException(
+          `Tahap ${name} adalah tahap pertama, jadi syarat masuknya harus terbuka untuk semua kandidat.`,
+        );
+      }
+
+      if (gateMode === StageGateMode.MIN_SCORE && section.minScore == null) {
+        throw new BadRequestException(
+          `Tahap ${name}: nilai minimal harus diisi bila syarat masuknya berbasis nilai.`,
+        );
+      }
+
+      if (gateMode === StageGateMode.TOP_N) {
+        if (section.maxAdvancing == null) {
+          throw new BadRequestException(
+            `Tahap ${name}: jumlah kandidat yang lolos harus diisi bila syarat masuknya berbentuk kuota.`,
+          );
+        }
+        // Peringkat baru bermakna setelah semua kandidat menyelesaikan tahap
+        // sumbernya. Tanpa waktu tutup tidak ada saat yang bisa dipakai untuk
+        // memutuskan siapa sepuluh teratas.
+        if (!closesAt) {
+          throw new BadRequestException(
+            `Tahap ${name}: kuota hanya bisa diputuskan setelah tahap ditutup, jadi waktu tutup harus diisi.`,
+          );
+        }
+      }
+
+      if (
+        section.pendingPolicy === StagePendingPolicy.AUTO_ADVANCE_AFTER &&
+        section.graceDays == null
+      ) {
+        throw new BadRequestException(
+          `Tahap ${name}: jumlah hari tunggu harus diisi bila tahap dibuka otomatis saat penilaian terlambat.`,
+        );
+      }
+
+      // Gerbang berbasis nilai butuh sumber nilai. Sisanya tidak membaca nilai
+      // sama sekali, jadi pemeriksaan sumber tidak berlaku.
+      const readsScore =
+        gateMode === StageGateMode.MIN_SCORE || gateMode === StageGateMode.TOP_N;
+      if (!readsScore) continue;
+
+      const scoreBasis = section.scoreBasis ?? GateScoreBasis.PREVIOUS_STAGE;
+
+      if (scoreBasis === GateScoreBasis.SPECIFIC_STAGES) {
+        const sources = section.gateSourceIds ?? [];
+        if (sources.length === 0) {
+          throw new BadRequestException(
+            `Tahap ${name}: pilih minimal satu tahap yang nilainya dipakai sebagai syarat.`,
+          );
+        }
+        for (const sourceId of sources) {
+          const sourceOrder = orderById.get(sourceId);
+          if (sourceOrder === undefined) {
+            throw new BadRequestException(
+              `Tahap ${name}: ada tahap sumber nilai yang sudah tidak ada. Pilih ulang tahapnya.`,
+            );
+          }
+          // Tahap yang merujuk tahap sesudahnya membuat dua tahap saling
+          // menunggu, dan kandidat terkunci permanen tanpa satu pun galat.
+          if (sourceOrder >= order) {
+            throw new BadRequestException(
+              `Tahap ${name}: nilai syarat hanya boleh diambil dari tahap yang dikerjakan lebih dulu.`,
+            );
+          }
+        }
+        continue;
+      }
+
+      // PREVIOUS_STAGE dan CUMULATIVE membaca tahap sebelumnya. Bila tahap itu
+      // seluruhnya psikometrik, tidak ada nilai benar-salah untuk dibandingkan
+      // dengan ambang apa pun — skala Likert tidak punya jawaban benar.
+      const previous = ordered[idx - 1]?.section;
+      const previousComponents = previous?.components ?? [];
+      const previousScorable = previousComponents.some(
+        (c) => c.type !== ComponentType.PSYCHOMETRIC,
+      );
+
+      if (previousComponents.length > 0 && !previousScorable) {
+        throw new BadRequestException(
+          `Tahap ${name}: tahap sebelumnya hanya berisi soal psikometrik, yang tidak menghasilkan nilai benar-salah. Pilih tahap sumber nilai yang lain.`,
+        );
+      }
+    }
+  }
 
   /**
    * Pemeriksaan yang tidak bisa dinyatakan lewat dekorator class-validator
@@ -220,6 +466,8 @@ export class ChallengesService {
         }
       }
     }
+
+    this.assertStageGatesConsistent(sections, startsAt, deadlineAt);
 
     // Bobot rubrik hanya dipakai saat penilaian bersifat holistik. Begitu ada
     // soal, skor dihitung dari poin tiap soal dan rubrik tidak lagi mengikat —
@@ -383,6 +631,15 @@ export class ChallengesService {
                   createChallengeDto.sections,
                 ),
               },
+              // Id tahap ikut dikembalikan supaya builder menyimpannya dan
+              // penyimpanan berikutnya memperbarui baris yang sama alih-alih
+              // membuat ulang seluruh tahap.
+              include: {
+                sections: {
+                  select: { id: true, order: true },
+                  orderBy: { order: 'asc' },
+                },
+              },
             });
 
             await tx.notification.create({
@@ -468,6 +725,14 @@ export class ChallengesService {
                 challengeId,
                 createChallengeDto.sections,
               ),
+            },
+            // Sama seperti jalur perusahaan: id tahap dikembalikan supaya
+            // builder bisa menyimpannya.
+            include: {
+              sections: {
+                select: { id: true, order: true },
+                orderBy: { order: 'asc' },
+              },
             },
           });
 
@@ -1100,6 +1365,24 @@ export class ChallengesService {
             include: {
               sections: {
                 select: {
+                  // Id dibaca supaya penulisan ulang bisa mempertahankan
+                  // section yang sudah ada, dan supaya id kiriman klien bisa
+                  // diperiksa memang milik challenge ini.
+                  id: true,
+                  // Kolom gerbang ikut dibaca supaya `PATCH { status:
+                  // 'PUBLISHED' }` polos — yang tidak mengirim ulang sections —
+                  // tetap diperiksa terhadap pengaturan yang sudah tersimpan.
+                  title: true,
+                  order: true,
+                  opensAt: true,
+                  closesAt: true,
+                  gateMode: true,
+                  minScore: true,
+                  maxAdvancing: true,
+                  scoreBasis: true,
+                  gateSourceIds: true,
+                  pendingPolicy: true,
+                  graceDays: true,
                   components: {
                     // `metadata` ikut dibaca karena pemeriksaan soal psikotes
                     // membacanya; tanpa itu penerbitan lewat PATCH tanpa
@@ -1175,22 +1458,24 @@ export class ChallengesService {
                 : undefined,
               isPrivate: updateDto.isPrivate,
               status: updateDto.status,
-              // Syaratnya `!== undefined`, bukan "ada isinya". Dengan syarat
-              // lama, menghapus seluruh tahap lalu menyimpan tidak mengubah
-              // apa pun: antarmuka melaporkan sukses sementara section lama
-              // tetap utuh di basis data.
-              sections:
-                updateDto.sections !== undefined
-                  ? {
-                      deleteMany: {},
-                      ...(this.buildSectionsCreateInput(
-                        id,
-                        updateDto.sections,
-                      ) ?? {}),
-                    }
-                  : undefined,
             },
           });
+
+          // Section ditulis di luar `challenge.update` supaya urutan hapus dan
+          // buat bisa dipastikan; lihat `writeSections`.
+          //
+          // Syaratnya `!== undefined`, bukan "ada isinya". Dengan syarat lama,
+          // menghapus seluruh tahap lalu menyimpan tidak mengubah apa pun:
+          // antarmuka melaporkan sukses sementara section lama tetap utuh di
+          // basis data.
+          if (updateDto.sections !== undefined) {
+            await this.writeSections(
+              tx,
+              id,
+              updateDto.sections,
+              new Set(existing.sections.map((s) => s.id)),
+            );
+          }
 
           // Penerbitan lewat PATCH dulu tidak memberi kabar apa pun, padahal
           // jalur AI selalu berakhir di sini: draf dibuat mesin, lalu manusia
@@ -1213,7 +1498,17 @@ export class ChallengesService {
             }
           }
 
-          return { challenge: existing, updated: result };
+          // Id tahap ikut dikembalikan supaya builder menyimpannya dan
+          // penyimpanan berikutnya memperbarui baris yang sama. Dibaca ulang
+          // di sini, bukan diambil dari `result`, karena section ditulis
+          // sesudah `challenge.update` berjalan.
+          const sections = await tx.challengeSection.findMany({
+            where: { challengeId: id },
+            select: { id: true, order: true },
+            orderBy: { order: 'asc' },
+          });
+
+          return { challenge: existing, updated: { ...result, sections } };
         },
         { timeout: ChallengesService.TX_TIMEOUT_MS },
       ),
@@ -1231,6 +1526,147 @@ export class ChallengesService {
         'CHALLENGE',
         challenge.id,
         { changedFields: changedKeys, actorRole: role },
+      );
+    }
+
+    return updated;
+  }
+
+  /**
+   * Mengubah jadwal dan syarat masuk satu tahap, termasuk pada studi kasus yang
+   * sudah terbit.
+   *
+   * Jalur tersendiri, bukan bagian dari `updateChallenge`, karena keduanya punya
+   * aturan yang berlawanan: menyunting soal hanya boleh saat DRAFT — jawaban
+   * kandidat menunjuk baris soal, jadi mengubahnya di tengah pengerjaan
+   * menggantungkan jawaban pada pertanyaan yang berbeda dari yang dijawab.
+   * Ambang lolos dan jadwal justru paling perlu diubah setelah terbit: barulah
+   * terlihat bahwa "minimal 80" menyisakan nol kandidat.
+   *
+   * Batas waktu yang sedang berjalan tidak ikut berubah. `timeLimit` baru hanya
+   * berlaku bagi kandidat yang belum menekan "Mulai" — memundurkan
+   * `StageAttempt.expiresAt` yang sudah tercap berarti memotong waktu orang di
+   * tengah pengerjaan.
+   */
+  async updateStageGate(
+    challengeId: string,
+    sectionId: string,
+    profileId: string,
+    dto: UpdateStageGateDto,
+    userId?: string,
+    role?: string,
+  ) {
+    const isAdmin = role === Role.ADMIN;
+
+    if (!isAdmin && !profileId) {
+      throw new ForbiddenException(
+        'Sesi tidak memiliki profil. Silakan masuk ulang.',
+      );
+    }
+
+    const challenge = await this.prisma.challenge.findFirst({
+      where: isAdmin
+        ? { id: challengeId }
+        : {
+            id: challengeId,
+            OR: [{ companyId: profileId }, { talentId: profileId }],
+          },
+      include: {
+        sections: {
+          orderBy: { order: 'asc' },
+          // `question` ikut dibaca hanya karena bentuk `ValidatableComponent`
+          // menuntutnya; pemeriksaan gerbang sendiri cuma melihat `type`.
+          include: { components: { select: { type: true, question: true } } },
+        },
+      },
+    });
+
+    if (!challenge) throw new NotFoundException('Challenge tidak ditemukan');
+
+    if (challenge.status === ChallengeStatus.CLOSED) {
+      throw new ForbiddenException(
+        'Studi kasus yang sudah diarsipkan tidak dapat diubah.',
+      );
+    }
+
+    const target = challenge.sections.find((s) => s.id === sectionId);
+    if (!target) throw new NotFoundException('Tahap tidak ditemukan');
+
+    // Pemeriksaan dijalankan atas keadaan setelah perubahan, bukan atas satu
+    // tahap terpisah: syarat masuk selalu menunjuk tahap lain, jadi sahnya satu
+    // tahap hanya bisa dinilai bersama tetangganya.
+    const projected = challenge.sections.map((section) =>
+      section.id === sectionId
+        ? {
+            ...section,
+            timeLimit: dto.timeLimit ?? section.timeLimit,
+            opensAt:
+              dto.opensAt !== undefined
+                ? dto.opensAt
+                  ? new Date(dto.opensAt)
+                  : null
+                : section.opensAt,
+            closesAt:
+              dto.closesAt !== undefined
+                ? dto.closesAt
+                  ? new Date(dto.closesAt)
+                  : null
+                : section.closesAt,
+            gateMode: dto.gateMode ?? section.gateMode,
+            minScore: dto.minScore !== undefined ? dto.minScore : section.minScore,
+            maxAdvancing:
+              dto.maxAdvancing !== undefined
+                ? dto.maxAdvancing
+                : section.maxAdvancing,
+            scoreBasis: dto.scoreBasis ?? section.scoreBasis,
+            gateSourceIds: dto.gateSourceIds ?? section.gateSourceIds,
+            pendingPolicy: dto.pendingPolicy ?? section.pendingPolicy,
+            graceDays:
+              dto.graceDays !== undefined ? dto.graceDays : section.graceDays,
+          }
+        : section,
+    );
+
+    this.assertStageGatesConsistent(
+      projected,
+      challenge.startsAt,
+      challenge.deadlineAt,
+    );
+
+    const updated = await this.prisma.challengeSection.update({
+      where: { id: sectionId },
+      data: {
+        timeLimit: dto.timeLimit,
+        opensAt:
+          dto.opensAt !== undefined
+            ? dto.opensAt
+              ? new Date(dto.opensAt)
+              : null
+            : undefined,
+        closesAt:
+          dto.closesAt !== undefined
+            ? dto.closesAt
+              ? new Date(dto.closesAt)
+              : null
+            : undefined,
+        gateMode: dto.gateMode,
+        minScore: dto.minScore,
+        maxAdvancing: dto.maxAdvancing,
+        scoreBasis: dto.scoreBasis,
+        gateSourceIds: dto.gateSourceIds,
+        pendingPolicy: dto.pendingPolicy,
+        graceDays: dto.graceDays,
+      },
+    });
+
+    if (userId && challenge.companyId) {
+      await this.companiesService.logAction(
+        challenge.companyId,
+        userId,
+        'UPDATE_STAGE_GATE',
+        'CHALLENGE',
+        challengeId,
+        { sectionId, changedFields: Object.keys(dto), actorRole: role },
       );
     }
 

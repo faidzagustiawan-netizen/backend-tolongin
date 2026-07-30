@@ -27,6 +27,7 @@ import { MailModule } from './mail/mail.module';
 import { AdminModule } from './admin/admin.module';
 import { SkillsModule } from './skills/skills.module';
 import { QuestionBankModule } from './question-bank/question-bank.module';
+import { StagesModule } from './stages/stages.module';
 
 @Module({
   imports: [
@@ -62,6 +63,7 @@ import { QuestionBankModule } from './question-bank/question-bank.module';
     AdminModule,
     SkillsModule,
     QuestionBankModule,
+    StagesModule,
   ],
   controllers: [AppController],
   providers: [
