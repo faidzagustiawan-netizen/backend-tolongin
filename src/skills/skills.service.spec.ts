@@ -43,12 +43,12 @@ const DIRECTORY = [
 
 describe('SkillsService.resolveCategory', () => {
   let prisma: ReturnType<typeof makePrisma>;
-  let ai: { resolveJobCategory: jest.Mock };
+  let ai: { resolveDirectoryEntry: jest.Mock };
   let service: SkillsService;
 
   beforeEach(() => {
     prisma = makePrisma(DIRECTORY);
-    ai = { resolveJobCategory: jest.fn() };
+    ai = { resolveDirectoryEntry: jest.fn() };
     service = new SkillsService(
       prisma as unknown as PrismaService,
       ai as unknown as AiService,
@@ -59,14 +59,14 @@ describe('SkillsService.resolveCategory', () => {
     const result = await service.resolveCategory('backend development');
 
     expect(result.status).toBe('EXACT');
-    expect(ai.resolveJobCategory).not.toHaveBeenCalled();
+    expect(ai.resolveDirectoryEntry).not.toHaveBeenCalled();
     if (result.status === 'EXACT') {
       expect(result.category.name).toBe('Backend Development');
     }
   });
 
   it('menawarkan pembetulan saat AI menilai ketikannya salah eja', async () => {
-    ai.resolveJobCategory.mockResolvedValue({
+    ai.resolveDirectoryEntry.mockResolvedValue({
       verdict: 'typo',
       canonical: 'Backend Development',
       reason: 'Sepertinya yang Anda maksud Backend Development.',
@@ -84,7 +84,7 @@ describe('SkillsService.resolveCategory', () => {
   });
 
   it('menambahkan bidang baru yang sah ke direktori saat itu juga', async () => {
-    ai.resolveJobCategory.mockResolvedValue({
+    ai.resolveDirectoryEntry.mockResolvedValue({
       verdict: 'new',
       canonical: 'Video Editor',
       reason: 'Profesi yang sah dan belum ada di daftar.',
@@ -102,7 +102,7 @@ describe('SkillsService.resolveCategory', () => {
   });
 
   it('tidak memaksakan pembetulan untuk profesi berbeda yang ejaannya mirip', async () => {
-    ai.resolveJobCategory.mockResolvedValue({
+    ai.resolveDirectoryEntry.mockResolvedValue({
       verdict: 'new',
       canonical: 'Data Engineer',
       reason: 'Berbeda dari Data Science / ML.',
@@ -111,14 +111,15 @@ describe('SkillsService.resolveCategory', () => {
     const result = await service.resolveCategory('Data Engineer');
 
     expect(result.status).toBe('CREATED');
-    expect(ai.resolveJobCategory).toHaveBeenCalledWith(
+    expect(ai.resolveDirectoryEntry).toHaveBeenCalledWith(
       'Data Engineer',
       expect.arrayContaining(['Data Science / ML']),
+      'category',
     );
   });
 
   it('menolak teks yang bukan bidang pekerjaan tanpa menambah baris', async () => {
-    ai.resolveJobCategory.mockResolvedValue({
+    ai.resolveDirectoryEntry.mockResolvedValue({
       verdict: 'invalid',
       canonical: null,
       reason: 'Teks ini tidak dikenali sebagai bidang pekerjaan.',
@@ -131,7 +132,7 @@ describe('SkillsService.resolveCategory', () => {
   });
 
   it('menerima nama rapian AI yang ternyata sudah ada sebagai EXACT', async () => {
-    ai.resolveJobCategory.mockResolvedValue({
+    ai.resolveDirectoryEntry.mockResolvedValue({
       verdict: 'new',
       canonical: 'Backend Development',
       reason: '',
@@ -146,7 +147,7 @@ describe('SkillsService.resolveCategory', () => {
   it('memperlakukan putusan typo yang tidak menunjuk kandidat mana pun sebagai bidang baru', async () => {
     // Model kadang mengarang nama yang tidak ada di daftar; usulan semacam itu
     // tidak bisa dipakai karena tidak menunjuk baris mana pun.
-    ai.resolveJobCategory.mockResolvedValue({
+    ai.resolveDirectoryEntry.mockResolvedValue({
       verdict: 'typo',
       canonical: 'Bidang Yang Tidak Ada',
       reason: '',
@@ -162,7 +163,7 @@ describe('SkillsService.resolveCategory', () => {
 
   describe('saat AI tidak dapat dihubungi', () => {
     beforeEach(() => {
-      ai.resolveJobCategory.mockRejectedValue(new Error('AI_NOT_CONFIGURED'));
+      ai.resolveDirectoryEntry.mockRejectedValue(new Error('AI_NOT_CONFIGURED'));
     });
 
     it('menawarkan pembetulan hanya untuk kemiripan yang sangat dekat', async () => {
@@ -191,7 +192,7 @@ describe('SkillsService.resolveCategory', () => {
   it('force melewati AI tetapi tetap tidak menggandakan baris yang ada', async () => {
     const created = await service.resolveCategory('Penulis Naskah', true);
     expect(created.status).toBe('CREATED');
-    expect(ai.resolveJobCategory).not.toHaveBeenCalled();
+    expect(ai.resolveDirectoryEntry).not.toHaveBeenCalled();
 
     const again = await service.resolveCategory('penulis naskah', true);
     expect(again.status).toBe('EXACT');
@@ -208,12 +209,137 @@ describe('SkillsService.resolveCategory', () => {
   });
 });
 
+describe('SkillsService — kosakata keahlian', () => {
+  let prisma: ReturnType<typeof makePrisma>;
+  let ai: { resolveDirectoryEntry: jest.Mock };
+  let service: SkillsService;
+
+  beforeEach(() => {
+    prisma = makePrisma(DIRECTORY);
+    ai = { resolveDirectoryEntry: jest.fn() };
+    service = new SkillsService(
+      prisma as unknown as PrismaService,
+      ai as unknown as AiService,
+    );
+  });
+
+  it('menilai ketikan dengan ukuran keahlian, bukan bidang pekerjaan', async () => {
+    // Satu tabel menampung dua kosakata. Menilai "Kubernetes" dengan ukuran
+    // bidang pekerjaan akan menolaknya sebagai bukan profesi.
+    ai.resolveDirectoryEntry.mockResolvedValue({
+      verdict: 'new',
+      canonical: 'Kubernetes',
+      reason: 'Teknologi yang sah.',
+    });
+
+    const result = await service.resolveCategory('kubernetes', false, 'skill');
+
+    expect(result.status).toBe('CREATED');
+    expect(ai.resolveDirectoryEntry).toHaveBeenCalledWith(
+      'kubernetes',
+      expect.any(Array),
+      'skill',
+    );
+  });
+
+  it('memakai kata "Keahlian" pada pesan penolakan', async () => {
+    ai.resolveDirectoryEntry.mockResolvedValue({
+      verdict: 'invalid',
+      canonical: null,
+      reason: '',
+    });
+
+    const result = await service.resolveCategory('zzzqqq', false, 'skill');
+
+    expect(result.status).toBe('REJECTED');
+    expect(result.reason).toContain('keahlian');
+  });
+});
+
+describe('SkillsService.createSkill — gerbang tulis tunggal', () => {
+  let prisma: ReturnType<typeof makePrisma>;
+  let service: SkillsService;
+
+  beforeEach(() => {
+    prisma = makePrisma(DIRECTORY);
+    service = new SkillsService(
+      prisma as unknown as PrismaService,
+      { resolveDirectoryEntry: jest.fn() } as unknown as AiService,
+    );
+  });
+
+  it('menolak nama kosong, terlalu pendek, dan terlalu panjang', async () => {
+    for (const bad of ['', '   ', 'x', 'y'.repeat(61)]) {
+      await expect(service.createSkill(bad)).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+    }
+    expect(prisma.skill.create).not.toHaveBeenCalled();
+  });
+
+  it('merapikan spasi berlebih sebelum menyimpan', async () => {
+    const created = await service.createSkill('  Adobe   Illustrator  ');
+
+    expect(created.name).toBe('Adobe Illustrator');
+  });
+
+  it('tidak menggandakan baris yang beda huruf besar-kecil saja', async () => {
+    const again = await service.createSkill('backend development');
+
+    expect(again.name).toBe('Backend Development');
+    expect(prisma.skill.create).not.toHaveBeenCalled();
+  });
+
+  it('entri baru langsung terlihat oleh pencarian jarak ketik', async () => {
+    await service.createSkill('Kubernetes');
+
+    // Tanpa penulisan langsung ke cache, entri ini baru muncul setelah cache
+    // kedaluwarsa — persis saat pengguna paling mungkin mengetiknya lagi.
+    const hasil = await service.searchSkills('Kubernetees');
+
+    expect(hasil.map((s: any) => s.name)).toContain('Kubernetes');
+  });
+});
+
+describe('SkillsService.searchSkills — urutan hasil', () => {
+  it('mendahulukan yang diawali ketikan, lalu nama terpendek', async () => {
+    const prisma = makePrisma([
+      'Frontend Development',
+      'React',
+      'React Native',
+      'Preact',
+    ]);
+    // `contains` ditirukan supaya urutan dari basis data sengaja terbalik dari
+    // yang diharapkan — itulah yang dulu bocor apa adanya ke pengguna.
+    prisma.skill.findMany = jest.fn(async ({ where }: any) => {
+      const q = String(where.name.contains).toLowerCase();
+      return prisma.rows
+        .filter((r) => r.name.toLowerCase().includes(q))
+        .reverse()
+        .map((r) => ({ ...r }));
+    }) as any;
+
+    const service = new SkillsService(
+      prisma as unknown as PrismaService,
+      { resolveDirectoryEntry: jest.fn() } as unknown as AiService,
+    );
+
+    const hasil = await service.searchSkills('react');
+
+    expect(hasil.map((s: any) => s.name)).toEqual([
+      'React',
+      'React Native',
+      'Preact',
+    ]);
+  });
+});
+
 describe('SkillsService.resolveCategoryId', () => {
   it('mengembalikan null untuk nama kosong — artinya lintas bidang', async () => {
     const prisma = makePrisma(DIRECTORY);
     const service = new SkillsService(
       prisma as unknown as PrismaService,
-      { resolveJobCategory: jest.fn() } as unknown as AiService,
+      { resolveDirectoryEntry: jest.fn() } as unknown as AiService,
     );
 
     await expect(service.resolveCategoryId('')).resolves.toBeNull();
@@ -224,7 +350,7 @@ describe('SkillsService.resolveCategoryId', () => {
 
   it('membuat baris baru untuk bidang yang belum ada, tanpa melibatkan AI', async () => {
     const prisma = makePrisma(DIRECTORY);
-    const ai = { resolveJobCategory: jest.fn() };
+    const ai = { resolveDirectoryEntry: jest.fn() };
     const service = new SkillsService(
       prisma as unknown as PrismaService,
       ai as unknown as AiService,
@@ -233,7 +359,7 @@ describe('SkillsService.resolveCategoryId', () => {
     const id = await service.resolveCategoryId('Akuntan');
 
     expect(id).toBeTruthy();
-    expect(ai.resolveJobCategory).not.toHaveBeenCalled();
+    expect(ai.resolveDirectoryEntry).not.toHaveBeenCalled();
     expect(prisma.skill.create).toHaveBeenCalledTimes(1);
   });
 });

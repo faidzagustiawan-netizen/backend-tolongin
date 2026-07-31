@@ -65,6 +65,51 @@ export class FaceEngineUnavailableError extends Error {
 const DEFAULT_AI_BASE_URL = 'https://ai.sumopod.com/v1';
 const DEFAULT_AI_MODEL = 'gpt-4o';
 
+/**
+ * Dua kosakata yang ditampung tabel `skills` yang sama.
+ *
+ * Menyatukan tabelnya membuat "Backend Development" yang dicari perusahaan
+ * benar-benar baris yang sama dengan yang tercantum di profil kandidat. Tetapi
+ * ukuran kelayakannya berbeda: "React" keahlian yang sah dan bukan bidang
+ * pekerjaan, sedangkan "Akuntan" sebaliknya. Satu prompt untuk keduanya akan
+ * menolak separuh masukan yang benar.
+ */
+export type DirectoryEntryKind = 'category' | 'skill';
+
+const DIRECTORY_VOCABULARY: Record<
+  DirectoryEntryKind,
+  {
+    noun: string;
+    nounCapital: string;
+    actor: string;
+    audience: string;
+    typoExample: string;
+    newExample: string;
+    extraRule: string;
+  }
+> = {
+  category: {
+    noun: 'bidang pekerjaan',
+    nounCapital: 'Bidang pekerjaan',
+    actor: 'Perusahaan',
+    audience: 'perusahaan',
+    typoExample: '"backen" atau "Back-end" untuk "Backend Development"',
+    newExample: '"Video Editor", "Akuntan", "Data Engineer"',
+    extraRule:
+      '- Bidang pekerjaan adalah profesi atau fungsi kerja, bukan satu alat atau teknologi tunggal. "React" bukan bidang pekerjaan; "Frontend Development" adalah.\n',
+  },
+  skill: {
+    noun: 'keahlian',
+    nounCapital: 'Keahlian',
+    actor: 'Talenta',
+    audience: 'talenta',
+    typoExample: '"reactt" atau "React.js" untuk "React"',
+    newExample: '"Kubernetes", "Copywriting", "Negosiasi", "Adobe Illustrator"',
+    extraRule:
+      '- Keahlian boleh berupa teknologi, alat, metode, maupun kemampuan lunak — "React", "Figma", "Negosiasi", dan "Manajemen Waktu" semuanya sah. Nama profesi seperti "Backend Developer" bukan keahlian; yang sah adalah kemampuannya.\n',
+  },
+};
+
 @Injectable()
 export class AiService {
   private openai: OpenAI | null = null;
@@ -357,9 +402,8 @@ Berikan penilaian akhir berupa objek JSON dengan struktur persis berikut:
   }
 
   /**
-   * Memutuskan apakah bidang pekerjaan yang diketik perusahaan adalah salah
-   * ketik dari yang sudah ada, bidang baru yang sah, atau bukan bidang sama
-   * sekali.
+   * Memutuskan apakah teks yang diketik pengguna adalah salah ketik dari entri
+   * direktori yang sudah ada, entri baru yang sah, atau bukan entri sama sekali.
    *
    * Jarak Levenshtein saja tidak cukup memutuskan ini. "Backen" berjarak 2 dari
    * "Backend Development" dan jelas salah ketik; "Data Engineer" juga berjarak
@@ -367,36 +411,45 @@ Berikan penilaian akhir berupa objek JSON dengan struktur persis berikut:
    * Ambang berapa pun akan salah pada salah satu dari keduanya, jadi kandidat
    * terdekat diserahkan ke model bersama teks aslinya.
    *
+   * `kind` menentukan kosakata mana yang sedang dinilai. Satu tabel `skills`
+   * memuat dua hal sekaligus — bidang pekerjaan yang dicari perusahaan dan
+   * keahlian yang dicantumkan talenta — dan keduanya tidak bisa dinilai dengan
+   * ukuran yang sama: "React" adalah keahlian yang sah tetapi bukan bidang
+   * pekerjaan, jadi prompt bidang akan menolaknya sebagai `invalid`.
+   *
    * Melempar bila AI tidak tersedia — pemanggil yang memutuskan apakah aman
    * menerima masukan apa adanya.
    */
-  async resolveJobCategory(
+  async resolveDirectoryEntry(
     input: string,
     candidates: string[],
+    kind: DirectoryEntryKind = 'category',
   ): Promise<{
     verdict: 'typo' | 'new' | 'invalid';
     canonical: string | null;
     reason: string;
   }> {
-    const prompt = `Anda adalah kurator direktori bidang pekerjaan pada platform rekrutmen Indonesia.
+    const v = DIRECTORY_VOCABULARY[kind];
 
-Perusahaan mengetik bidang pekerjaan: "${input}"
+    const prompt = `Anda adalah kurator direktori ${v.noun} pada platform rekrutmen Indonesia.
 
-Bidang yang sudah ada di direktori dan paling mirip dengan ketikan itu:
+${v.actor} mengetik ${v.noun}: "${input}"
+
+${v.nounCapital} yang sudah ada di direktori dan paling mirip dengan ketikan itu:
 ${candidates.length > 0 ? candidates.map((c) => `- ${c}`).join('\n') : '(tidak ada yang mirip)'}
 
 Tentukan satu dari tiga putusan:
-- "typo": ketikan itu jelas maksudnya salah satu bidang yang SUDAH ADA di daftar (salah eja, disingkat, beda bahasa, beda huruf besar-kecil). Contoh: "backen" atau "Back-end" untuk "Backend Development".
-- "new": ketikan itu bidang pekerjaan yang sah tetapi memang BELUM ada di daftar. Contoh: "Video Editor", "Akuntan", "Data Engineer". Profesi yang berbeda tetap "new" walaupun ejaannya mirip dengan yang sudah ada.
-- "invalid": ketikan itu bukan bidang pekerjaan (huruf acak, kata kasar, kalimat, nama orang, nama perusahaan).
+- "typo": ketikan itu jelas maksudnya salah satu entri yang SUDAH ADA di daftar (salah eja, disingkat, beda bahasa, beda huruf besar-kecil). Contoh: ${v.typoExample}.
+- "new": ketikan itu ${v.noun} yang sah tetapi memang BELUM ada di daftar. Contoh: ${v.newExample}. Hal yang berbeda tetap "new" walaupun ejaannya mirip dengan yang sudah ada.
+- "invalid": ketikan itu bukan ${v.noun} (huruf acak, kata kasar, kalimat, nama orang, nama perusahaan).
 
 Aturan:
-- Jangan memaksakan "typo" hanya karena ejaannya berdekatan. Pekerjaan yang berbeda tetap "new".
+- Jangan memaksakan "typo" hanya karena ejaannya berdekatan. Hal yang berbeda tetap "new".
 - Untuk "typo", "canonical" WAJIB persis sama dengan salah satu baris daftar di atas.
-- Untuk "new", "canonical" adalah ketikan yang dirapikan sebagai nama bidang yang pantas ditampilkan (Kapital Di Awal Kata, tanpa tanda baca berlebih, tanpa tingkat senioritas seperti "Senior"/"Junior", bentuk tunggal).
+- Untuk "new", "canonical" adalah ketikan yang dirapikan sebagai nama yang pantas ditampilkan (Kapital Di Awal Kata, tanpa tanda baca berlebih, tanpa tingkat senioritas seperti "Senior"/"Junior", bentuk tunggal). Pertahankan penulisan baku yang sudah dikenal luas, misalnya "Node.js" dan "UI/UX".
 - Untuk "invalid", "canonical" adalah null.
-- "reason" ditulis dalam Bahasa Indonesia, satu kalimat, ditujukan kepada perusahaan.
-
+- "reason" ditulis dalam Bahasa Indonesia, satu kalimat, ditujukan kepada ${v.audience}.
+${v.extraRule}
 Berikan respons HANYA dalam format JSON:
 { "verdict": "typo" | "new" | "invalid", "canonical": "string atau null", "reason": "satu kalimat" }`;
 
@@ -404,7 +457,7 @@ Berikan respons HANYA dalam format JSON:
       verdict?: string;
       canonical?: string | null;
       reason?: string;
-    }>([{ role: 'system', content: prompt }], 'resolve job category');
+    }>([{ role: 'system', content: prompt }], `resolve ${kind}`);
 
     const verdict =
       result.verdict === 'typo' ||

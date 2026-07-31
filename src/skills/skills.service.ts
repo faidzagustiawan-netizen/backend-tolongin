@@ -1,19 +1,22 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { AiService } from '../ai/ai.service';
+import { AiService, DirectoryEntryKind } from '../ai/ai.service';
 
 export interface SkillRef {
   id: string;
   name: string;
 }
 
+export type { DirectoryEntryKind };
+
 /**
- * Hasil pemeriksaan bidang pekerjaan yang diketik sendiri oleh perusahaan.
+ * Hasil pemeriksaan entri direktori yang diketik sendiri oleh pengguna —
+ * bidang pekerjaan oleh perusahaan, atau keahlian oleh talenta.
  *
  * - `EXACT`    — persis sama dengan yang sudah ada di direktori.
- * - `CREATED`  — bidang baru yang sah, sudah ditambahkan ke direktori.
- * - `SUGGESTION` — kemungkinan salah ketik; perusahaan yang memutuskan.
- * - `REJECTED` — bukan bidang pekerjaan, tidak ditambahkan.
+ * - `CREATED`  — entri baru yang sah, sudah ditambahkan ke direktori.
+ * - `SUGGESTION` — kemungkinan salah ketik; pengguna yang memutuskan.
+ * - `REJECTED` — bukan entri yang sah, tidak ditambahkan.
  */
 export type CategoryResolution =
   | { status: 'EXACT'; category: SkillRef; reason: string; aiChecked: boolean }
@@ -39,9 +42,19 @@ export class SkillsService {
   private cacheTimestamp = 0;
   private readonly logger = new Logger(SkillsService.name);
 
-  /** Ketikan di luar rentang ini tidak layak dikirim ke AI. */
-  private static readonly MIN_NAME_LENGTH = 2;
-  private static readonly MAX_NAME_LENGTH = 60;
+  /** Ketikan di luar rentang ini tidak layak masuk direktori. */
+  static readonly MIN_NAME_LENGTH = 2;
+  static readonly MAX_NAME_LENGTH = 60;
+
+  /**
+   * Umur cache daftar nama untuk pencocokan jarak ketik.
+   *
+   * Sengaja pendek. Penambahan entri hanya membatalkan cache pada proses yang
+   * menuliskannya; proses lain dalam mode cluster tetap memakai salinan lamanya
+   * sampai kedaluwarsa. Satu menit membuat mereka menyusul sendiri, alih-alih
+   * menyembunyikan entri baru selama lima menit dari separuh permintaan.
+   */
+  private static readonly CACHE_TTL_MS = 60_000;
 
   /** Banyaknya kandidat terdekat yang disodorkan ke AI sebagai pembanding. */
   private static readonly MAX_CANDIDATES = 8;
@@ -76,8 +89,7 @@ export class SkillsService {
 
   private async allSkills(): Promise<SkillRef[]> {
     const now = Date.now();
-    if (now - this.cacheTimestamp > 1000 * 60 * 5) {
-      // 5 minute cache
+    if (now - this.cacheTimestamp > SkillsService.CACHE_TTL_MS) {
       this.cachedSkills = await this.prisma.skill.findMany({
         select: { id: true, name: true },
       });
@@ -124,7 +136,19 @@ export class SkillsService {
     });
 
     if (exactMatches.length > 0) {
-      return exactMatches;
+      // Urutan datang dari basis data, jadi "Frontend Development" bisa
+      // mendahului "React" untuk ketikan "re" hanya karena lebih dulu dibuat.
+      // Yang diawali ketikan hampir selalu yang dimaksud; sesudah itu nama
+      // terpendek, karena yang panjang biasanya entri lain yang kebetulan
+      // memuat potongan kata yang sama.
+      const q = query.trim().toLowerCase();
+      return [...exactMatches].sort((a, b) => {
+        const aStarts = a.name.toLowerCase().startsWith(q) ? 0 : 1;
+        const bStarts = b.name.toLowerCase().startsWith(q) ? 0 : 1;
+        if (aStarts !== bStarts) return aStarts - bStarts;
+        if (a.name.length !== b.name.length) return a.name.length - b.name.length;
+        return a.name.localeCompare(b.name);
+      });
     }
 
     // 2. Fallback to Levenshtein distance for typos (e.g. ui/uz -> UI/UX)
@@ -137,22 +161,52 @@ export class SkillsService {
       .map((s) => ({ id: s.id, name: s.name, _dist: s.dist }));
   }
 
+  /**
+   * Satu-satunya pintu tulis ke direktori.
+   *
+   * Setiap jalur bermuara di sini — POST /skills, pemeriksaan AI, dan penukaran
+   * nama bidang saat studi kasus disimpan — jadi di sinilah kelayakan nama
+   * diperiksa. Sebelumnya pemeriksaan hanya ada di `resolveCategory`, sehingga
+   * klien yang memanggil POST /skills langsung bisa menitipkan string sepanjang
+   * apa pun, dan sejak direktori ini juga menyetir bidang pekerjaan, isian
+   * sembarangan dari layar keahlian talenta muncul sebagai saran bidang bagi
+   * perusahaan.
+   */
   async createSkill(name: string) {
-    const existing = await this.prisma.skill.findUnique({
-      where: { name },
-    });
+    const finalName = this.normalizeName(name ?? '');
+    this.assertUsableName(finalName);
+
+    // Pencocokan tanpa memandang besar-kecil huruf: `findUnique` hanya
+    // menangkap yang identik, sehingga "backend development" akan lolos menjadi
+    // baris kedua di samping "Backend Development".
+    const existing = await this.findByNameInsensitive(finalName);
     if (existing) return existing;
 
     const created = await this.prisma.skill.create({
-      data: { name },
+      data: { name: finalName },
+      select: { id: true, name: true },
     });
 
-    // Tanpa ini, entri yang baru dibuat tidak terlihat oleh pencarian
-    // Levenshtein sampai lima menit berikutnya — persis pada saat pengguna
-    // paling mungkin mengetiknya lagi.
-    this.cacheTimestamp = 0;
+    // Ditulis langsung ke cache, bukan sekadar membatalkannya: entri yang baru
+    // dibuat harus segera terlihat oleh pencarian jarak ketik — persis pada saat
+    // pengguna paling mungkin mengetiknya lagi.
+    this.cachedSkills = [...this.cachedSkills, created];
 
     return created;
+  }
+
+  /** Batas yang berlaku sama untuk bidang pekerjaan maupun keahlian. */
+  private assertUsableName(name: string): void {
+    if (name.length < SkillsService.MIN_NAME_LENGTH) {
+      throw new BadRequestException(
+        `Nama minimal ${SkillsService.MIN_NAME_LENGTH} karakter.`,
+      );
+    }
+    if (name.length > SkillsService.MAX_NAME_LENGTH) {
+      throw new BadRequestException(
+        `Nama maksimal ${SkillsService.MAX_NAME_LENGTH} karakter.`,
+      );
+    }
   }
 
   /**
@@ -206,25 +260,34 @@ export class SkillsService {
   }
 
   /**
-   * Memeriksa bidang pekerjaan yang diketik perusahaan, lalu menambahkannya ke
-   * direktori bila memang bidang baru yang sah.
+   * Memeriksa entri yang diketik pengguna, lalu menambahkannya ke direktori
+   * bila memang entri baru yang sah.
    *
-   * `force` dipakai ketika perusahaan sudah melihat usulan pembetulan dan tetap
+   * `kind` memilih ukuran kelayakannya: bidang pekerjaan bagi perusahaan,
+   * keahlian bagi talenta. Keduanya berbagi satu tabel tetapi tidak berbagi
+   * definisi sah — "React" keahlian yang benar dan bukan bidang pekerjaan.
+   *
+   * `force` dipakai ketika pengguna sudah melihat usulan pembetulan dan tetap
    * memilih ketikannya sendiri. Yang dilewati hanya langkah AI — pemeriksaan
    * duplikat tetap berjalan, jadi jalur ini tidak bisa dipakai menggandakan
    * entri yang sudah ada.
    */
-  async resolveCategory(rawName: string, force = false): Promise<CategoryResolution> {
+  async resolveCategory(
+    rawName: string,
+    force = false,
+    kind: DirectoryEntryKind = 'category',
+  ): Promise<CategoryResolution> {
+    const noun = kind === 'skill' ? 'Keahlian' : 'Bidang pekerjaan';
     const name = this.normalizeName(rawName ?? '');
 
     if (name.length < SkillsService.MIN_NAME_LENGTH) {
       throw new BadRequestException(
-        `Bidang pekerjaan minimal ${SkillsService.MIN_NAME_LENGTH} karakter.`,
+        `${noun} minimal ${SkillsService.MIN_NAME_LENGTH} karakter.`,
       );
     }
     if (name.length > SkillsService.MAX_NAME_LENGTH) {
       throw new BadRequestException(
-        `Bidang pekerjaan maksimal ${SkillsService.MAX_NAME_LENGTH} karakter.`,
+        `${noun} maksimal ${SkillsService.MAX_NAME_LENGTH} karakter.`,
       );
     }
 
@@ -233,7 +296,7 @@ export class SkillsService {
       return {
         status: 'EXACT',
         category: exact,
-        reason: 'Bidang ini sudah ada di direktori.',
+        reason: `${noun} ini sudah ada di direktori.`,
         aiChecked: false,
       };
     }
@@ -243,7 +306,7 @@ export class SkillsService {
       return {
         status: 'CREATED',
         category: { id: created.id, name: created.name },
-        reason: 'Bidang ditambahkan sesuai ketikan Anda.',
+        reason: `${noun} ditambahkan sesuai ketikan Anda.`,
         aiChecked: false,
       };
     }
@@ -258,19 +321,20 @@ export class SkillsService {
     let reason: string;
 
     try {
-      const decision = await this.ai.resolveJobCategory(
+      const decision = await this.ai.resolveDirectoryEntry(
         name,
         candidates.map((c) => c.name),
+        kind,
       );
       verdict = decision.verdict;
       canonical = decision.canonical;
       reason = decision.reason;
     } catch (error: any) {
-      // AI mati bukan alasan menolak bidang yang mungkin sah. Jatuh ke jarak
+      // AI mati bukan alasan menolak entri yang mungkin sah. Jatuh ke jarak
       // ketik saja: hanya kemiripan yang sangat dekat (<= 2) yang ditawarkan
       // sebagai pembetulan, sisanya diterima apa adanya.
       this.logger.warn(
-        `Pemeriksaan bidang pekerjaan jatuh ke jarak ketik: ${error?.message ?? error}`,
+        `Pemeriksaan ${kind} jatuh ke jarak ketik: ${error?.message ?? error}`,
       );
       const nearest = candidates[0];
       if (nearest && nearest.dist <= 2) {
@@ -286,7 +350,7 @@ export class SkillsService {
       return {
         status: 'CREATED',
         category: { id: created.id, name: created.name },
-        reason: 'Bidang ditambahkan ke direktori.',
+        reason: `${noun} ditambahkan ke direktori.`,
         aiChecked: false,
       };
     }
@@ -299,7 +363,8 @@ export class SkillsService {
           .filter((c) => c.dist <= 4)
           .slice(0, 5)
           .map((c) => ({ id: c.id, name: c.name })),
-        reason: reason || 'Teks ini tidak dikenali sebagai bidang pekerjaan.',
+        reason:
+          reason || `Teks ini tidak dikenali sebagai ${noun.toLowerCase()}.`,
         aiChecked: true,
       };
     }
@@ -307,8 +372,8 @@ export class SkillsService {
     if (verdict === 'typo') {
       // Model diminta menyalin persis salah satu kandidat. Kalau meleset,
       // usulannya tidak menunjuk baris mana pun di direktori dan tidak bisa
-      // dipakai — perlakukan sebagai bidang baru daripada menawarkan
-      // pembetulan yang tidak ada wujudnya.
+      // dipakai — perlakukan sebagai entri baru daripada menawarkan pembetulan
+      // yang tidak ada wujudnya.
       const target = canonical
         ? candidates.find(
             (c) => c.name.toLowerCase() === canonical!.toLowerCase(),
@@ -335,7 +400,7 @@ export class SkillsService {
       return {
         status: 'EXACT',
         category: alreadyThere,
-        reason: reason || 'Bidang ini sudah ada di direktori.',
+        reason: reason || `${noun} ini sudah ada di direktori.`,
         aiChecked: true,
       };
     }
@@ -344,7 +409,7 @@ export class SkillsService {
     return {
       status: 'CREATED',
       category: { id: created.id, name: created.name },
-      reason: reason || 'Bidang baru ditambahkan ke direktori.',
+      reason: reason || `${noun} baru ditambahkan ke direktori.`,
       aiChecked: true,
     };
   }
@@ -360,22 +425,10 @@ export class SkillsService {
     const trimmed = this.normalizeName(name ?? '');
     if (!trimmed) return null;
 
-    const existing = await this.findByNameInsensitive(trimmed);
-    if (existing) return existing.id;
-
-    // Jalur ini tidak memanggil AI — pemeriksaannya sudah dilakukan
-    // `resolveCategory` saat perusahaan mengetiknya. Yang tersisa untuk dijaga
-    // adalah ukurannya, supaya klien yang melewati layar itu tidak bisa
-    // menitipkan satu paragraf ke direktori.
-    if (
-      trimmed.length < SkillsService.MIN_NAME_LENGTH ||
-      trimmed.length > SkillsService.MAX_NAME_LENGTH
-    ) {
-      throw new BadRequestException(
-        `Bidang pekerjaan harus ${SkillsService.MIN_NAME_LENGTH}-${SkillsService.MAX_NAME_LENGTH} karakter.`,
-      );
-    }
-
+    // Jalur ini sengaja tidak memanggil AI — pemeriksaannya sudah dilakukan
+    // `resolveCategory` saat perusahaan mengetiknya, dan mengulanginya di sini
+    // berarti satu permintaan berbayar pada setiap penyimpanan draf. Batas
+    // panjang tetap terjaga karena `createSkill` yang memeriksanya.
     const created = await this.createSkill(trimmed);
     return created.id;
   }

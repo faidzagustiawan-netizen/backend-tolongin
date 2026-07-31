@@ -1,12 +1,20 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBoolean, IsOptional, IsString } from 'class-validator';
+import {
+  IsBoolean,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  MaxLength,
+} from 'class-validator';
 
 export class ResolveCategoryDto {
   @ApiProperty({
     example: 'Backen Development',
-    description: 'Bidang pekerjaan apa adanya seperti yang diketik perusahaan.',
+    description: 'Entri apa adanya seperti yang diketik pengguna.',
   })
   @IsString()
+  @IsNotEmpty({ message: 'Nama tidak boleh kosong' })
+  @MaxLength(60, { message: 'Nama maksimal 60 karakter' })
   name: string;
 
   @ApiPropertyOptional({
