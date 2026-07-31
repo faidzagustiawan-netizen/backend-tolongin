@@ -17,7 +17,6 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import {
-  ChallengeCategory,
   ChallengeDifficulty,
   ChallengeStatus,
   ComponentType,
@@ -215,8 +214,15 @@ export class CreateChallengeDto {
   @IsOptional()
   saveQuestionsToBank?: boolean;
 
-  @IsEnum(ChallengeCategory)
-  category: ChallengeCategory;
+  /**
+   * Nama bidang pekerjaan, bukan id — bentuknya sama dengan `TalentProfile.skills`
+   * dan diterjemahkan ke direktori `Skill` oleh `SkillsService.resolveCategoryId`.
+   * Kosong berarti lintas bidang.
+   */
+  @IsString()
+  @IsOptional()
+  @MaxLength(60)
+  category?: string;
 
   @IsEnum(ChallengeDifficulty)
   difficulty: ChallengeDifficulty;

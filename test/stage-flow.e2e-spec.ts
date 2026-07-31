@@ -103,6 +103,14 @@ describeWithDb('Alur tahap (integrasi)', () => {
     });
     talentUserId = talent.talentProfile!.id;
 
+    // Bidang pekerjaan kini baris direktori `skills`, bukan nilai enum.
+    const category = await prisma.skill.upsert({
+      where: { name: 'Backend Development' },
+      update: {},
+      create: { name: 'Backend Development' },
+      select: { id: true },
+    });
+
     // Tahap 1 berbatas 30 menit; Tahap 2 butuh nilai minimal 70 dari Tahap 1.
     const challenge = await prisma.challenge.create({
       data: {
@@ -111,7 +119,7 @@ describeWithDb('Alur tahap (integrasi)', () => {
         slug: `${TAG}-studi-kasus`,
         summary: 'Ringkas',
         description: 'Deskripsi',
-        category: 'BACKEND',
+        categoryId: category.id,
         difficulty: 'INTERMEDIATE',
         gradingRubric: {},
         status: 'PUBLISHED',

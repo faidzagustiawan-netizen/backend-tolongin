@@ -11,6 +11,12 @@ import {
   QuestionBankScope,
   UpdateQuestionBankItemDto,
 } from './dto/question-bank.dto';
+import { SkillsService } from '../skills/skills.service';
+import {
+  CHALLENGE_CATEGORY_SELECT,
+  flattenCategories,
+  flattenCategory,
+} from '../common/selects/challenge-category.select';
 
 /**
  * Identitas pemanggil sebagaimana dibawa token. `role` bertipe string karena
@@ -24,7 +30,10 @@ type Caller = {
 
 @Injectable()
 export class QuestionBankService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly skillsService: SkillsService,
+  ) {}
 
   private static readonly DEFAULT_LIMIT = 24;
   private static readonly MAX_LIMIT = 100;
@@ -37,6 +46,7 @@ export class QuestionBankService {
    */
   private static readonly ITEM_INCLUDE = {
     tags: { include: { skill: { select: { id: true, name: true } } } },
+    category: CHALLENGE_CATEGORY_SELECT,
     _count: { select: { usedBy: true } },
   } satisfies Prisma.QuestionBankItemInclude;
 
@@ -86,7 +96,18 @@ export class QuestionBankService {
     // dan etika kerja — justru yang paling luas dipakai — dari setiap
     // pencarian yang menyebut satu bidang.
     if (query.category) {
-      and.push({ OR: [{ category: query.category }, { category: null }] });
+      and.push({
+        OR: [
+          {
+            category: {
+              is: {
+                name: { equals: query.category, mode: 'insensitive' },
+              },
+            },
+          },
+          { categoryId: null },
+        ],
+      });
     }
 
     if (query.difficulty) and.push({ difficulty: query.difficulty });
@@ -131,7 +152,7 @@ export class QuestionBankService {
       this.prisma.questionBankItem.count({ where }),
     ]);
 
-    return { data, total, page, limit };
+    return { data: flattenCategories(data), total, page, limit };
   }
 
   /**
@@ -179,7 +200,7 @@ export class QuestionBankService {
     });
 
     if (!item) throw new NotFoundException('Soal tidak ditemukan');
-    return item;
+    return flattenCategory(item);
   }
 
   /**
@@ -193,8 +214,9 @@ export class QuestionBankService {
   async create(dto: CreateQuestionBankItemDto, caller: Caller) {
     const companyId = this.resolveOwner(caller);
     const skillIds = await this.validateSkillIds(dto.skillIds);
+    const categoryId = await this.skillsService.resolveCategoryId(dto.category);
 
-    return this.prisma.questionBankItem.create({
+    const created = await this.prisma.questionBankItem.create({
       data: {
         companyId,
         type: dto.type,
@@ -203,7 +225,7 @@ export class QuestionBankService {
         options: dto.options ?? undefined,
         metadata: dto.metadata ?? undefined,
         defaultPoints: dto.defaultPoints ?? 10,
-        category: dto.category ?? null,
+        categoryId,
         difficulty: dto.difficulty,
         tags:
           skillIds.length > 0
@@ -212,6 +234,8 @@ export class QuestionBankService {
       },
       include: QuestionBankService.ITEM_INCLUDE,
     });
+
+    return flattenCategory(created);
   }
 
   async update(id: string, dto: UpdateQuestionBankItemDto, caller: Caller) {
@@ -220,8 +244,12 @@ export class QuestionBankService {
       dto.skillIds !== undefined
         ? await this.validateSkillIds(dto.skillIds)
         : null;
+    const categoryId =
+      dto.category === undefined
+        ? undefined
+        : await this.skillsService.resolveCategoryId(dto.category);
 
-    return this.prisma.questionBankItem.update({
+    const updated = await this.prisma.questionBankItem.update({
       where: { id: existing.id },
       data: {
         question: dto.question,
@@ -229,7 +257,7 @@ export class QuestionBankService {
         options: dto.options !== undefined ? dto.options : undefined,
         metadata: dto.metadata !== undefined ? dto.metadata : undefined,
         defaultPoints: dto.defaultPoints,
-        category: dto.category,
+        categoryId,
         difficulty: dto.difficulty,
         isActive: dto.isActive,
         // Penanda ditulis ulang seluruhnya bila dikirim, termasuk saat
@@ -245,6 +273,8 @@ export class QuestionBankService {
       },
       include: QuestionBankService.ITEM_INCLUDE,
     });
+
+    return flattenCategory(updated);
   }
 
   /**

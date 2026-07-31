@@ -25,11 +25,11 @@ const makeService = () =>
 const makeTx = (
   components: any[],
   existingItems: any[] = [],
-  category = 'FRONTEND',
+  categoryId: string | null = 'cat-frontend',
 ) => ({
   challenge: {
     findUnique: jest.fn().mockResolvedValue({
-      category,
+      categoryId,
       difficulty: 'INTERMEDIATE',
     }),
   },
@@ -74,7 +74,7 @@ describe('absorbSelfWrittenQuestions', () => {
       companyId: 'co-1',
       question: 'Ibu kota Jepang?',
       defaultPoints: 15,
-      category: 'FRONTEND',
+      categoryId: 'cat-frontend',
       difficulty: 'INTERMEDIATE',
     });
 
@@ -156,7 +156,7 @@ describe('absorbSelfWrittenQuestions', () => {
     expect(tx.challengeComponent.update).not.toHaveBeenCalled();
   });
 
-  it('menyimpan soal dari bidang OTHER sebagai lintas bidang', async () => {
+  it('menyimpan soal dari studi kasus tanpa bidang sebagai lintas bidang', async () => {
     const service = makeService();
     const tx = makeTx(
       [
@@ -171,15 +171,15 @@ describe('absorbSelfWrittenQuestions', () => {
         },
       ],
       [],
-      'OTHER',
+      null,
     );
 
     await service.absorbSelfWrittenQuestions(tx, 'ch-1', 'co-1');
 
-    // OTHER bukan bidang dalam taksonomi bank; soalnya justru paling berguna
-    // sebagai lintas bidang, dan `category: null` itulah artinya.
+    // Studi kasus tanpa bidang menghasilkan soal lintas bidang; `categoryId:
+    // null` itulah artinya, dan soal semacam itu yang paling luas dipakai.
     expect(
-      tx.questionBankItem.create.mock.calls[0][0].data.category,
+      tx.questionBankItem.create.mock.calls[0][0].data.categoryId,
     ).toBeNull();
   });
 

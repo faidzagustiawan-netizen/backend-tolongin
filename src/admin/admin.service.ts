@@ -12,6 +12,9 @@ export class AdminService {
     private readonly identityDedupe: IdentityDedupeService,
   ) {}
 
+  /** Berapa bidang teratas yang ditampilkan di grafik sebaran. */
+  private static readonly TOP_CATEGORIES = 8;
+
   async getOverviewStats() {
     const totalUsers = await this.prisma.user.count();
     const totalTalents = await this.prisma.user.count({
@@ -181,26 +184,38 @@ export class AdminService {
       }
     });
 
-    // Challenge Demographics
-    const uiuxCount = await this.prisma.challenge.count({
-      where: { category: 'UI_UX' },
-    });
-    const feCount = await this.prisma.challenge.count({
-      where: { category: 'FRONTEND' },
-    });
-    const beCount = await this.prisma.challenge.count({
-      where: { category: 'BACKEND' },
-    });
-    const dsCount = await this.prisma.challenge.count({
-      where: { category: 'DATA_SCIENCE' },
+    // Sebaran bidang pekerjaan.
+    //
+    // Dulu empat penghitungan terpisah untuk empat nilai enum yang ditulis
+    // tangan. Bidang sekarang boleh ditambah perusahaan kapan saja, jadi daftar
+    // tetap apa pun akan selalu ketinggalan — yang dihitung adalah bidang yang
+    // benar-benar ada isinya.
+    const grouped = await this.prisma.challenge.groupBy({
+      by: ['categoryId'],
+      where: { categoryId: { not: null } },
+      _count: { categoryId: true },
+      orderBy: { _count: { categoryId: 'desc' } },
+      take: AdminService.TOP_CATEGORIES,
     });
 
-    const challengeCategories = [
-      { name: 'UI/UX', value: uiuxCount },
-      { name: 'Frontend', value: feCount },
-      { name: 'Backend', value: beCount },
-      { name: 'Data Science', value: dsCount },
-    ];
+    const categoryIds = grouped
+      .map((row) => row.categoryId)
+      .filter((id): id is string => id !== null);
+
+    const categorySkills = categoryIds.length
+      ? await this.prisma.skill.findMany({
+          where: { id: { in: categoryIds } },
+          select: { id: true, name: true },
+        })
+      : [];
+    const nameById = new Map(categorySkills.map((s) => [s.id, s.name]));
+
+    const challengeCategories = grouped
+      .map((row) => ({
+        name: row.categoryId ? nameById.get(row.categoryId) : undefined,
+        value: row._count.categoryId,
+      }))
+      .filter((row): row is { name: string; value: number } => !!row.name);
 
     return {
       growthData: growthData.map((g) => ({

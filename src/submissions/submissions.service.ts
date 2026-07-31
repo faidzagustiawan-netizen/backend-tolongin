@@ -21,6 +21,10 @@ import { subscriptionLimitsEnforced } from '../common/dev-flags';
 import { computePsychometricProfile } from './psychometric';
 import { StageGateService } from '../stages/stage-gate.service';
 import {
+  CHALLENGE_CATEGORY_SELECT,
+  flattenCategory,
+} from '../common/selects/challenge-category.select';
+import {
   ComponentType,
   EnrollmentStatus,
   SubmissionStatus,
@@ -758,7 +762,12 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
             },
           },
           challenge: {
-            select: { id: true, title: true, difficulty: true, category: true },
+            select: {
+              id: true,
+              title: true,
+              difficulty: true,
+              category: CHALLENGE_CATEGORY_SELECT,
+            },
           },
           // Tahap yang dikumpulkan. Tanpa ini daftar kandidat menampilkan
           // beberapa baris identik untuk satu orang pada studi kasus bertahap,
@@ -785,11 +794,25 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
     const challenge = challengeId
       ? await this.prisma.challenge.findFirst({
           where: { id: challengeId, companyId },
-          select: { id: true, title: true, difficulty: true, category: true },
+          select: {
+            id: true,
+            title: true,
+            difficulty: true,
+            category: CHALLENGE_CATEGORY_SELECT,
+          },
         })
       : null;
 
-    return { data, total, page, limit, challenge };
+    return {
+      data: data.map((row) => ({
+        ...row,
+        challenge: flattenCategory(row.challenge),
+      })),
+      total,
+      page,
+      limit,
+      challenge: challenge ? flattenCategory(challenge) : null,
+    };
   }
 
   /**
@@ -846,6 +869,7 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
 
     return {
       ...submission,
+      challenge: flattenCategory(submission.challenge),
       talent: {
         ...talentRest,
         email: isContactUnlocked ? user?.email : null,
@@ -855,11 +879,12 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
   }
 
   async getTalentEnrollments(talentId: string) {
-    return this.prisma.challengeEnrollment.findMany({
+    const enrollments = await this.prisma.challengeEnrollment.findMany({
       where: { talentId },
       include: {
         challenge: {
           include: {
+            category: CHALLENGE_CATEGORY_SELECT,
             company: { select: { companyName: true, logoUrl: true } },
             components: { orderBy: { order: 'asc' } },
             sections: {
@@ -880,6 +905,11 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
       },
       orderBy: { updatedAt: 'desc' },
     });
+
+    return enrollments.map((enrollment) => ({
+      ...enrollment,
+      challenge: flattenCategory(enrollment.challenge),
+    }));
   }
 
   async gradeSubmission(

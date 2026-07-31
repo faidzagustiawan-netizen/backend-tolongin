@@ -6,6 +6,7 @@ import { AiService } from '../ai/ai.service';
 import { TokensService } from '../tokens/tokens.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CompaniesService } from '../companies/companies.service';
+import { SkillsService } from '../skills/skills.service';
 import { CreateChallengeDto } from './dto/create-challenge.dto';
 
 /**
@@ -21,7 +22,7 @@ describe('ChallengesService — validasi gerbang tahap', () => {
     title: 'Studi Kasus Bertahap',
     summary: 'Ringkas',
     description: 'Deskripsi',
-    category: 'FRONTEND',
+    category: 'Frontend Development',
     difficulty: 'INTERMEDIATE',
     status: 'PUBLISHED',
   };
@@ -63,6 +64,10 @@ describe('ChallengesService — validasi gerbang tahap', () => {
         { provide: TokensService, useValue: {} },
         { provide: NotificationsService, useValue: {} },
         { provide: CompaniesService, useValue: { logAction: jest.fn() } },
+        {
+          provide: SkillsService,
+          useValue: { resolveCategoryId: jest.fn().mockResolvedValue(null) },
+        },
       ],
     }).compile();
 

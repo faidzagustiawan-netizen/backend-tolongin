@@ -3,6 +3,7 @@ import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { QuestionBankService } from './question-bank.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { QuestionBankScope } from './dto/question-bank.dto';
+import { SkillsService } from '../skills/skills.service';
 
 describe('QuestionBankService', () => {
   let service: QuestionBankService;
@@ -31,6 +32,16 @@ describe('QuestionBankService', () => {
       providers: [
         QuestionBankService,
         { provide: PrismaService, useValue: prisma },
+        {
+          provide: SkillsService,
+          useValue: {
+            resolveCategoryId: jest
+              .fn()
+              .mockImplementation(async (name?: string | null) =>
+                name?.trim() ? `cat-${name.trim().toLowerCase()}` : null,
+              ),
+          },
+        },
       ],
     }).compile();
 
@@ -100,12 +111,27 @@ describe('QuestionBankService', () => {
     it('menyertakan soal lintas bidang saat menyaring kategori', async () => {
       // Tanpa ini seluruh soal soft skill dan wawancara lenyap dari setiap
       // pencarian yang menyebut satu bidang.
-      await service.findAll({ category: 'BACKEND' } as any, company);
+      await service.findAll(
+        { category: 'Backend Development' } as any,
+        company,
+      );
 
       const conditions =
         prisma.questionBankItem.findMany.mock.calls[0][0].where.AND;
       expect(conditions).toContainEqual({
-        OR: [{ category: 'BACKEND' }, { category: null }],
+        OR: [
+          {
+            category: {
+              is: {
+                name: {
+                  equals: 'Backend Development',
+                  mode: 'insensitive',
+                },
+              },
+            },
+          },
+          { categoryId: null },
+        ],
       });
     });
 

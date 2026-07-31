@@ -11,6 +11,7 @@ import { AiService } from '../ai/ai.service';
 import { TokensService } from '../tokens/tokens.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CompaniesService } from '../companies/companies.service';
+import { SkillsService } from '../skills/skills.service';
 import { CreateChallengeDto } from './dto/create-challenge.dto';
 import { UpdateChallengeDto } from './dto/update-challenge.dto';
 import { UpdateStageGateDto } from './dto/update-stage-gate.dto';
@@ -18,10 +19,14 @@ import { GenerateAiChallengeDto } from './dto/generate-ai-challenge.dto';
 import { GenerateAiBlueprintDto } from './dto/generate-ai-blueprint.dto';
 import { ChallengeSectionDto } from './dto/create-challenge.dto';
 import { DISCUSSION_AUTHOR_SELECT } from '../common/selects/discussion-author.select';
+import {
+  CHALLENGE_CATEGORY_SELECT,
+  flattenCategories,
+  flattenCategory,
+} from '../common/selects/challenge-category.select';
 import { subscriptionLimitsEnforced } from '../common/dev-flags';
 import { assertPsychometricMetadata } from '../submissions/psychometric';
 import {
-  ChallengeCategory,
   ChallengeDifficulty,
   ChallengeStatus,
   ChallengeType,
@@ -70,6 +75,7 @@ export class ChallengesService {
     private readonly tokensService: TokensService,
     private readonly notificationsService: NotificationsService,
     private readonly companiesService: CompaniesService,
+    private readonly skillsService: SkillsService,
   ) {}
 
   private readonly logger = new Logger(ChallengesService.name);
@@ -82,6 +88,9 @@ export class ChallengesService {
 
   /** Batas percobaan mencari slug yang belum terpakai. */
   private static readonly SLUG_ATTEMPTS = 5;
+
+  /** Banyaknya nama bidang yang boleh dipakai sekali menyaring direktori. */
+  private static readonly MAX_FILTER_NAMES = 20;
 
   /**
    * Transaksi pembuatan challenge menulis satu challenge beserta seluruh
@@ -130,9 +139,9 @@ export class ChallengesService {
    * ditautkan ke salinan bank itu, sehingga penerbitan ulang tidak menggandakan
    * dan jumlah pemakaian soal bisa dihitung.
    *
-   * Kategori OTHER disimpan sebagai null: itu bukan bidang dalam taksonomi bank,
-   * dan soal dari bidang tak terdaftar justru paling berguna sebagai lintas
-   * bidang.
+   * Bidang studi kasus diturunkan apa adanya ke soal yang diserap; studi kasus
+   * tanpa bidang menghasilkan soal lintas bidang (`categoryId` null), yang
+   * memang paling luas dipakai.
    */
   private async absorbSelfWrittenQuestions(
     tx: Prisma.TransactionClient,
@@ -141,7 +150,7 @@ export class ChallengesService {
   ): Promise<number> {
     const challenge = await tx.challenge.findUnique({
       where: { id: challengeId },
-      select: { category: true, difficulty: true },
+      select: { categoryId: true, difficulty: true },
     });
     if (!challenge) return 0;
 
@@ -186,10 +195,7 @@ export class ChallengesService {
             options: comp.options ?? undefined,
             metadata: comp.metadata ?? undefined,
             defaultPoints: comp.points ?? 10,
-            category:
-              challenge.category === ChallengeCategory.OTHER
-                ? null
-                : challenge.category,
+            categoryId: challenge.categoryId,
             difficulty: challenge.difficulty,
           },
           select: { id: true },
@@ -681,6 +687,13 @@ export class ChallengesService {
   ) {
     this.assertChallengeConsistency(createChallengeDto);
 
+    // Sengaja di luar transaksi: penambahan baris direktori tidak boleh ikut
+    // dibatalkan kalau kuota perusahaan ternyata habis, dan bidang yang sudah
+    // sempat dipakai tetap berguna bagi perusahaan berikutnya.
+    const categoryId = await this.skillsService.resolveCategoryId(
+      createChallengeDto.category,
+    );
+
     const newChallenge = await this.withSlugRetry(
       createChallengeDto.title,
       (slug) =>
@@ -699,7 +712,7 @@ export class ChallengesService {
                 summary: createChallengeDto.summary,
                 description: createChallengeDto.description,
                 role: createChallengeDto.role ?? null,
-                category: createChallengeDto.category,
+                categoryId,
                 difficulty: createChallengeDto.difficulty,
                 datasetUrl: createChallengeDto.datasetUrl,
                 mockApiUrl: createChallengeDto.mockApiUrl,
@@ -785,6 +798,10 @@ export class ChallengesService {
     // Sebelumnya token dipotong lebih dulu di transaksinya sendiri, sehingga
     // profil talenta yang tidak ditemukan atau kegagalan penulisan apa pun
     // meninggalkan saldo terpotong tanpa challenge dan tanpa pengembalian.
+    const categoryId = await this.skillsService.resolveCategoryId(
+      createChallengeDto.category,
+    );
+
     return this.withSlugRetry(createChallengeDto.title, (slug) =>
       this.prisma.$transaction(
         async (tx) => {
@@ -808,7 +825,7 @@ export class ChallengesService {
               summary: createChallengeDto.summary,
               description: createChallengeDto.description,
               role: createChallengeDto.role ?? null,
-              category: createChallengeDto.category,
+              categoryId,
               difficulty: createChallengeDto.difficulty,
               datasetUrl: createChallengeDto.datasetUrl,
               mockApiUrl: createChallengeDto.mockApiUrl,
@@ -874,6 +891,23 @@ export class ChallengesService {
       .split(',')
       .map((v) => v.trim().toUpperCase())
       .filter((v): v is T => (allowed as readonly string[]).includes(v));
+    return values.length > 0 ? values : undefined;
+  }
+
+  /**
+   * Penyaring bidang pekerjaan datang sebagai nama, bukan enum.
+   *
+   * `parseEnumList` tidak lagi bisa dipakai untuk bidang: daftar sahnya sekarang
+   * isi tabel, bukan konstanta. Yang tersisa untuk dijaga adalah ukurannya —
+   * tanpa batas, satu kueri boleh meminta ribuan cabang OR.
+   */
+  private parseNameList(raw: string | undefined): string[] | undefined {
+    if (!raw) return undefined;
+    const values = raw
+      .split(',')
+      .map((v) => v.trim())
+      .filter((v) => v.length > 0 && v.length <= 60)
+      .slice(0, ChallengesService.MAX_FILTER_NAMES);
     return values.length > 0 ? values : undefined;
   }
 
@@ -956,12 +990,15 @@ export class ChallengesService {
       where.status = ChallengeStatus.PUBLISHED;
     }
 
-    const categories = this.parseEnumList(
-      query.category,
-      Object.values(ChallengeCategory),
-    );
+    const categories = this.parseNameList(query.category);
     if (categories) {
-      where.category = { in: categories };
+      where.category = {
+        is: {
+          OR: categories.map((name) => ({
+            name: { equals: name, mode: 'insensitive' as const },
+          })),
+        },
+      };
     }
 
     const difficulties = this.parseEnumList(
@@ -1019,7 +1056,7 @@ export class ChallengesService {
           title: true,
           summary: true,
           role: true,
-          category: true,
+          category: CHALLENGE_CATEGORY_SELECT,
           difficulty: true,
           challengeType: true,
           status: true,
@@ -1048,7 +1085,7 @@ export class ChallengesService {
       this.prisma.challenge.count({ where }),
     ]);
 
-    return { data, total, page, limit };
+    return { data: flattenCategories(data), total, page, limit };
   }
 
   /**
@@ -1080,6 +1117,7 @@ export class ChallengesService {
       },
       include: {
         company: true,
+        category: CHALLENGE_CATEGORY_SELECT,
         components: {
           orderBy: { order: 'asc' },
         },
@@ -1129,7 +1167,7 @@ export class ChallengesService {
       }
     }
 
-    return challenge;
+    return flattenCategory(challenge);
   }
 
   async generateAiBlueprint(companyId: string, dto: GenerateAiBlueprintDto) {
@@ -1169,7 +1207,7 @@ export class ChallengesService {
 
     const blueprint = await this.aiService.generateChallengeBlueprint(
       dto.prompt,
-      dto.category,
+      dto.category ?? 'Lintas bidang',
       dto.difficulty,
       company.companyName,
       dto.previousBlueprint,
@@ -1189,7 +1227,7 @@ export class ChallengesService {
 
     const blueprint = await this.aiService.generateChallengeBlueprint(
       dto.prompt,
-      dto.category,
+      dto.category ?? 'Lintas bidang',
       dto.difficulty,
       'Komunitas / Public',
       dto.previousBlueprint,
@@ -1321,6 +1359,7 @@ export class ChallengesService {
 
   async generateAiChallenge(companyId: string, dto: GenerateAiChallengeDto) {
     const title = dto.blueprint.title || 'Draft AI Challenge';
+    const categoryId = await this.skillsService.resolveCategoryId(dto.category);
 
     const { challenge: newChallenge, companyUserId } = await this.withSlugRetry(
       title,
@@ -1357,7 +1396,7 @@ export class ChallengesService {
                   dto.blueprint.description ||
                   'Mohon tunggu, AI sedang menyusun soal...',
                 role: dto.role ?? null,
-                category: dto.category,
+                categoryId,
                 difficulty: dto.difficulty,
                 gradingRubric: dto.blueprint.rubric || {},
                 status: ChallengeStatus.DRAFT,
@@ -1385,6 +1424,7 @@ export class ChallengesService {
 
   async generateAiPublicChallenge(userId: string, dto: GenerateAiChallengeDto) {
     const title = dto.blueprint.title || 'Draft AI Public Challenge';
+    const categoryId = await this.skillsService.resolveCategoryId(dto.category);
 
     // Sama seperti createPublic: pemotongan token menyatu dengan pembuatan
     // draf, jadi permintaan yang gagal tidak menyisakan saldo terpotong.
@@ -1399,7 +1439,7 @@ export class ChallengesService {
               tx,
               userId,
               ChallengesService.PUBLIC_CHALLENGE_COST,
-              `AI Generate Public Challenge: ${dto.category}`,
+              `AI Generate Public Challenge: ${dto.category ?? title}`,
             );
 
             const challengeId = crypto.randomUUID();
@@ -1417,7 +1457,7 @@ export class ChallengesService {
                   dto.blueprint.description ||
                   'Mohon tunggu, AI sedang menyusun soal...',
                 role: dto.role ?? null,
-                category: dto.category,
+                categoryId,
                 difficulty: dto.difficulty,
                 gradingRubric: dto.blueprint.rubric || {},
                 status: ChallengeStatus.DRAFT,
@@ -1460,6 +1500,14 @@ export class ChallengesService {
         'Sesi tidak memiliki profil. Silakan masuk ulang.',
       );
     }
+
+    // `undefined` berarti permintaan tidak menyentuh bidang sama sekali dan
+    // nilai lama harus bertahan; string kosong berarti pengubahnya sengaja
+    // melepas bidangnya menjadi lintas bidang.
+    const categoryId =
+      updateDto.category === undefined
+        ? undefined
+        : await this.skillsService.resolveCategoryId(updateDto.category);
 
     // Pembacaan status dan penulisannya berada dalam satu transaksi: tanpa
     // itu dua penyimpanan bersamaan bisa sama-sama melihat status DRAFT dan
@@ -1548,7 +1596,7 @@ export class ChallengesService {
               summary: updateDto.summary,
               description: updateDto.description,
               role: updateDto.role,
-              category: updateDto.category,
+              categoryId,
               difficulty: updateDto.difficulty,
               datasetUrl: updateDto.datasetUrl,
               mockApiUrl: updateDto.mockApiUrl,

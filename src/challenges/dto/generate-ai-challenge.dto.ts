@@ -5,7 +5,7 @@ import {
   IsString,
   MaxLength,
 } from 'class-validator';
-import { ChallengeCategory, ChallengeDifficulty } from '@prisma/client';
+import { ChallengeDifficulty } from '@prisma/client';
 
 export class GenerateAiChallengeDto {
   @IsString()
@@ -24,8 +24,11 @@ export class GenerateAiChallengeDto {
   @MaxLength(150)
   role?: string;
 
-  @IsEnum(ChallengeCategory)
-  category: ChallengeCategory;
+  /** Nama bidang pekerjaan, teks bebas dari direktori `Skill`. */
+  @IsString()
+  @IsOptional()
+  @MaxLength(60)
+  category?: string;
 
   @IsEnum(ChallengeDifficulty)
   difficulty: ChallengeDifficulty;

@@ -11,11 +11,7 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
-import {
-  ChallengeCategory,
-  ChallengeDifficulty,
-  ComponentType,
-} from '@prisma/client';
+import { ChallengeDifficulty, ComponentType } from '@prisma/client';
 
 /** Sejalan dengan MAX_POINTS_PER_COMPONENT di create-challenge.dto.ts. */
 export const MAX_DEFAULT_POINTS = 1000;
@@ -39,9 +35,11 @@ export class QueryQuestionBankDto {
   @IsOptional()
   scope?: QuestionBankScope;
 
-  @IsEnum(ChallengeCategory)
+  /** Nama bidang pekerjaan dari direktori keahlian. */
+  @IsString()
   @IsOptional()
-  category?: ChallengeCategory;
+  @MaxLength(60)
+  category?: string;
 
   @IsEnum(ChallengeDifficulty)
   @IsOptional()
@@ -99,10 +97,14 @@ export class CreateQuestionBankItemDto {
   @IsOptional()
   defaultPoints?: number;
 
-  /** Dikosongkan berarti berlaku lintas bidang — soft skill, wawancara, etika. */
-  @IsEnum(ChallengeCategory)
+  /**
+   * Nama bidang pekerjaan dari direktori keahlian. Dikosongkan berarti berlaku
+   * lintas bidang — soft skill, wawancara, etika.
+   */
+  @IsString()
   @IsOptional()
-  category?: ChallengeCategory;
+  @MaxLength(60)
+  category?: string;
 
   @IsEnum(ChallengeDifficulty)
   difficulty: ChallengeDifficulty;
@@ -143,9 +145,11 @@ export class UpdateQuestionBankItemDto {
   @IsOptional()
   defaultPoints?: number;
 
-  @IsEnum(ChallengeCategory)
+  /** Nama bidang pekerjaan dari direktori keahlian. */
+  @IsString()
   @IsOptional()
-  category?: ChallengeCategory;
+  @MaxLength(60)
+  category?: string;
 
   @IsEnum(ChallengeDifficulty)
   @IsOptional()

@@ -1,11 +1,55 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { AiService } from '../ai/ai.service';
+
+export interface SkillRef {
+  id: string;
+  name: string;
+}
+
+/**
+ * Hasil pemeriksaan bidang pekerjaan yang diketik sendiri oleh perusahaan.
+ *
+ * - `EXACT`    — persis sama dengan yang sudah ada di direktori.
+ * - `CREATED`  — bidang baru yang sah, sudah ditambahkan ke direktori.
+ * - `SUGGESTION` — kemungkinan salah ketik; perusahaan yang memutuskan.
+ * - `REJECTED` — bukan bidang pekerjaan, tidak ditambahkan.
+ */
+export type CategoryResolution =
+  | { status: 'EXACT'; category: SkillRef; reason: string; aiChecked: boolean }
+  | { status: 'CREATED'; category: SkillRef; reason: string; aiChecked: boolean }
+  | {
+      status: 'SUGGESTION';
+      input: string;
+      suggestion: SkillRef;
+      reason: string;
+      aiChecked: boolean;
+    }
+  | {
+      status: 'REJECTED';
+      input: string;
+      suggestions: SkillRef[];
+      reason: string;
+      aiChecked: boolean;
+    };
 
 @Injectable()
 export class SkillsService {
-  private cachedSkills: { id: string; name: string }[] = [];
+  private cachedSkills: SkillRef[] = [];
   private cacheTimestamp = 0;
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(SkillsService.name);
+
+  /** Ketikan di luar rentang ini tidak layak dikirim ke AI. */
+  private static readonly MIN_NAME_LENGTH = 2;
+  private static readonly MAX_NAME_LENGTH = 60;
+
+  /** Banyaknya kandidat terdekat yang disodorkan ke AI sebagai pembanding. */
+  private static readonly MAX_CANDIDATES = 8;
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly ai: AiService,
+  ) {}
 
   private levenshtein(a: string, b: string): number {
     const matrix: number[][] = [];
@@ -30,6 +74,41 @@ export class SkillsService {
     return matrix[b.length][a.length];
   }
 
+  private async allSkills(): Promise<SkillRef[]> {
+    const now = Date.now();
+    if (now - this.cacheTimestamp > 1000 * 60 * 5) {
+      // 5 minute cache
+      this.cachedSkills = await this.prisma.skill.findMany({
+        select: { id: true, name: true },
+      });
+      this.cacheTimestamp = now;
+    }
+    return this.cachedSkills;
+  }
+
+  /** Kandidat terdekat berdasarkan jarak ketik, tanpa memandang ambang. */
+  private async nearestByDistance(
+    query: string,
+    limit = Number.POSITIVE_INFINITY,
+  ): Promise<(SkillRef & { dist: number })[]> {
+    const q = query.toLowerCase();
+    const scored = (await this.allSkills()).map((s) => {
+      const skillName = s.name.toLowerCase();
+      // Jarak ke seluruh kata
+      const dist1 = this.levenshtein(q, skillName);
+      // Jarak ke awalan sepanjang ketikan
+      const dist2 =
+        skillName.length >= q.length
+          ? this.levenshtein(q, skillName.substring(0, q.length))
+          : dist1;
+
+      return { ...s, dist: Math.min(dist1, dist2) };
+    });
+
+    scored.sort((a, b) => a.dist - b.dist);
+    return scored.slice(0, limit);
+  }
+
   async searchSkills(query: string) {
     if (!query) return [];
 
@@ -49,31 +128,8 @@ export class SkillsService {
     }
 
     // 2. Fallback to Levenshtein distance for typos (e.g. ui/uz -> UI/UX)
-    const now = Date.now();
-    if (now - this.cacheTimestamp > 1000 * 60 * 5) {
-      // 5 minute cache
-      this.cachedSkills = await this.prisma.skill.findMany({
-        select: { id: true, name: true },
-      });
-      this.cacheTimestamp = now;
-    }
+    const scored = await this.nearestByDistance(query);
 
-    const q = query.toLowerCase();
-    const scored = this.cachedSkills.map((s) => {
-      // Calculate distance between typed query and the first N chars of the skill, or the whole skill
-      const skillName = s.name.toLowerCase();
-      // Distance to the whole word
-      const dist1 = this.levenshtein(q, skillName);
-      // Distance to the prefix of the same length
-      const dist2 =
-        skillName.length >= q.length
-          ? this.levenshtein(q, skillName.substring(0, q.length))
-          : dist1;
-
-      return { ...s, dist: Math.min(dist1, dist2) };
-    });
-
-    scored.sort((a, b) => a.dist - b.dist);
     // Return top 5 matches that have a reasonable distance (<= 3 typos)
     return scored
       .filter((s) => s.dist <= 3)
@@ -87,8 +143,240 @@ export class SkillsService {
     });
     if (existing) return existing;
 
-    return this.prisma.skill.create({
+    const created = await this.prisma.skill.create({
       data: { name },
     });
+
+    // Tanpa ini, entri yang baru dibuat tidak terlihat oleh pencarian
+    // Levenshtein sampai lima menit berikutnya — persis pada saat pengguna
+    // paling mungkin mengetiknya lagi.
+    this.cacheTimestamp = 0;
+
+    return created;
+  }
+
+  /**
+   * Bidang pekerjaan yang benar-benar dipakai, diurutkan dari yang tersering.
+   *
+   * Direktori keahlian memuat "React" dan "Komunikasi" juga, yang bukan bidang
+   * pekerjaan. Daftar ini menyaringnya berdasarkan pemakaian nyata, sehingga
+   * pilihan awal yang dilihat perusahaan tetap masuk akal tanpa perlu daftar
+   * statis yang harus dirawat tangan.
+   */
+  async listCategories(limit = 12): Promise<(SkillRef & { usage: number })[]> {
+    const grouped = await this.prisma.challenge.groupBy({
+      by: ['categoryId'],
+      where: { categoryId: { not: null } },
+      _count: { categoryId: true },
+      orderBy: { _count: { categoryId: 'desc' } },
+      take: limit,
+    });
+
+    const ids = grouped
+      .map((g) => g.categoryId)
+      .filter((id): id is string => id !== null);
+    if (ids.length === 0) return [];
+
+    const skills = await this.prisma.skill.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, name: true },
+    });
+    const byId = new Map(skills.map((s) => [s.id, s]));
+
+    return grouped
+      .map((g) => {
+        const skill = g.categoryId ? byId.get(g.categoryId) : undefined;
+        return skill
+          ? { ...skill, usage: g._count.categoryId }
+          : null;
+      })
+      .filter((s): s is SkillRef & { usage: number } => s !== null);
+  }
+
+  private normalizeName(raw: string): string {
+    return raw.trim().replace(/\s+/g, ' ');
+  }
+
+  private async findByNameInsensitive(name: string): Promise<SkillRef | null> {
+    const found = await this.prisma.skill.findFirst({
+      where: { name: { equals: name, mode: 'insensitive' } },
+      select: { id: true, name: true },
+    });
+    return found;
+  }
+
+  /**
+   * Memeriksa bidang pekerjaan yang diketik perusahaan, lalu menambahkannya ke
+   * direktori bila memang bidang baru yang sah.
+   *
+   * `force` dipakai ketika perusahaan sudah melihat usulan pembetulan dan tetap
+   * memilih ketikannya sendiri. Yang dilewati hanya langkah AI — pemeriksaan
+   * duplikat tetap berjalan, jadi jalur ini tidak bisa dipakai menggandakan
+   * entri yang sudah ada.
+   */
+  async resolveCategory(rawName: string, force = false): Promise<CategoryResolution> {
+    const name = this.normalizeName(rawName ?? '');
+
+    if (name.length < SkillsService.MIN_NAME_LENGTH) {
+      throw new BadRequestException(
+        `Bidang pekerjaan minimal ${SkillsService.MIN_NAME_LENGTH} karakter.`,
+      );
+    }
+    if (name.length > SkillsService.MAX_NAME_LENGTH) {
+      throw new BadRequestException(
+        `Bidang pekerjaan maksimal ${SkillsService.MAX_NAME_LENGTH} karakter.`,
+      );
+    }
+
+    const exact = await this.findByNameInsensitive(name);
+    if (exact) {
+      return {
+        status: 'EXACT',
+        category: exact,
+        reason: 'Bidang ini sudah ada di direktori.',
+        aiChecked: false,
+      };
+    }
+
+    if (force) {
+      const created = await this.createSkill(name);
+      return {
+        status: 'CREATED',
+        category: { id: created.id, name: created.name },
+        reason: 'Bidang ditambahkan sesuai ketikan Anda.',
+        aiChecked: false,
+      };
+    }
+
+    const candidates = await this.nearestByDistance(
+      name,
+      SkillsService.MAX_CANDIDATES,
+    );
+
+    let verdict: 'typo' | 'new' | 'invalid';
+    let canonical: string | null;
+    let reason: string;
+
+    try {
+      const decision = await this.ai.resolveJobCategory(
+        name,
+        candidates.map((c) => c.name),
+      );
+      verdict = decision.verdict;
+      canonical = decision.canonical;
+      reason = decision.reason;
+    } catch (error: any) {
+      // AI mati bukan alasan menolak bidang yang mungkin sah. Jatuh ke jarak
+      // ketik saja: hanya kemiripan yang sangat dekat (<= 2) yang ditawarkan
+      // sebagai pembetulan, sisanya diterima apa adanya.
+      this.logger.warn(
+        `Pemeriksaan bidang pekerjaan jatuh ke jarak ketik: ${error?.message ?? error}`,
+      );
+      const nearest = candidates[0];
+      if (nearest && nearest.dist <= 2) {
+        return {
+          status: 'SUGGESTION',
+          input: name,
+          suggestion: { id: nearest.id, name: nearest.name },
+          reason: `Mirip dengan "${nearest.name}" yang sudah ada. Pilih salah satu.`,
+          aiChecked: false,
+        };
+      }
+      const created = await this.createSkill(name);
+      return {
+        status: 'CREATED',
+        category: { id: created.id, name: created.name },
+        reason: 'Bidang ditambahkan ke direktori.',
+        aiChecked: false,
+      };
+    }
+
+    if (verdict === 'invalid') {
+      return {
+        status: 'REJECTED',
+        input: name,
+        suggestions: candidates
+          .filter((c) => c.dist <= 4)
+          .slice(0, 5)
+          .map((c) => ({ id: c.id, name: c.name })),
+        reason: reason || 'Teks ini tidak dikenali sebagai bidang pekerjaan.',
+        aiChecked: true,
+      };
+    }
+
+    if (verdict === 'typo') {
+      // Model diminta menyalin persis salah satu kandidat. Kalau meleset,
+      // usulannya tidak menunjuk baris mana pun di direktori dan tidak bisa
+      // dipakai — perlakukan sebagai bidang baru daripada menawarkan
+      // pembetulan yang tidak ada wujudnya.
+      const target = canonical
+        ? candidates.find(
+            (c) => c.name.toLowerCase() === canonical!.toLowerCase(),
+          )
+        : undefined;
+
+      if (target) {
+        return {
+          status: 'SUGGESTION',
+          input: name,
+          suggestion: { id: target.id, name: target.name },
+          reason: reason || `Sepertinya yang Anda maksud "${target.name}".`,
+          aiChecked: true,
+        };
+      }
+    }
+
+    const finalName = this.normalizeName(canonical || name);
+
+    // Nama rapian dari AI bisa saja sudah ada di direktori ("backen" ->
+    // "Backend Development" lewat jalur "new").
+    const alreadyThere = await this.findByNameInsensitive(finalName);
+    if (alreadyThere) {
+      return {
+        status: 'EXACT',
+        category: alreadyThere,
+        reason: reason || 'Bidang ini sudah ada di direktori.',
+        aiChecked: true,
+      };
+    }
+
+    const created = await this.createSkill(finalName);
+    return {
+      status: 'CREATED',
+      category: { id: created.id, name: created.name },
+      reason: reason || 'Bidang baru ditambahkan ke direktori.',
+      aiChecked: true,
+    };
+  }
+
+  /**
+   * Menerjemahkan nama bidang menjadi baris direktori, membuatnya bila perlu.
+   *
+   * Dipakai jalur penyimpanan studi kasus, yang menerima nama dan bukan id agar
+   * muatan API tetap terbaca dan sama bentuknya dengan `TalentProfile.skills`.
+   * Nama kosong berarti lintas bidang dan disimpan sebagai null.
+   */
+  async resolveCategoryId(name?: string | null): Promise<string | null> {
+    const trimmed = this.normalizeName(name ?? '');
+    if (!trimmed) return null;
+
+    const existing = await this.findByNameInsensitive(trimmed);
+    if (existing) return existing.id;
+
+    // Jalur ini tidak memanggil AI — pemeriksaannya sudah dilakukan
+    // `resolveCategory` saat perusahaan mengetiknya. Yang tersisa untuk dijaga
+    // adalah ukurannya, supaya klien yang melewati layar itu tidak bisa
+    // menitipkan satu paragraf ke direktori.
+    if (
+      trimmed.length < SkillsService.MIN_NAME_LENGTH ||
+      trimmed.length > SkillsService.MAX_NAME_LENGTH
+    ) {
+      throw new BadRequestException(
+        `Bidang pekerjaan harus ${SkillsService.MIN_NAME_LENGTH}-${SkillsService.MAX_NAME_LENGTH} karakter.`,
+      );
+    }
+
+    const created = await this.createSkill(trimmed);
+    return created.id;
   }
 }

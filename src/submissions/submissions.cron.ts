@@ -121,6 +121,7 @@ export class SubmissionsCronService {
             include: {
               challenge: {
                 include: {
+                  category: { select: { name: true } },
                   components: true,
                   sections: { include: { components: true } },
                 },
@@ -198,7 +199,7 @@ export class SubmissionsCronService {
           // Panggil AI (jika gagal, akan melempar AI_EVALUATION_FAILED)
           const evaluation = await this.aiService.evaluateComponents(
             challenge.title,
-            challenge.category,
+            challenge.category?.name ?? 'Lintas bidang',
             componentsData,
             challenge.gradingRubric as Record<string, number>,
           );

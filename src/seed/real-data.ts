@@ -1,14 +1,11 @@
+import { LegacyJobCategoryCode } from '../common/job-categories';
+
 export interface RealDataChallenge {
   title: string;
   summary: string;
   description: string;
-  category:
-    | 'UI_UX'
-    | 'FRONTEND'
-    | 'BACKEND'
-    | 'DATA_SCIENCE'
-    | 'MARKETING'
-    | 'PRODUCT';
+  /** Kode bidang lama; diterjemahkan ke direktori `skills` saat disemai. */
+  category: LegacyJobCategoryCode;
   difficulty: 'BEGINNER' | 'INTERMEDIATE' | 'ADVANCED';
   sections: Array<{
     title: string;

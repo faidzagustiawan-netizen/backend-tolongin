@@ -7,6 +7,7 @@ import { AiService } from '../ai/ai.service';
 import { TokensService } from '../tokens/tokens.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CompaniesService } from '../companies/companies.service';
+import { SkillsService } from '../skills/skills.service';
 import { CreateChallengeDto } from './dto/create-challenge.dto';
 
 const slugConflict = () =>
@@ -29,7 +30,7 @@ describe('ChallengesService', () => {
     title: 'Studi Kasus Komunitas',
     summary: 'Ringkas',
     description: 'Deskripsi',
-    category: 'FRONTEND',
+    category: 'Frontend Development',
     difficulty: 'INTERMEDIATE',
     sections: [{ title: 'Tahap 1', order: 0, components: [] }],
   } as unknown as CreateChallengeDto;
@@ -96,6 +97,17 @@ describe('ChallengesService', () => {
         { provide: TokensService, useValue: tokens },
         { provide: NotificationsService, useValue: {} },
         { provide: CompaniesService, useValue: companies },
+        {
+          provide: SkillsService,
+          useValue: {
+            // Bidang pekerjaan ditukar menjadi id direktori sebelum transaksi.
+            resolveCategoryId: jest
+              .fn()
+              .mockImplementation(async (name?: string | null) =>
+                name?.trim() ? `cat-${name.trim().toLowerCase()}` : null,
+              ),
+          },
+        },
       ],
     }).compile();
 
@@ -261,7 +273,7 @@ describe('ChallengesService', () => {
       await expect(
         service.generateAiChallenge('co-1', {
           prompt: 'p',
-          category: 'FRONTEND',
+          category: 'Frontend Development',
           difficulty: 'INTERMEDIATE',
           blueprint: { title: 'Draf' },
         } as any),

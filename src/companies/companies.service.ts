@@ -2,6 +2,10 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ChallengeStatus, Prisma } from '@prisma/client';
 import * as crypto from 'crypto';
+import {
+  CHALLENGE_CATEGORY_SELECT,
+  flattenCategory,
+} from '../common/selects/challenge-category.select';
 
 /**
  * Kolom yang aman ditampilkan ke publik.
@@ -35,7 +39,7 @@ const PUBLIC_CHALLENGE_SELECT = {
   slug: true,
   title: true,
   summary: true,
-  category: true,
+  category: CHALLENGE_CATEGORY_SELECT,
   difficulty: true,
   challengeType: true,
   status: true,
@@ -128,7 +132,8 @@ export class CompaniesService {
     const ongoing: any[] = [];
     const completed: any[] = [];
 
-    for (const challenge of company.challenges) {
+    for (const raw of company.challenges) {
+      const challenge = flattenCategory(raw);
       if (challenge.status === ChallengeStatus.CLOSED) {
         completed.push(challenge);
         continue;

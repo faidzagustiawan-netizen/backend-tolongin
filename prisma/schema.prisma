@@ -196,6 +196,15 @@ model Skill {
   // milik soal, dan rekomendasi berdasarkan keahlian jadi meleset.
   questionTags QuestionBankItemSkill[]
 
+  // Alasan yang sama berlaku untuk bidang pekerjaan. Dulu `ChallengeCategory`
+  // adalah enum enam nilai: perusahaan yang mencari Video Editor tidak punya
+  // tempat, dan bidang baru berarti migrasi basis data. Sekarang bidang diambil
+  // dari kosakata yang sama dengan keahlian talenta, sehingga "Frontend
+  // Development" yang dicari perusahaan adalah baris yang persis sama dengan
+  // yang tercantum di profil kandidat.
+  categorizedChallenges Challenge[]        @relation("ChallengeJobCategory")
+  categorizedBankItems  QuestionBankItem[] @relation("QuestionBankItemCategory")
+
   @@map("skills")
 }
 
@@ -302,24 +311,6 @@ enum ChallengeType {
   PUBLIC
 }
 
-enum ChallengeCategory {
-  UI_UX
-  FRONTEND
-  BACKEND
-  DATA_SCIENCE
-  MARKETING
-  PRODUCT
-
-  /// Bidang di luar keenam yang tersedia.
-  ///
-  /// Enam nilai di atas adalah taksonomi bank soal, bukan daftar pekerjaan yang
-  /// boleh direkrut. Perusahaan yang mencari Video Editor atau Akuntan dulu
-  /// terpaksa mengaku salah satu dari enam itu. Sekarang bidangnya boleh OTHER
-  /// dan posisi sebenarnya tersimpan di `Challenge.role`; bank soal jatuh
-  /// dengan anggun ke soal lintas bidang (`QuestionBankItem.category = null`).
-  OTHER
-}
-
 enum ChallengeDifficulty {
   BEGINNER
   INTERMEDIATE
@@ -352,7 +343,21 @@ model Challenge {
   /// perusahaan benar-benar tahu dan yang kandidat cari — `category` cuma enam
   /// keranjang untuk menyaring bank soal.
   role          String?
-  category      ChallengeCategory
+
+  /// Bidang pekerjaan, diambil dari kosakata `Skill` yang sama dengan keahlian
+  /// talenta.
+  ///
+  /// Dulu enum `ChallengeCategory` dengan enam nilai plus OTHER. Enum berarti
+  /// bidang baru butuh migrasi basis data, jadi perusahaan yang mencari Video
+  /// Editor terpaksa memilih OTHER dan bidang sebenarnya hanya tersimpan sebagai
+  /// teks bebas di `role`. Sekarang bidang yang belum ada bisa ditambahkan
+  /// perusahaan saat itu juga (lewat `SkillsService.resolveCategory`, yang
+  /// membedakan salah ketik dari bidang yang memang baru).
+  ///
+  /// null berarti lintas bidang — sama artinya dengan OTHER yang lama, dan
+  /// itulah nilai yang diberikan kepada baris lama saat migrasi.
+  categoryId    String?
+  category      Skill?              @relation("ChallengeJobCategory", fields: [categoryId], references: [id], onDelete: SetNull)
   difficulty    ChallengeDifficulty
 
   // Resource & Aset
@@ -395,7 +400,7 @@ model Challenge {
   // berdasarkan createdAt menurun.
   @@index([status, isPrivate, createdAt(sort: Desc)])
   @@index([companyId])
-  @@index([category])
+  @@index([categoryId])
   @@index([difficulty])
   @@map("challenges")
 }
@@ -647,7 +652,8 @@ model QuestionBankItem {
    * membuatnya lenyap begitu perusahaan mencari marketer, padahal justru
    * soal semacam inilah yang paling luas dipakai.
    */
-  category   ChallengeCategory?
+  categoryId String?
+  category   Skill?              @relation("QuestionBankItemCategory", fields: [categoryId], references: [id], onDelete: SetNull)
   difficulty ChallengeDifficulty
 
   /**
@@ -662,8 +668,8 @@ model QuestionBankItem {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([companyId, category, difficulty])
-  @@index([isActive, category])
+  @@index([companyId, categoryId, difficulty])
+  @@index([isActive, categoryId])
   @@map("question_bank_items")
 }
 

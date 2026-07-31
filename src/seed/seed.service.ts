@@ -5,7 +5,6 @@ import {
   Role,
   VerificationStatus,
   SubscriptionTier,
-  ChallengeCategory,
   ChallengeDifficulty,
   ChallengeStatus,
   ChallengeType,
@@ -13,12 +12,32 @@ import {
   SubmissionStatus,
 } from '@prisma/client';
 import { realChallenges, publicChallenges } from './real-data';
+import {
+  LEGACY_JOB_CATEGORY_NAMES,
+  LegacyJobCategoryCode,
+} from '../common/job-categories';
 
 @Injectable()
 export class SeedService {
   private readonly logger = new Logger(SeedService.name);
 
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * Kode bidang di `real-data.ts` masih memakai kosakata enum yang lama; di
+   * basis data bidang sudah menjadi baris direktori `skills`.
+   */
+  private async resolveCategoryId(
+    code: LegacyJobCategoryCode,
+  ): Promise<string> {
+    const skill = await this.prisma.skill.upsert({
+      where: { name: LEGACY_JOB_CATEGORY_NAMES[code] },
+      update: {},
+      create: { name: LEGACY_JOB_CATEGORY_NAMES[code] },
+      select: { id: true },
+    });
+    return skill.id;
+  }
 
   async seed() {
     // `@faker-js/faker` dimuat di sini, bukan di puncak berkas, karena dua
@@ -240,7 +259,7 @@ export class SeedService {
             .toLowerCase(),
           summary: data.summary,
           description: data.description,
-          category: data.category as any,
+          categoryId: await this.resolveCategoryId(data.category),
           difficulty: data.difficulty as any,
           status: ChallengeStatus.PUBLISHED,
           challengeType: ChallengeType.COMPANY,
@@ -299,7 +318,7 @@ export class SeedService {
             .toLowerCase(),
           summary: data.summary,
           description: data.description,
-          category: data.category as any,
+          categoryId: await this.resolveCategoryId(data.category),
           difficulty: data.difficulty as any,
           status: ChallengeStatus.PUBLISHED,
           challengeType: ChallengeType.PUBLIC,

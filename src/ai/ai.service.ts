@@ -356,6 +356,76 @@ Berikan penilaian akhir berupa objek JSON dengan struktur persis berikut:
     }
   }
 
+  /**
+   * Memutuskan apakah bidang pekerjaan yang diketik perusahaan adalah salah
+   * ketik dari yang sudah ada, bidang baru yang sah, atau bukan bidang sama
+   * sekali.
+   *
+   * Jarak Levenshtein saja tidak cukup memutuskan ini. "Backen" berjarak 2 dari
+   * "Backend Development" dan jelas salah ketik; "Data Engineer" juga berjarak
+   * kecil dari "Data Science / ML" tetapi merupakan profesi yang berbeda.
+   * Ambang berapa pun akan salah pada salah satu dari keduanya, jadi kandidat
+   * terdekat diserahkan ke model bersama teks aslinya.
+   *
+   * Melempar bila AI tidak tersedia — pemanggil yang memutuskan apakah aman
+   * menerima masukan apa adanya.
+   */
+  async resolveJobCategory(
+    input: string,
+    candidates: string[],
+  ): Promise<{
+    verdict: 'typo' | 'new' | 'invalid';
+    canonical: string | null;
+    reason: string;
+  }> {
+    const prompt = `Anda adalah kurator direktori bidang pekerjaan pada platform rekrutmen Indonesia.
+
+Perusahaan mengetik bidang pekerjaan: "${input}"
+
+Bidang yang sudah ada di direktori dan paling mirip dengan ketikan itu:
+${candidates.length > 0 ? candidates.map((c) => `- ${c}`).join('\n') : '(tidak ada yang mirip)'}
+
+Tentukan satu dari tiga putusan:
+- "typo": ketikan itu jelas maksudnya salah satu bidang yang SUDAH ADA di daftar (salah eja, disingkat, beda bahasa, beda huruf besar-kecil). Contoh: "backen" atau "Back-end" untuk "Backend Development".
+- "new": ketikan itu bidang pekerjaan yang sah tetapi memang BELUM ada di daftar. Contoh: "Video Editor", "Akuntan", "Data Engineer". Profesi yang berbeda tetap "new" walaupun ejaannya mirip dengan yang sudah ada.
+- "invalid": ketikan itu bukan bidang pekerjaan (huruf acak, kata kasar, kalimat, nama orang, nama perusahaan).
+
+Aturan:
+- Jangan memaksakan "typo" hanya karena ejaannya berdekatan. Pekerjaan yang berbeda tetap "new".
+- Untuk "typo", "canonical" WAJIB persis sama dengan salah satu baris daftar di atas.
+- Untuk "new", "canonical" adalah ketikan yang dirapikan sebagai nama bidang yang pantas ditampilkan (Kapital Di Awal Kata, tanpa tanda baca berlebih, tanpa tingkat senioritas seperti "Senior"/"Junior", bentuk tunggal).
+- Untuk "invalid", "canonical" adalah null.
+- "reason" ditulis dalam Bahasa Indonesia, satu kalimat, ditujukan kepada perusahaan.
+
+Berikan respons HANYA dalam format JSON:
+{ "verdict": "typo" | "new" | "invalid", "canonical": "string atau null", "reason": "satu kalimat" }`;
+
+    const result = await this.chatJson<{
+      verdict?: string;
+      canonical?: string | null;
+      reason?: string;
+    }>([{ role: 'system', content: prompt }], 'resolve job category');
+
+    const verdict =
+      result.verdict === 'typo' ||
+      result.verdict === 'new' ||
+      result.verdict === 'invalid'
+        ? result.verdict
+        : 'new';
+
+    return {
+      verdict,
+      canonical:
+        typeof result.canonical === 'string' && result.canonical.trim() !== ''
+          ? result.canonical.trim()
+          : null,
+      reason:
+        typeof result.reason === 'string' && result.reason.trim() !== ''
+          ? result.reason.trim()
+          : '',
+    };
+  }
+
   async generateChallengeBlueprint(
     promptStr: string,
     category: string,

@@ -14,10 +14,13 @@
 import {
   PrismaClient,
   Prisma,
-  ChallengeCategory,
   ChallengeDifficulty,
   ComponentType,
 } from '@prisma/client';
+import {
+  LEGACY_JOB_CATEGORY_NAMES,
+  LegacyJobCategoryCode,
+} from '../src/common/job-categories';
 import { Pool } from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
 import * as dotenv from 'dotenv';
@@ -35,7 +38,7 @@ type SeedItem = {
   metadata?: Record<string, unknown>;
   defaultPoints: number;
   /** null = berlaku lintas bidang. */
-  category: ChallengeCategory | null;
+  category: LegacyJobCategoryCode | null;
   difficulty: ChallengeDifficulty;
   skills: string[];
 };
@@ -235,7 +238,7 @@ const ITEMS: SeedItem[] = [
       { id: 'd', text: 'Indeks unik pada id saja sudah cukup', isCorrect: false },
     ],
     defaultPoints: 15,
-    category: ChallengeCategory.BACKEND,
+    category: 'BACKEND',
     difficulty: ChallengeDifficulty.INTERMEDIATE,
     skills: ['Database', 'SQL', 'Optimasi Performa'],
   },
@@ -247,7 +250,7 @@ const ITEMS: SeedItem[] = [
       'Sebutkan mekanismenya secara konkret, termasuk apa yang disimpan, berapa lama, dan apa yang terjadi pada permintaan kedua.',
     metadata: { minWords: 250 },
     defaultPoints: 30,
-    category: ChallengeCategory.BACKEND,
+    category: 'BACKEND',
     difficulty: ChallengeDifficulty.ADVANCED,
     skills: ['API', 'Arsitektur Sistem', 'Database'],
   },
@@ -263,7 +266,7 @@ const ITEMS: SeedItem[] = [
         'class RateLimiter {\n  constructor(limit, windowSeconds) {\n    // ...\n  }\n\n  /** @returns {boolean} true bila permintaan diizinkan */\n  allow(userId, now = Date.now()) {\n    // ...\n  }\n}\n\nmodule.exports = { RateLimiter };\n',
     },
     defaultPoints: 40,
-    category: ChallengeCategory.BACKEND,
+    category: 'BACKEND',
     difficulty: ChallengeDifficulty.ADVANCED,
     skills: ['Node.js', 'Algoritma', 'Arsitektur Sistem'],
   },
@@ -273,7 +276,7 @@ const ITEMS: SeedItem[] = [
       'Halaman daftar pesanan memanggil basis data 1 kali untuk mengambil 100 pesanan, lalu 100 kali lagi untuk mengambil nama pelanggan masing-masing. Jelaskan masalahnya dan dua cara memperbaikinya.',
     metadata: { minWords: 150 },
     defaultPoints: 20,
-    category: ChallengeCategory.BACKEND,
+    category: 'BACKEND',
     difficulty: ChallengeDifficulty.INTERMEDIATE,
     skills: ['Database', 'Optimasi Performa', 'API'],
   },
@@ -296,7 +299,7 @@ const ITEMS: SeedItem[] = [
       { id: 'd', text: 'Komponen tidak diberi atribut key', isCorrect: false },
     ],
     defaultPoints: 15,
-    category: ChallengeCategory.FRONTEND,
+    category: 'FRONTEND',
     difficulty: ChallengeDifficulty.INTERMEDIATE,
     skills: ['React', 'Optimasi Performa'],
   },
@@ -311,7 +314,7 @@ const ITEMS: SeedItem[] = [
         "import { useState, useEffect } from 'react';\n\nexport function useDebounce<T>(value: T, delay: number): T {\n  // ...\n}\n",
     },
     defaultPoints: 30,
-    category: ChallengeCategory.FRONTEND,
+    category: 'FRONTEND',
     difficulty: ChallengeDifficulty.INTERMEDIATE,
     skills: ['React', 'TypeScript'],
   },
@@ -321,7 +324,7 @@ const ITEMS: SeedItem[] = [
       'Sebuah formulir pendaftaran menampilkan pesan galat hanya dengan mengubah warna pinggiran kolom menjadi merah. Sebutkan masalah aksesibilitasnya dan cara memperbaikinya.',
     metadata: { minWords: 150 },
     defaultPoints: 20,
-    category: ChallengeCategory.FRONTEND,
+    category: 'FRONTEND',
     difficulty: ChallengeDifficulty.INTERMEDIATE,
     skills: ['Aksesibilitas', 'HTML', 'UI Design'],
   },
@@ -340,7 +343,7 @@ const ITEMS: SeedItem[] = [
       { id: 'd', text: 'Kecepatan inferensi', isCorrect: false },
     ],
     defaultPoints: 15,
-    category: ChallengeCategory.DATA_SCIENCE,
+    category: 'DATA_SCIENCE',
     difficulty: ChallengeDifficulty.INTERMEDIATE,
     skills: ['Machine Learning', 'Analisis Data'],
   },
@@ -350,7 +353,7 @@ const ITEMS: SeedItem[] = [
       'Model Anda mencapai akurasi 99% saat divalidasi, tetapi anjlok begitu dipakai sungguhan. Sebutkan tiga penyebab yang paling mungkin dan cara memastikan masing-masing.',
     metadata: { minWords: 250 },
     defaultPoints: 30,
-    category: ChallengeCategory.DATA_SCIENCE,
+    category: 'DATA_SCIENCE',
     difficulty: ChallengeDifficulty.ADVANCED,
     skills: ['Machine Learning', 'Analisis Data', 'Pemecahan Masalah'],
   },
@@ -362,7 +365,7 @@ const ITEMS: SeedItem[] = [
       'Yang dinilai bukan kerumitan modelnya, melainkan kejelasan alasan dan kegunaan rekomendasinya.',
     metadata: { acceptedFormats: ['ipynb', 'pdf'], maxFileSizeMb: 20 },
     defaultPoints: 40,
-    category: ChallengeCategory.DATA_SCIENCE,
+    category: 'DATA_SCIENCE',
     difficulty: ChallengeDifficulty.ADVANCED,
     skills: ['Analisis Data', 'Python', 'Komunikasi'],
   },
@@ -377,7 +380,7 @@ const ITEMS: SeedItem[] = [
     description: 'Kirim PDF berisi rancangan sebelum-sesudah beserta alasannya.',
     metadata: { acceptedFormats: ['pdf', 'fig'], maxFileSizeMb: 25 },
     defaultPoints: 40,
-    category: ChallengeCategory.UI_UX,
+    category: 'UI_UX',
     difficulty: ChallengeDifficulty.ADVANCED,
     skills: ['UI Design', 'Riset Pengguna', 'Pemecahan Masalah'],
   },
@@ -387,7 +390,7 @@ const ITEMS: SeedItem[] = [
       'Anda diminta memperbaiki sebuah fitur tanpa anggaran riset dan tanpa akses langsung ke pengguna. Bagaimana Anda tetap mengambil keputusan desain yang berdasar?',
     metadata: { minWords: 200 },
     defaultPoints: 25,
-    category: ChallengeCategory.UI_UX,
+    category: 'UI_UX',
     difficulty: ChallengeDifficulty.INTERMEDIATE,
     skills: ['Riset Pengguna', 'Pengambilan Keputusan'],
   },
@@ -397,7 +400,7 @@ const ITEMS: SeedItem[] = [
       'Kirim tautan prototipe interaktif untuk alur pendaftaran akun baru, mulai dari layar awal sampai berhasil masuk.',
     metadata: { placeholder: 'https://figma.com/...', requireDescription: true },
     defaultPoints: 30,
-    category: ChallengeCategory.UI_UX,
+    category: 'UI_UX',
     difficulty: ChallengeDifficulty.INTERMEDIATE,
     skills: ['Figma', 'UI Design', 'Prototyping'],
   },
@@ -420,7 +423,7 @@ const ITEMS: SeedItem[] = [
       { id: 'd', text: 'Tingkat konversi pendaftaran 0,5%', isCorrect: false },
     ],
     defaultPoints: 15,
-    category: ChallengeCategory.MARKETING,
+    category: 'MARKETING',
     difficulty: ChallengeDifficulty.INTERMEDIATE,
     skills: ['Analitik Pemasaran', 'Pengambilan Keputusan'],
   },
@@ -430,7 +433,7 @@ const ITEMS: SeedItem[] = [
       'Anda punya anggaran Rp5 juta untuk memperkenalkan produk baru ke kalangan mahasiswa dalam satu bulan. Susun rencananya beserta ukuran keberhasilannya.',
     metadata: { minWords: 300 },
     defaultPoints: 30,
-    category: ChallengeCategory.MARKETING,
+    category: 'MARKETING',
     difficulty: ChallengeDifficulty.INTERMEDIATE,
     skills: ['Strategi Pemasaran', 'Perencanaan', 'Analitik Pemasaran'],
   },
@@ -440,7 +443,7 @@ const ITEMS: SeedItem[] = [
       'Susun kalender konten satu bulan untuk sebuah merek kopi lokal: kanal, tema mingguan, dan contoh tiga unggahan lengkap dengan teksnya.',
     metadata: { acceptedFormats: ['pdf', 'xlsx', 'docx'], maxFileSizeMb: 10 },
     defaultPoints: 30,
-    category: ChallengeCategory.MARKETING,
+    category: 'MARKETING',
     difficulty: ChallengeDifficulty.BEGINNER,
     skills: ['Content Marketing', 'Perencanaan'],
   },
@@ -459,7 +462,7 @@ const ITEMS: SeedItem[] = [
       { id: 'd', text: 'Rata-rata lama sesi', isCorrect: false },
     ],
     defaultPoints: 15,
-    category: ChallengeCategory.PRODUCT,
+    category: 'PRODUCT',
     difficulty: ChallengeDifficulty.INTERMEDIATE,
     skills: ['Manajemen Produk', 'Analisis Data'],
   },
@@ -469,7 +472,7 @@ const ITEMS: SeedItem[] = [
       'Lima permintaan fitur masuk dan semuanya disebut mendesak oleh pengusulnya. Jelaskan cara Anda menentukan urutan pengerjaan dan bagaimana Anda menyampaikan hasilnya kepada yang permintaannya ditunda.',
     metadata: { minWords: 250 },
     defaultPoints: 30,
-    category: ChallengeCategory.PRODUCT,
+    category: 'PRODUCT',
     difficulty: ChallengeDifficulty.ADVANCED,
     skills: ['Manajemen Produk', 'Prioritisasi', 'Stakeholder Management'],
   },
@@ -479,11 +482,20 @@ const ITEMS: SeedItem[] = [
       'Klien terbesar Anda meminta fitur yang hanya berguna baginya dan akan menyulitkan pengguna lain. Bagaimana Anda menanggapinya?',
     metadata: { minWords: 200 },
     defaultPoints: 25,
-    category: ChallengeCategory.PRODUCT,
+    category: 'PRODUCT',
     difficulty: ChallengeDifficulty.ADVANCED,
     skills: ['Manajemen Produk', 'Stakeholder Management', 'Komunikasi'],
   },
 ];
+
+/** Bidang pekerjaan kini baris direktori juga, jadi lewat pintu yang sama. */
+async function resolveCategoryId(
+  code: LegacyJobCategoryCode | null,
+): Promise<string | null> {
+  if (!code) return null;
+  const [id] = await resolveSkillIds([LEGACY_JOB_CATEGORY_NAMES[code]]);
+  return id;
+}
 
 async function resolveSkillIds(names: string[]): Promise<string[]> {
   const ids: string[] = [];
@@ -519,6 +531,7 @@ async function main() {
     }
 
     const skillIds = await resolveSkillIds(item.skills);
+    const categoryId = await resolveCategoryId(item.category);
 
     await prisma.questionBankItem.create({
       data: {
@@ -531,7 +544,7 @@ async function main() {
         // longgar dipakai di daftar di atas supaya isinya enak dibaca.
         metadata: (item.metadata ?? undefined) as Prisma.InputJsonValue,
         defaultPoints: item.defaultPoints,
-        category: item.category,
+        categoryId,
         difficulty: item.difficulty,
         tags: { create: skillIds.map((skillId) => ({ skillId })) },
       },

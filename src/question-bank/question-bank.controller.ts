@@ -27,7 +27,7 @@ import {
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
-import { ChallengeCategory, ChallengeDifficulty, Role } from '@prisma/client';
+import { ChallengeDifficulty, Role } from '@prisma/client';
 
 @ApiTags('Bank Soal')
 @ApiBearerAuth('JWT-auth')
@@ -46,7 +46,12 @@ export class QuestionBankController {
     required: false,
     description: 'PLATFORM, MINE, atau ALL (bawaan)',
   })
-  @ApiQuery({ name: 'category', enum: ChallengeCategory, required: false })
+  @ApiQuery({
+    name: 'category',
+    required: false,
+    description:
+      'Nama bidang pekerjaan dari direktori keahlian; soal lintas bidang selalu ikut',
+  })
   @ApiQuery({ name: 'difficulty', enum: ChallengeDifficulty, required: false })
   @ApiQuery({
     name: 'skillIds',

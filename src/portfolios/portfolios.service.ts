@@ -1,5 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  CHALLENGE_CATEGORY_SELECT,
+  flattenCategory,
+} from '../common/selects/challenge-category.select';
 
 @Injectable()
 export class PortfoliosService {
@@ -27,7 +31,7 @@ export class PortfoliosService {
       ];
     }
 
-    return this.prisma.portfolio.findMany({
+    const portfolios = await this.prisma.portfolio.findMany({
       where,
       include: {
         talent: {
@@ -48,7 +52,7 @@ export class PortfoliosService {
               select: {
                 title: true,
                 difficulty: true,
-                category: true,
+                category: CHALLENGE_CATEGORY_SELECT,
                 company: { select: { companyName: true, logoUrl: true } },
               },
             },
@@ -58,6 +62,14 @@ export class PortfoliosService {
       take: query.limit ? Number(query.limit) : 20,
       orderBy: { createdAt: 'desc' },
     });
+
+    return portfolios.map((portfolio) => ({
+      ...portfolio,
+      submission: {
+        ...portfolio.submission,
+        challenge: flattenCategory(portfolio.submission.challenge),
+      },
+    }));
   }
 
   /**
