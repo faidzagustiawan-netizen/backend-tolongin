@@ -22,7 +22,6 @@ import {
   ChallengeStatus,
   ComponentType,
   GateScoreBasis,
-  SectionStageType,
   StageGateMode,
   StagePendingPolicy,
 } from '@prisma/client';
@@ -105,10 +104,6 @@ export class ChallengeSectionDto {
   @Min(0)
   @IsOptional()
   order?: number;
-
-  @IsEnum(SectionStageType)
-  @IsOptional()
-  stageType?: SectionStageType;
 
   // Menit pengerjaan tahap ini. null berarti tak terbatas, jadi nilai null
   // sengaja dibiarkan lolos oleh @IsOptional.
@@ -200,6 +195,25 @@ export class CreateChallengeDto {
   @IsNotEmpty({ message: 'Deskripsi masalah tidak boleh kosong' })
   @MaxLength(50000)
   description: string;
+
+  /**
+   * Posisi yang direkrut, teks bebas. Kategori hanya enam keranjang untuk
+   * menyaring bank soal, jadi ini yang menyebut pekerjaannya apa sebenarnya.
+   */
+  @IsString()
+  @IsOptional()
+  @MaxLength(150)
+  role?: string;
+
+  /**
+   * Menyalin soal tulisan sendiri ke koleksi perusahaan saat diterbitkan.
+   *
+   * Bawaannya menyala — lihat `absorbSelfWrittenQuestions`. Dimatikan hanya
+   * bila perusahaan memang tidak ingin soalnya masuk koleksi.
+   */
+  @IsBoolean()
+  @IsOptional()
+  saveQuestionsToBank?: boolean;
 
   @IsEnum(ChallengeCategory)
   category: ChallengeCategory;

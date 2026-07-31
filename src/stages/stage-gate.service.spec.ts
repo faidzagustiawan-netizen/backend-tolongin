@@ -19,7 +19,6 @@ describe('StageGateService', () => {
     id: 'sec-1',
     title: 'Tahap 1',
     order: 0,
-    stageType: 'QUIZ',
     timeLimit: null,
     opensAt: null,
     closesAt: null,

@@ -21,7 +21,6 @@ export type StageView = {
   sectionId: string;
   title: string;
   order: number;
-  stageType: string;
   status: StageAttemptStatus;
   unlocked: boolean;
   /** Alasan terkunci, sudah berbentuk kalimat siap tampil. */
@@ -241,7 +240,6 @@ export class StageGateService {
       sectionId: section.id,
       title: section.title,
       order: section.order,
-      stageType: section.stageType,
       status: attempt.status,
       // Tahap yang sedang dikerjakan jelas sudah terbuka; keputusan gerbang
       // hanya berlaku sebelum kandidat masuk.

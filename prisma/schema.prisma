@@ -309,6 +309,15 @@ enum ChallengeCategory {
   DATA_SCIENCE
   MARKETING
   PRODUCT
+
+  /// Bidang di luar keenam yang tersedia.
+  ///
+  /// Enam nilai di atas adalah taksonomi bank soal, bukan daftar pekerjaan yang
+  /// boleh direkrut. Perusahaan yang mencari Video Editor atau Akuntan dulu
+  /// terpaksa mengaku salah satu dari enam itu. Sekarang bidangnya boleh OTHER
+  /// dan posisi sebenarnya tersimpan di `Challenge.role`; bank soal jatuh
+  /// dengan anggun ke soal lintas bidang (`QuestionBankItem.category = null`).
+  OTHER
 }
 
 enum ChallengeDifficulty {
@@ -335,6 +344,14 @@ model Challenge {
   slug          String              @unique
   summary       String
   description   String // Detail studi kasus / problem statement
+
+  /// Posisi yang sedang direkrut, apa adanya menurut perusahaan.
+  ///
+  /// Sudah lama ditanyakan di layar pembuka ("Posisi atau peran yang dicari")
+  /// tetapi hanya dipakai menyemai judul dan prompt AI, lalu dibuang. Ini yang
+  /// perusahaan benar-benar tahu dan yang kandidat cari — `category` cuma enam
+  /// keranjang untuk menyaring bank soal.
+  role          String?
   category      ChallengeCategory
   difficulty    ChallengeDifficulty
 
@@ -381,11 +398,6 @@ model Challenge {
   @@index([category])
   @@index([difficulty])
   @@map("challenges")
-}
-
-enum SectionStageType {
-  QUIZ
-  ASSIGNMENT
 }
 
 /// Syarat yang harus dipenuhi kandidat untuk masuk sebuah tahap.
@@ -438,10 +450,9 @@ model ChallengeSection {
   description String?
   order       Int     @default(0)
 
-  // Builder soal sudah lama mengirim kedua kolom ini, tetapi sebelumnya tidak
-  // ada tempat menyimpannya sehingga "Waktu Pengerjaan Per Tahap" selalu
-  // hilang setelah disimpan.
-  stageType SectionStageType @default(ASSIGNMENT)
+  // Builder soal sudah lama mengirim kolom ini, tetapi sebelumnya tidak ada
+  // tempat menyimpannya sehingga "Waktu Pengerjaan Per Tahap" selalu hilang
+  // setelah disimpan.
   timeLimit Int? // menit; null = tak terbatas
 
   // Jendela buka-tutup per tahap, di dalam jendela global challenge.

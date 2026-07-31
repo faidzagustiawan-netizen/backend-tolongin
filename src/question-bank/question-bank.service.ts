@@ -29,8 +29,15 @@ export class QuestionBankService {
   private static readonly DEFAULT_LIMIT = 24;
   private static readonly MAX_LIMIT = 100;
 
+  /**
+   * `_count.usedBy` = berapa kali soal ini benar-benar dipakai di studi kasus.
+   *
+   * Koleksi soal selama ini kotak hitam: menabung berbiaya sekarang dan
+   * berbuah entah kapan. Angka ini yang memperlihatkan buahnya.
+   */
   private static readonly ITEM_INCLUDE = {
     tags: { include: { skill: { select: { id: true, name: true } } } },
+    _count: { select: { usedBy: true } },
   } satisfies Prisma.QuestionBankItemInclude;
 
   /**

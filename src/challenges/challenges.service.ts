@@ -29,7 +29,6 @@ import {
   GateScoreBasis,
   Prisma,
   Role,
-  SectionStageType,
   StageGateMode,
   StagePendingPolicy,
 } from '@prisma/client';
@@ -102,7 +101,6 @@ export class ChallengesService {
       title: s.title,
       description: s.description,
       order: s.order ?? sIdx,
-      stageType: s.stageType ?? SectionStageType.ASSIGNMENT,
       timeLimit: s.timeLimit ?? null,
       opensAt: s.opensAt ? new Date(s.opensAt) : null,
       closesAt: s.closesAt ? new Date(s.closesAt) : null,
@@ -114,6 +112,101 @@ export class ChallengesService {
       pendingPolicy: s.pendingPolicy ?? StagePendingPolicy.WAIT_FOR_SCORE,
       graceDays: s.graceDays ?? null,
     };
+  }
+
+  /** Batas wajar sekali serap; melindungi transaksi dari studi kasus raksasa. */
+  private static readonly MAX_ABSORBED_QUESTIONS = 200;
+
+  /**
+   * Menyalin soal tulisan sendiri ke koleksi perusahaan saat diterbitkan.
+   *
+   * Bank soal tidak akan pernah tumbuh kalau mengisinya adalah pekerjaan
+   * terpisah di atas pekerjaan yang sudah berat. Sebelumnya satu-satunya cara
+   * adalah menekan ikon penanda pada tiap soal, satu per satu, tanpa satu pun
+   * petunjuk apa gunanya — jadi hampir tidak ada yang melakukannya.
+   *
+   * Yang diserap hanya soal yang benar-benar ditulis sendiri: `sourceItemId`
+   * kosong berarti bukan hasil memungut dari bank. Sesudah tersalin, komponennya
+   * ditautkan ke salinan bank itu, sehingga penerbitan ulang tidak menggandakan
+   * dan jumlah pemakaian soal bisa dihitung.
+   *
+   * Kategori OTHER disimpan sebagai null: itu bukan bidang dalam taksonomi bank,
+   * dan soal dari bidang tak terdaftar justru paling berguna sebagai lintas
+   * bidang.
+   */
+  private async absorbSelfWrittenQuestions(
+    tx: Prisma.TransactionClient,
+    challengeId: string,
+    companyId: string,
+  ): Promise<number> {
+    const challenge = await tx.challenge.findUnique({
+      where: { id: challengeId },
+      select: { category: true, difficulty: true },
+    });
+    if (!challenge) return 0;
+
+    const components = await tx.challengeComponent.findMany({
+      where: { section: { challengeId }, sourceItemId: null },
+      select: {
+        id: true,
+        type: true,
+        question: true,
+        description: true,
+        options: true,
+        metadata: true,
+        points: true,
+      },
+      take: ChallengesService.MAX_ABSORBED_QUESTIONS,
+    });
+
+    const writable = components.filter((c) => c.question.trim().length > 0);
+    if (writable.length === 0) return 0;
+
+    // Soal yang teksnya sudah ada di koleksi tidak digandakan — perusahaan
+    // yang memakai pertanyaan yang sama di dua studi kasus tidak sedang
+    // meminta dua entri bank.
+    const existing = await tx.questionBankItem.findMany({
+      where: { companyId, question: { in: writable.map((c) => c.question) } },
+      select: { id: true, question: true },
+    });
+    const idByQuestion = new Map(existing.map((i) => [i.question, i.id]));
+
+    let created = 0;
+
+    for (const comp of writable) {
+      let itemId = idByQuestion.get(comp.question);
+
+      if (!itemId) {
+        const item = await tx.questionBankItem.create({
+          data: {
+            companyId,
+            type: comp.type,
+            question: comp.question,
+            description: comp.description,
+            options: comp.options ?? undefined,
+            metadata: comp.metadata ?? undefined,
+            defaultPoints: comp.points ?? 10,
+            category:
+              challenge.category === ChallengeCategory.OTHER
+                ? null
+                : challenge.category,
+            difficulty: challenge.difficulty,
+          },
+          select: { id: true },
+        });
+
+        itemId = item.id;
+        idByQuestion.set(comp.question, itemId);
+        created += 1;
+      }
+
+      await tx.challengeComponent.update({
+        where: { id: comp.id },
+        data: { sourceItemId: itemId },
+      });
+    }
+
+    return created;
   }
 
   private buildComponentsCreateInput(
@@ -605,6 +698,7 @@ export class ChallengesService {
                 slug,
                 summary: createChallengeDto.summary,
                 description: createChallengeDto.description,
+                role: createChallengeDto.role ?? null,
                 category: createChallengeDto.category,
                 difficulty: createChallengeDto.difficulty,
                 datasetUrl: createChallengeDto.datasetUrl,
@@ -644,6 +738,16 @@ export class ChallengesService {
                 },
               },
             });
+
+            // Koleksi soal tumbuh dari pekerjaan yang memang sudah dilakukan.
+            // Hanya saat benar-benar terbit: draf masih akan berubah, dan
+            // menyerap isinya berarti menabung setengah kalimat.
+            if (
+              challenge.status === ChallengeStatus.PUBLISHED &&
+              createChallengeDto.saveQuestionsToBank !== false
+            ) {
+              await this.absorbSelfWrittenQuestions(tx, challengeId, companyId);
+            }
 
             await tx.notification.create({
               data: {
@@ -703,6 +807,7 @@ export class ChallengesService {
               slug,
               summary: createChallengeDto.summary,
               description: createChallengeDto.description,
+              role: createChallengeDto.role ?? null,
               category: createChallengeDto.category,
               difficulty: createChallengeDto.difficulty,
               datasetUrl: createChallengeDto.datasetUrl,
@@ -885,6 +990,10 @@ export class ChallengesService {
           { title: { contains: query.search, mode: 'insensitive' } },
           { summary: { contains: query.search, mode: 'insensitive' } },
           { description: { contains: query.search, mode: 'insensitive' } },
+          // Posisi yang direkrut adalah kata yang paling mungkin diketik
+          // kandidat — "Video Editor" tidak selalu muncul di judul, dan enam
+          // kategori tidak punya keranjang untuknya.
+          { role: { contains: query.search, mode: 'insensitive' } },
         ],
       });
     }
@@ -909,6 +1018,7 @@ export class ChallengesService {
           slug: true,
           title: true,
           summary: true,
+          role: true,
           category: true,
           difficulty: true,
           challengeType: true,
@@ -1246,6 +1356,7 @@ export class ChallengesService {
                 description:
                   dto.blueprint.description ||
                   'Mohon tunggu, AI sedang menyusun soal...',
+                role: dto.role ?? null,
                 category: dto.category,
                 difficulty: dto.difficulty,
                 gradingRubric: dto.blueprint.rubric || {},
@@ -1305,6 +1416,7 @@ export class ChallengesService {
                 description:
                   dto.blueprint.description ||
                   'Mohon tunggu, AI sedang menyusun soal...',
+                role: dto.role ?? null,
                 category: dto.category,
                 difficulty: dto.difficulty,
                 gradingRubric: dto.blueprint.rubric || {},
@@ -1435,6 +1547,7 @@ export class ChallengesService {
               title: updateDto.title,
               summary: updateDto.summary,
               description: updateDto.description,
+              role: updateDto.role,
               category: updateDto.category,
               difficulty: updateDto.difficulty,
               datasetUrl: updateDto.datasetUrl,
@@ -1478,6 +1591,17 @@ export class ChallengesService {
               updateDto.sections,
               new Set(existing.sections.map((s) => s.id)),
             );
+          }
+
+          // Sebagian besar penerbitan lewat sini: builder menyimpan draf
+          // berkali-kali, lalu menerbitkannya dengan PATCH.
+          if (
+            existing.status === ChallengeStatus.DRAFT &&
+            result.status === ChallengeStatus.PUBLISHED &&
+            existing.companyId &&
+            updateDto.saveQuestionsToBank !== false
+          ) {
+            await this.absorbSelfWrittenQuestions(tx, id, existing.companyId);
           }
 
           // Penerbitan lewat PATCH dulu tidak memberi kabar apa pun, padahal
