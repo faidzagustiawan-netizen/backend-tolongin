@@ -8,6 +8,7 @@
   "engines": {
     "node": ">=20.19.0"
   },
+  "packageManager": "pnpm@11.10.0",
   "scripts": {
     "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
