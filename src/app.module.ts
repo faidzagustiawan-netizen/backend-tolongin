@@ -29,6 +29,8 @@ import { AdminModule } from './admin/admin.module';
 import { SkillsModule } from './skills/skills.module';
 import { QuestionBankModule } from './question-bank/question-bank.module';
 import { StagesModule } from './stages/stages.module';
+import { SupportModule } from './support/support.module';
+import { AnnouncementsModule } from './announcements/announcements.module';
 
 @Module({
   imports: [
@@ -67,6 +69,8 @@ import { StagesModule } from './stages/stages.module';
     SkillsModule,
     QuestionBankModule,
     StagesModule,
+    SupportModule,
+    AnnouncementsModule,
   ],
   controllers: [AppController],
   providers: [

@@ -465,6 +465,57 @@ describe('StageGateService', () => {
       ).rejects.toThrow(/Akses ditolak/);
     });
 
+    /**
+     * Kedua endpoint ini mengizinkan ADMIN lewat `@Roles`, tetapi token admin
+     * tidak membawa `profileId`. Sebelum perbaikan, akibatnya berbeda dan
+     * dua-duanya salah: `approveStage` membandingkan string dengan `undefined`
+     * sehingga admin selalu ditolak 403, sedangkan `listPendingApprovals`
+     * membangun `OR: [{ companyId: undefined }, { talentId: undefined }]` yang
+     * membuat Prisma membuang kedua syaratnya dan cocok dengan challenge mana
+     * pun — lolos, tapi karena kebetulan.
+     */
+    it('meloloskan kandidat atas nama admin tanpa profileId', async () => {
+      prisma.stageAttempt.findUnique = jest
+        .fn()
+        .mockResolvedValue(ownedAttempt);
+
+      await service.approveStage('admin-1', undefined as any, 'att-1', 'ADMIN');
+
+      expect(prisma.stageAttempt.update).toHaveBeenCalled();
+    });
+
+    it('tetap menolak peran lain yang kehilangan profileId', async () => {
+      prisma.stageAttempt.findUnique = jest
+        .fn()
+        .mockResolvedValue(ownedAttempt);
+
+      await expect(
+        service.approveStage('user-9', undefined as any, 'att-1', 'COMPANY'),
+      ).rejects.toThrow(/pemilik studi kasus/);
+    });
+
+    it('membaca antrean persetujuan admin lewat cabang eksplisit', async () => {
+      prisma.challenge.findFirst.mockResolvedValue({ id: 'ch-1' });
+      prisma.stageAttempt.findMany = jest
+        .fn()
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([]);
+
+      await service.listPendingApprovals(undefined as any, 'ch-1', 'ADMIN');
+
+      // Tanpa `OR` yang berisi `undefined`: penyaring kepemilikan dilewati
+      // secara sengaja, bukan karena Prisma membuangnya.
+      expect(prisma.challenge.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'ch-1' } }),
+      );
+    });
+
+    it('menolak peran lain yang kehilangan profileId saat membaca antrean', async () => {
+      await expect(
+        service.listPendingApprovals(undefined as any, 'ch-1', 'COMPANY'),
+      ).rejects.toThrow(/Sesi tidak memiliki profil/);
+    });
+
     it('menyertakan nilai tahap sebelumnya sebagai dasar keputusan', async () => {
       prisma.challenge.findFirst.mockResolvedValue({ id: 'ch-1' });
       prisma.stageAttempt.findMany = jest

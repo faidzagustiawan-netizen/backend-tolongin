@@ -1,8 +1,27 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { VerificationStatus } from '@prisma/client';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import {
+  AnnouncementType,
+  ChallengeStatus,
+  Prisma,
+  Role,
+  TicketStatus,
+  VerificationStatus,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { IdentityDedupeService } from '../verification/identity-dedupe.service';
+import { CreateAnnouncementDto, KybDecision } from './dto/admin-actions.dto';
+
+/** Bentuk paginasi yang sama dipakai daftar submisi dan direktori challenge. */
+export interface AdminListQuery {
+  page?: string;
+  limit?: string;
+  search?: string;
+}
 
 @Injectable()
 export class AdminService {
@@ -14,6 +33,21 @@ export class AdminService {
 
   /** Berapa bidang teratas yang ditampilkan di grafik sebaran. */
   private static readonly TOP_CATEGORIES = 8;
+
+  /**
+   * Halaman dan ukuran halaman yang sudah dijepit ke rentang wajar.
+   *
+   * Daftar admin dulu memanggil `findMany` tanpa `take` sama sekali — satu
+   * permintaan menarik seluruh tabel pengguna.
+   */
+  private paginate(query: AdminListQuery | undefined, fallbackLimit = 25) {
+    const page = Math.max(1, Number(query?.page) || 1);
+    const limit = Math.min(
+      100,
+      Math.max(1, Number(query?.limit) || fallbackLimit),
+    );
+    return { page, limit, skip: (page - 1) * limit };
+  }
 
   async getOverviewStats() {
     const totalUsers = await this.prisma.user.count();
@@ -49,7 +83,12 @@ export class AdminService {
     });
   }
 
-  async verifyCompany(companyId: string, status: 'VERIFIED' | 'FAILED') {
+  async verifyCompany(
+    adminUserId: string,
+    companyId: string,
+    status: KybDecision,
+    reason?: string,
+  ) {
     const company = await this.prisma.companyProfile.findUnique({
       where: { id: companyId },
     });
@@ -57,81 +96,291 @@ export class AdminService {
       throw new NotFoundException('Company not found');
     }
 
-    if (status === 'VERIFIED') {
-      await this.prisma.user.update({
-        where: { id: company.userId },
-        data: { isVerified: true },
-      });
-    }
+    const approved = status === VerificationStatus.VERIFIED;
 
-    return this.prisma.companyProfile.update({
+    // Penolakan juga harus mencabut `isVerified`. Tanpa ini perusahaan yang
+    // pernah lolos lalu ditinjau ulang dan ditolak tetap memegang akses penuh:
+    // `VerifiedCompanyGuard` membaca `isVerified`, bukan `kybStatus`.
+    await this.prisma.user.update({
+      where: { id: company.userId },
+      data: { isVerified: approved },
+    });
+
+    const updated = await this.prisma.companyProfile.update({
       where: { id: companyId },
       data: { kybStatus: status },
     });
+
+    await this.createAuditLog(
+      adminUserId,
+      approved ? 'COMPANY_KYB_APPROVED' : 'COMPANY_KYB_REJECTED',
+      'COMPANY_PROFILE',
+      companyId,
+      { reason: reason ?? null },
+    );
+
+    // Sebelumnya keputusan ini tidak mengabari siapa pun. Perusahaan yang
+    // mengirim dokumen legalitas menunggu tanpa tanda apa pun bahwa hasilnya
+    // sudah keluar — dan yang ditolak tidak pernah tahu apa yang salah.
+    await this.notificationsService.sendNotification(
+      company.userId,
+      approved
+        ? 'Verifikasi Perusahaan Disetujui ✅'
+        : 'Verifikasi Perusahaan Ditolak',
+      approved
+        ? 'Legalitas usaha Anda sudah diverifikasi. Seluruh fitur perusahaan kini terbuka.'
+        : `Dokumen legalitas Anda belum bisa kami terima.${reason ? ` Alasan: ${reason}` : ''} Silakan perbaiki dan kirim ulang.`,
+      '/settings',
+    );
+
+    return updated;
   }
 
   // --- Expanded Admin Features ---
 
-  async getAllUsers() {
-    return this.prisma.user.findMany({
-      select: {
-        id: true,
-        email: true,
-        fullName: true,
-        role: true,
-        isVerified: true,
-        isBanned: true,
-        createdAt: true,
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+  async getAllUsers(query?: AdminListQuery & { role?: Role }) {
+    const { page, limit, skip } = this.paginate(query);
+
+    // Penyaringan dulu seluruhnya di sisi klien, jadi halaman admin harus
+    // memuat setiap baris pengguna lebih dulu sebelum bisa mencari satu orang.
+    const search = query?.search?.trim();
+    const where: Prisma.UserWhereInput = {
+      ...(query?.role ? { role: query.role } : {}),
+      ...(search
+        ? {
+            OR: [
+              { email: { contains: search, mode: 'insensitive' as const } },
+              { fullName: { contains: search, mode: 'insensitive' as const } },
+            ],
+          }
+        : {}),
+    };
+
+    const [data, total] = await this.prisma.$transaction([
+      this.prisma.user.findMany({
+        where,
+        select: {
+          id: true,
+          email: true,
+          fullName: true,
+          role: true,
+          isVerified: true,
+          isBanned: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      this.prisma.user.count({ where }),
+    ]);
+
+    return { data, total, page, limit };
   }
 
-  async toggleBanUser(userId: string, isBanned: boolean) {
+  async toggleBanUser(
+    adminUserId: string,
+    userId: string,
+    isBanned: boolean,
+    reason?: string,
+  ) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
 
-    return this.prisma.user.update({
+    // Admin tidak boleh memblokir dirinya sendiri: `JwtAuthGuard` menolak akun
+    // ber-status banned pada permintaan berikutnya, jadi satu klik keliru
+    // mengunci pemiliknya keluar dari panelnya sendiri.
+    if (userId === adminUserId) {
+      throw new BadRequestException(
+        'Anda tidak dapat memblokir akun Anda sendiri.',
+      );
+    }
+
+    const updated = await this.prisma.user.update({
       where: { id: userId },
       data: { isBanned },
     });
+
+    await this.createAuditLog(
+      adminUserId,
+      isBanned ? 'USER_BANNED' : 'USER_UNBANNED',
+      'USER',
+      userId,
+      { reason: reason ?? null },
+    );
+
+    // Pemblokiran menutup akses lewat `JwtAuthGuard`, jadi kabar pencabutannya
+    // yang paling penting: tanpa ini pengguna yang sudah dibuka blokirnya tidak
+    // punya tanda apa pun bahwa akunnya bisa dipakai lagi.
+    await this.notificationsService.sendNotification(
+      userId,
+      isBanned ? 'Akun Ditangguhkan' : 'Blokir Akun Dicabut',
+      isBanned
+        ? `Akun Anda ditangguhkan oleh admin.${reason ? ` Alasan: ${reason}` : ''} Hubungi dukungan bila Anda merasa ini keliru.`
+        : 'Blokir akun Anda telah dicabut. Anda dapat masuk dan memakai layanan seperti biasa.',
+      '/settings',
+    );
+
+    return updated;
   }
 
-  async sendWarning(userId: string, message: string) {
+  async sendWarning(adminUserId: string, userId: string, message: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
 
-    return this.prisma.notification.create({
+    const notification = await this.prisma.notification.create({
       data: {
         userId,
         title: 'Peringatan Admin',
         content: message,
       },
     });
-  }
 
-  async getAllChallenges() {
-    return this.prisma.challenge.findMany({
-      include: {
-        company: {
-          select: { companyName: true },
-        },
-      },
-      orderBy: { createdAt: 'desc' },
+    await this.createAuditLog(adminUserId, 'USER_WARNED', 'USER', userId, {
+      message,
     });
+
+    return notification;
   }
 
-  async takedownChallenge(challengeId: string) {
+  async getAllChallenges(query?: AdminListQuery) {
+    const { page, limit, skip } = this.paginate(query);
+
+    const search = query?.search?.trim();
+    const where: Prisma.ChallengeWhereInput = search
+      ? { title: { contains: search, mode: 'insensitive' } }
+      : {};
+
+    const [data, total] = await this.prisma.$transaction([
+      this.prisma.challenge.findMany({
+        where,
+        include: {
+          company: {
+            select: { companyName: true },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      this.prisma.challenge.count({ where }),
+    ]);
+
+    return { data, total, page, limit };
+  }
+
+  /**
+   * Menurunkan satu studi kasus dari peredaran.
+   *
+   * Dulu ini `prisma.challenge.delete`. Rantai cascade-nya berujung di
+   * `Submission` lalu `Portfolio`, sehingga menghukum satu perusahaan berarti
+   * menghapus permanen hasil kerja dan portofolio terverifikasi setiap talenta
+   * yang pernah ikut — orang-orang yang tidak melakukan kesalahan apa pun.
+   *
+   * Studi kasusnya karena itu ditutup dan ditandai, bukan dibuang.
+   */
+  async takedownChallenge(
+    adminUserId: string,
+    challengeId: string,
+    reason: string,
+  ) {
     const challenge = await this.prisma.challenge.findUnique({
       where: { id: challengeId },
+      select: {
+        id: true,
+        title: true,
+        takenDownAt: true,
+        company: { select: { userId: true } },
+        creator: { select: { userId: true } },
+      },
     });
     if (!challenge) throw new NotFoundException('Challenge not found');
 
-    // Option 1: Soft delete or status change. Since there is no status, we can just delete it or mark it.
-    // The user said "takedown aja jangan sampai bisa edit". Let's delete it.
-    return this.prisma.challenge.delete({
+    if (challenge.takenDownAt) {
+      throw new BadRequestException('Studi kasus ini sudah diturunkan.');
+    }
+
+    const updated = await this.prisma.challenge.update({
       where: { id: challengeId },
+      data: {
+        status: ChallengeStatus.CLOSED,
+        takenDownAt: new Date(),
+        takenDownById: adminUserId,
+        takedownReason: reason,
+      },
     });
+
+    await this.createAuditLog(
+      adminUserId,
+      'CHALLENGE_TAKEN_DOWN',
+      'CHALLENGE',
+      challengeId,
+      { reason, title: challenge.title },
+    );
+
+    const ownerUserId =
+      challenge.company?.userId ?? challenge.creator?.userId ?? null;
+    if (ownerUserId) {
+      await this.notificationsService.sendNotification(
+        ownerUserId,
+        'Studi Kasus Diturunkan Admin',
+        `"${challenge.title}" diturunkan dari peredaran. Alasan: ${reason} Submisi yang sudah masuk tetap tersimpan.`,
+        '/dashboard',
+      );
+    }
+
+    return updated;
+  }
+
+  /** Mengembalikan studi kasus yang diturunkan ke status arsip biasa. */
+  async restoreChallenge(adminUserId: string, challengeId: string) {
+    const challenge = await this.prisma.challenge.findUnique({
+      where: { id: challengeId },
+      select: {
+        id: true,
+        title: true,
+        takenDownAt: true,
+        company: { select: { userId: true } },
+        creator: { select: { userId: true } },
+      },
+    });
+    if (!challenge) throw new NotFoundException('Challenge not found');
+
+    if (!challenge.takenDownAt) {
+      throw new BadRequestException('Studi kasus ini tidak sedang diturunkan.');
+    }
+
+    // Statusnya tetap CLOSED. Menerbitkan ulang adalah keputusan pemiliknya,
+    // bukan efek samping pencabutan sanksi.
+    const updated = await this.prisma.challenge.update({
+      where: { id: challengeId },
+      data: {
+        takenDownAt: null,
+        takenDownById: null,
+        takedownReason: null,
+      },
+    });
+
+    await this.createAuditLog(
+      adminUserId,
+      'CHALLENGE_RESTORED',
+      'CHALLENGE',
+      challengeId,
+      { title: challenge.title },
+    );
+
+    const ownerUserId =
+      challenge.company?.userId ?? challenge.creator?.userId ?? null;
+    if (ownerUserId) {
+      await this.notificationsService.sendNotification(
+        ownerUserId,
+        'Penurunan Studi Kasus Dicabut',
+        `Penurunan "${challenge.title}" telah dicabut. Studi kasus kembali berstatus arsip dan dapat Anda kelola seperti biasa.`,
+        '/dashboard',
+      );
+    }
+
+    return updated;
   }
 
   // --- 1. Analytics & Reporting ---
@@ -396,32 +645,98 @@ export class AdminService {
   }
 
   // --- 4. Announcements (CMS) ---
-  async getAnnouncements() {
-    return this.prisma.announcement.findMany({
-      orderBy: { createdAt: 'desc' },
+  async getAnnouncements(query?: AdminListQuery) {
+    const { page, limit, skip } = this.paginate(query);
+
+    const [data, total] = await this.prisma.$transaction([
+      this.prisma.announcement.findMany({
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      this.prisma.announcement.count(),
+    ]);
+
+    return { data, total, page, limit };
+  }
+
+  async createAnnouncement(adminUserId: string, dto: CreateAnnouncementDto) {
+    const created = await this.prisma.announcement.create({
+      data: {
+        title: dto.title,
+        content: dto.content,
+        type: dto.type ?? AnnouncementType.INFO,
+        isActive: dto.isActive ?? true,
+        expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null,
+      },
     });
+
+    await this.createAuditLog(
+      adminUserId,
+      'ANNOUNCEMENT_CREATED',
+      'ANNOUNCEMENT',
+      created.id,
+      { title: created.title, type: created.type },
+    );
+
+    return created;
   }
 
-  async createAnnouncement(data: {
-    title: string;
-    content: string;
-    type: 'INFO' | 'WARNING' | 'SUCCESS' | 'MAINTENANCE';
-  }) {
-    return this.prisma.announcement.create({ data });
-  }
+  async deleteAnnouncement(adminUserId: string, id: string) {
+    const existing = await this.prisma.announcement.findUnique({
+      where: { id },
+    });
+    if (!existing) throw new NotFoundException('Pengumuman tidak ditemukan');
 
-  async deleteAnnouncement(id: string) {
-    return this.prisma.announcement.delete({ where: { id } });
+    const deleted = await this.prisma.announcement.delete({ where: { id } });
+
+    await this.createAuditLog(
+      adminUserId,
+      'ANNOUNCEMENT_DELETED',
+      'ANNOUNCEMENT',
+      id,
+      { title: existing.title },
+    );
+
+    return deleted;
   }
 
   // --- 5. Support Tickets ---
-  async getTickets() {
-    return this.prisma.supportTicket.findMany({
-      include: {
-        user: { select: { email: true, fullName: true, role: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+  async getTickets(query?: AdminListQuery & { status?: TicketStatus }) {
+    const { page, limit, skip } = this.paginate(query);
+
+    const search = query?.search?.trim();
+    const where: Prisma.SupportTicketWhereInput = {
+      ...(query?.status ? { status: query.status } : {}),
+      ...(search
+        ? {
+            OR: [
+              { subject: { contains: search, mode: 'insensitive' as const } },
+              {
+                user: {
+                  email: { contains: search, mode: 'insensitive' as const },
+                },
+              },
+            ],
+          }
+        : {}),
+    };
+
+    const [data, total] = await this.prisma.$transaction([
+      this.prisma.supportTicket.findMany({
+        where,
+        include: {
+          user: { select: { email: true, fullName: true, role: true } },
+          _count: { select: { replies: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      this.prisma.supportTicket.count({ where }),
+    ]);
+
+    return { data, total, page, limit };
   }
 
   async getTicketReplies(ticketId: string) {
@@ -434,29 +749,79 @@ export class AdminService {
     });
   }
 
-  async replyToTicket(ticketId: string, userId: string, message: string) {
+  /**
+   * Membalas tiket sebagai admin.
+   *
+   * Penulis balasan diambil dari token, bukan dari badan permintaan. Versi
+   * sebelumnya menerima `@Body('userId')`, sehingga admin mana pun bisa
+   * menuliskan balasan atas nama pengguna lain — termasuk atas nama pelapor
+   * tiket itu sendiri.
+   */
+  async replyToTicket(adminUserId: string, ticketId: string, message: string) {
     const ticket = await this.prisma.supportTicket.findUnique({
       where: { id: ticketId },
     });
     if (!ticket) throw new NotFoundException('Ticket not found');
 
-    // Auto change status to IN_PROGRESS if OPEN
-    if (ticket.status === 'OPEN') {
+    if (ticket.status === TicketStatus.CLOSED) {
+      throw new BadRequestException(
+        'Tiket sudah ditutup. Buka kembali lebih dulu untuk membalas.',
+      );
+    }
+
+    if (ticket.status === TicketStatus.OPEN) {
       await this.prisma.supportTicket.update({
         where: { id: ticketId },
-        data: { status: 'IN_PROGRESS' },
+        data: { status: TicketStatus.IN_PROGRESS },
       });
     }
 
-    return this.prisma.ticketReply.create({
-      data: { ticketId, userId, message },
+    const reply = await this.prisma.ticketReply.create({
+      data: { ticketId, userId: adminUserId, message },
     });
+
+    await this.createAuditLog(
+      adminUserId,
+      'TICKET_REPLIED',
+      'SUPPORT_TICKET',
+      ticketId,
+    );
+
+    await this.notificationsService.sendNotification(
+      ticket.userId,
+      'Balasan Tiket Bantuan',
+      `Tim dukungan membalas tiket "${ticket.subject}".`,
+      `/support/${ticketId}`,
+    );
+
+    return reply;
   }
 
-  async closeTicket(ticketId: string) {
-    return this.prisma.supportTicket.update({
+  async closeTicket(adminUserId: string, ticketId: string) {
+    const ticket = await this.prisma.supportTicket.findUnique({
       where: { id: ticketId },
-      data: { status: 'CLOSED' },
     });
+    if (!ticket) throw new NotFoundException('Ticket not found');
+
+    const updated = await this.prisma.supportTicket.update({
+      where: { id: ticketId },
+      data: { status: TicketStatus.CLOSED },
+    });
+
+    await this.createAuditLog(
+      adminUserId,
+      'TICKET_CLOSED',
+      'SUPPORT_TICKET',
+      ticketId,
+    );
+
+    await this.notificationsService.sendNotification(
+      ticket.userId,
+      'Tiket Bantuan Ditutup',
+      `Tiket "${ticket.subject}" telah ditutup. Buat tiket baru bila masalahnya belum selesai.`,
+      `/support/${ticketId}`,
+    );
+
+    return updated;
   }
 }

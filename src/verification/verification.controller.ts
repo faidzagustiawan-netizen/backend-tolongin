@@ -3,6 +3,7 @@ import {
   Post,
   Get,
   Body,
+  Query,
   Request,
   UseGuards,
   HttpCode,
@@ -10,9 +11,11 @@ import {
 import {
   ApiTags,
   ApiOperation,
+  ApiQuery,
   ApiResponse,
   ApiBearerAuth,
 } from '@nestjs/swagger';
+import { resolveCompanyScope } from '../common/utils/company-scope';
 import { VerificationService } from './verification.service';
 import { VerifyFaceDto } from './dto/verify-face.dto';
 import { VerifyKybDto } from './dto/verify-kyb.dto';
@@ -56,12 +59,27 @@ export class VerificationController {
   // diundang. `profileId` di bawah bernilai sama dengan companyId untuk
   // keduanya, sehingga tanpa penjaga ini anggota tim bisa mengganti dokumen
   // legalitas perusahaan tempatnya bekerja.
+  @ApiQuery({
+    name: 'companyId',
+    required: false,
+    description: 'Wajib untuk admin; diabaikan untuk peran perusahaan',
+  })
   @Roles(Role.COMPANY, Role.ADMIN)
   @UseGuards(CompanyOwnerGuard)
   @Post('kyb')
-  async submitCompanyKyb(@Request() req: any, @Body() dto: VerifyKybDto) {
-    const companyId = req.user.profileId;
-    return this.verificationService.submitCompanyKyb(companyId, dto);
+  async submitCompanyKyb(
+    @Request() req: any,
+    @Body() dto: VerifyKybDto,
+    @Query('companyId') companyId?: string,
+  ) {
+    // Token admin tidak membawa profileId. Sebelumnya nilai undefined itu
+    // diteruskan ke `findUnique({ where: { id: undefined } })` dan permintaan
+    // berakhir sebagai PrismaClientValidationError 500 — endpoint ini
+    // mengizinkan ADMIN lewat @Roles tapi tidak pernah bisa dipakai admin.
+    return this.verificationService.submitCompanyKyb(
+      resolveCompanyScope(req.user, companyId),
+      dto,
+    );
   }
 
   @ApiOperation({

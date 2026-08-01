@@ -1147,6 +1147,13 @@ export class ChallengesService {
     // aslinya.
     const isOwner = this.isChallengeOwner(userReq, challenge);
 
+    // Studi kasus yang diturunkan admin hilang dari peredaran, tapi tidak
+    // dihapus: pemiliknya tetap boleh membukanya untuk membaca alasannya, dan
+    // tautan lamanya berhenti bekerja untuk orang lain.
+    if (challenge.takenDownAt && !isOwner) {
+      throw new NotFoundException('Challenge tidak ditemukan');
+    }
+
     if (!isOwner) {
       const redactComponent = (comp: any) => ({
         ...comp,

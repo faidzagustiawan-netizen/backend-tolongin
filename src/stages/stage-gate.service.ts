@@ -11,6 +11,7 @@ import {
   ComponentType,
   GateScoreBasis,
   Prisma,
+  Role,
   StageAttemptStatus,
   StageGateMode,
   StagePendingPolicy,
@@ -739,12 +740,32 @@ export class StageGateService {
    * boleh masuk, jadi belum ada yang dikumpulkan. Mencarinya dari daftar submisi
    * berarti mencari sesuatu yang secara definisi tidak ada di sana.
    */
-  async listPendingApprovals(profileId: string, challengeId: string) {
+  async listPendingApprovals(
+    profileId: string,
+    challengeId: string,
+    role?: string,
+  ) {
+    // Admin diizinkan oleh @Roles tapi tokennya tidak membawa profileId.
+    // Tanpa cabang ini `OR: [{ companyId: undefined }, { talentId: undefined }]`
+    // membuat Prisma membuang kedua syaratnya, sehingga penjaga kepemilikan di
+    // bawah lolos untuk challenge mana pun — benar hasilnya, tapi tidak
+    // disengaja, dan hal yang sama tidak berlaku untuk peran lain yang
+    // kehilangan profileId.
+    const isAdmin = role === Role.ADMIN;
+
+    if (!isAdmin && !profileId) {
+      throw new ForbiddenException(
+        'Sesi tidak memiliki profil. Silakan masuk ulang.',
+      );
+    }
+
     const challenge = await this.prisma.challenge.findFirst({
-      where: {
-        id: challengeId,
-        OR: [{ companyId: profileId }, { talentId: profileId }],
-      },
+      where: isAdmin
+        ? { id: challengeId }
+        : {
+            id: challengeId,
+            OR: [{ companyId: profileId }, { talentId: profileId }],
+          },
       select: { id: true },
     });
 
@@ -831,6 +852,7 @@ export class StageGateService {
     approverUserId: string,
     profileId: string,
     attemptId: string,
+    role?: string,
   ) {
     const attempt = await this.prisma.stageAttempt.findUnique({
       where: { id: attemptId },
@@ -848,9 +870,14 @@ export class StageGateService {
     if (!attempt) throw new NotFoundException('Tahap tidak ditemukan');
 
     const challenge = attempt.enrollment.challenge;
+    // Admin ada di daftar @Roles endpoint ini, tetapi tokennya tidak membawa
+    // profileId — perbandingan di bawah membandingkan string dengan undefined
+    // dan selalu bernilai false, sehingga admin selalu ditolak 403.
+    const isAdmin = role === Role.ADMIN;
     const isOwner =
-      challenge.companyId === profileId || challenge.talentId === profileId;
-    if (!isOwner) {
+      !!profileId &&
+      (challenge.companyId === profileId || challenge.talentId === profileId);
+    if (!isAdmin && !isOwner) {
       throw new ForbiddenException(
         'Hanya pemilik studi kasus yang bisa meloloskan kandidat.',
       );

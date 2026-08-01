@@ -25,6 +25,7 @@ import {
   flattenCategory,
 } from '../common/selects/challenge-category.select';
 import {
+  ChallengeStatus,
   ComponentType,
   EnrollmentStatus,
   SubmissionStatus,
@@ -202,6 +203,23 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
 
     if (!challenge) {
       throw new NotFoundException('Challenge tidak ditemukan');
+    }
+
+    // Studi kasus yang diturunkan admin tidak boleh menerima peserta baru.
+    // Tanpa penjagaan ini takedown hanya menyembunyikannya dari direktori:
+    // siapa pun yang sudah menyimpan `challengeId` tetap bisa mendaftar.
+    if (challenge.takenDownAt) {
+      throw new ForbiddenException(
+        'Studi kasus ini diturunkan oleh admin dan tidak menerima peserta baru.',
+      );
+    }
+
+    // Hanya studi kasus yang terbit yang membuka pendaftaran. Draf belum
+    // selesai disusun dan arsip sudah ditutup pemiliknya.
+    if (challenge.status !== ChallengeStatus.PUBLISHED) {
+      throw new ForbiddenException(
+        'Studi kasus ini sedang tidak membuka pendaftaran.',
+      );
     }
 
     const existingEnrollment = await this.prisma.challengeEnrollment.findUnique(

@@ -6,6 +6,7 @@ import {
   Delete,
   Param,
   Body,
+  Query,
   Request,
   UseGuards,
 } from '@nestjs/common';
@@ -13,8 +14,22 @@ import { AdminService } from './admin.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
-import { Role } from '@prisma/client';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Role, TicketStatus } from '@prisma/client';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiQuery,
+  ApiTags,
+} from '@nestjs/swagger';
+import {
+  CreateAnnouncementDto,
+  ReplyTicketDto,
+  ResolveIdentityReviewDto,
+  SendWarningDto,
+  TakedownChallengeDto,
+  ToggleBanUserDto,
+  VerifyCompanyDto,
+} from './dto/admin-actions.dto';
 
 @ApiTags('Admin')
 @Controller('admin')
@@ -34,35 +49,69 @@ export class AdminController {
     return this.adminService.getPendingCompanies();
   }
 
+  @ApiOperation({ summary: 'Menuntaskan tinjauan legalitas usaha (KYB)' })
   @Post('companies/:id/verify')
   async verifyCompany(
+    @Request() req: any,
     @Param('id') companyId: string,
-    @Body('status') status: 'VERIFIED' | 'FAILED',
+    @Body() dto: VerifyCompanyDto,
   ) {
-    return this.adminService.verifyCompany(companyId, status);
+    return this.adminService.verifyCompany(
+      req.user.sub,
+      companyId,
+      dto.status,
+      dto.reason,
+    );
   }
 
   // --- Expanded Admin Features ---
 
+  @ApiQuery({ name: 'page', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  @ApiQuery({
+    name: 'search',
+    required: false,
+    description: 'Cocokkan email atau nama lengkap',
+  })
+  @ApiQuery({ name: 'role', required: false, enum: Role })
   @Get('users')
-  async getAllUsers() {
-    return this.adminService.getAllUsers();
+  async getAllUsers(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('search') search?: string,
+    @Query('role') role?: Role,
+  ) {
+    return this.adminService.getAllUsers({
+      page,
+      limit,
+      search,
+      // Nilai sembarang dari query string tidak boleh sampai ke `where` Prisma
+      // sebagai filter enum yang tidak sah.
+      role: role && role in Role ? role : undefined,
+    });
   }
 
   @Patch('users/:id/ban')
   async toggleBanUser(
+    @Request() req: any,
     @Param('id') userId: string,
-    @Body('isBanned') isBanned: boolean,
+    @Body() dto: ToggleBanUserDto,
   ) {
-    return this.adminService.toggleBanUser(userId, isBanned);
+    return this.adminService.toggleBanUser(
+      req.user.sub,
+      userId,
+      dto.isBanned,
+      dto.reason,
+    );
   }
 
   @Post('users/:id/warning')
   async sendWarning(
+    @Request() req: any,
     @Param('id') userId: string,
-    @Body('message') message: string,
+    @Body() dto: SendWarningDto,
   ) {
-    return this.adminService.sendWarning(userId, message);
+    return this.adminService.sendWarning(req.user.sub, userId, dto.message);
   }
 
   @ApiOperation({
@@ -82,24 +131,55 @@ export class AdminController {
   async resolveIdentityReview(
     @Request() req: any,
     @Param('talentId') talentId: string,
-    @Body() body: { approve: boolean; note?: string },
+    @Body() dto: ResolveIdentityReviewDto,
   ) {
     return this.adminService.resolveIdentityReview(
       req.user.sub,
       talentId,
-      !!body.approve,
-      body.note,
+      dto.approve,
+      dto.note,
     );
   }
 
+  @ApiQuery({ name: 'page', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  @ApiQuery({ name: 'search', required: false, description: 'Cocokkan judul' })
   @Get('challenges')
-  async getAllChallenges() {
-    return this.adminService.getAllChallenges();
+  async getAllChallenges(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.adminService.getAllChallenges({ page, limit, search });
   }
 
-  @Delete('challenges/:id')
-  async takedownChallenge(@Param('id') challengeId: string) {
-    return this.adminService.takedownChallenge(challengeId);
+  @ApiOperation({
+    summary: 'Menurunkan studi kasus dari peredaran',
+    description:
+      'Studi kasus ditutup dan ditandai, bukan dihapus: submisi, penilaian, ' +
+      'dan portofolio talenta yang sudah terbit tetap utuh. Karena itu ' +
+      'metodenya POST, bukan DELETE — tidak ada baris yang hilang.',
+  })
+  @Post('challenges/:id/takedown')
+  async takedownChallenge(
+    @Request() req: any,
+    @Param('id') challengeId: string,
+    @Body() dto: TakedownChallengeDto,
+  ) {
+    return this.adminService.takedownChallenge(
+      req.user.sub,
+      challengeId,
+      dto.reason,
+    );
+  }
+
+  @ApiOperation({ summary: 'Mencabut penurunan studi kasus' })
+  @Post('challenges/:id/restore')
+  async restoreChallenge(
+    @Request() req: any,
+    @Param('id') challengeId: string,
+  ) {
+    return this.adminService.restoreChallenge(req.user.sub, challengeId);
   }
 
   // --- 1. Analytics ---
@@ -121,32 +201,51 @@ export class AdminController {
   }
 
   // --- 4. Announcements (CMS) ---
+  @ApiQuery({ name: 'page', required: false })
+  @ApiQuery({ name: 'limit', required: false })
   @Get('announcements')
-  async getAnnouncements() {
-    return this.adminService.getAnnouncements();
+  async getAnnouncements(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.adminService.getAnnouncements({ page, limit });
   }
 
   @Post('announcements')
   async createAnnouncement(
-    @Body()
-    data: {
-      title: string;
-      content: string;
-      type: 'INFO' | 'WARNING' | 'SUCCESS' | 'MAINTENANCE';
-    },
+    @Request() req: any,
+    @Body() dto: CreateAnnouncementDto,
   ) {
-    return this.adminService.createAnnouncement(data);
+    return this.adminService.createAnnouncement(req.user.sub, dto);
   }
 
   @Delete('announcements/:id')
-  async deleteAnnouncement(@Param('id') id: string) {
-    return this.adminService.deleteAnnouncement(id);
+  async deleteAnnouncement(@Request() req: any, @Param('id') id: string) {
+    return this.adminService.deleteAnnouncement(req.user.sub, id);
   }
 
   // --- 5. Support Tickets ---
+  @ApiQuery({ name: 'page', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  @ApiQuery({
+    name: 'search',
+    required: false,
+    description: 'Cocokkan judul tiket atau email pelapor',
+  })
+  @ApiQuery({ name: 'status', required: false, enum: TicketStatus })
   @Get('tickets')
-  async getTickets() {
-    return this.adminService.getTickets();
+  async getTickets(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('search') search?: string,
+    @Query('status') status?: TicketStatus,
+  ) {
+    return this.adminService.getTickets({
+      page,
+      limit,
+      search,
+      status: status && status in TicketStatus ? status : undefined,
+    });
   }
 
   @Get('tickets/:id/replies')
@@ -156,15 +255,15 @@ export class AdminController {
 
   @Post('tickets/:id/replies')
   async replyToTicket(
+    @Request() req: any,
     @Param('id') id: string,
-    @Body('userId') userId: string,
-    @Body('message') message: string,
+    @Body() dto: ReplyTicketDto,
   ) {
-    return this.adminService.replyToTicket(id, userId, message);
+    return this.adminService.replyToTicket(req.user.sub, id, dto.message);
   }
 
   @Patch('tickets/:id/close')
-  async closeTicket(@Param('id') id: string) {
-    return this.adminService.closeTicket(id);
+  async closeTicket(@Request() req: any, @Param('id') id: string) {
+    return this.adminService.closeTicket(req.user.sub, id);
   }
 }

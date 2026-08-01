@@ -380,6 +380,23 @@ model Challenge {
   isPrivate         Boolean         @default(false)
   status            ChallengeStatus @default(DRAFT)
 
+  /// Penurunan paksa oleh admin.
+  ///
+  /// Dulu moderasi memakai `prisma.challenge.delete`, dan rantai cascade-nya
+  /// berujung di `Submission` lalu `Portfolio`: satu klik takedown menghapus
+  /// permanen hasil kerja dan portofolio terverifikasi setiap talenta yang
+  /// pernah ikut. Hukuman untuk perusahaan yang melanggar tidak boleh jatuh ke
+  /// kandidatnya, jadi studi kasusnya sekarang ditutup dan ditandai, bukan
+  /// dihapus — submisi, penilaian, dan portofolio tetap utuh.
+  ///
+  /// Bedanya dengan CLOSED biasa: CLOSED dipilih pemiliknya sendiri dan hanya
+  /// membebaskan kuota, sedangkan tanda ini menyembunyikan studi kasus dari
+  /// siapa pun kecuali admin dan pemiliknya, dan hanya admin yang bisa
+  /// mencabutnya kembali.
+  takenDownAt    DateTime?
+  takenDownById  String?
+  takedownReason String?
+
   // AI Challenge Generator Tracking
   createdByAi  Boolean @default(false)
   aiPromptUsed String?

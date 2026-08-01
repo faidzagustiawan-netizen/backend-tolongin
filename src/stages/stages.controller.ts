@@ -82,6 +82,7 @@ export class StagesController {
     return this.stageGateService.listPendingApprovals(
       req.user.profileId,
       challengeId,
+      req.user.role,
     );
   }
 
@@ -102,6 +103,7 @@ export class StagesController {
       req.user.sub,
       req.user.profileId,
       attemptId,
+      req.user.role,
     );
   }
 }
