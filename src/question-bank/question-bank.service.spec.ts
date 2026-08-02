@@ -111,10 +111,7 @@ describe('QuestionBankService', () => {
     it('menyertakan soal lintas bidang saat menyaring kategori', async () => {
       // Tanpa ini seluruh soal soft skill dan wawancara lenyap dari setiap
       // pencarian yang menyebut satu bidang.
-      await service.findAll(
-        { category: 'Backend Development' } as any,
-        company,
-      );
+      await service.findAll({ category: 'Backend Development' }, company);
 
       const conditions =
         prisma.questionBankItem.findMany.mock.calls[0][0].where.AND;

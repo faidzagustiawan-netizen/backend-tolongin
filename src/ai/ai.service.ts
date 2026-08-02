@@ -693,7 +693,7 @@ Berikan respons HANYA dalam format JSON dengan struktur ini (tanpa markdown blok
       ) {
         return pythonRes;
       }
-    } catch (err: any) {
+    } catch (_err: any) {
       this.logger.warn(
         'Python verification engine mengalami galat eksekusi, beralih ke AI Vision Sumopod...',
       );

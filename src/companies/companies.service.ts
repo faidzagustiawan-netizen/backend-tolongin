@@ -156,7 +156,7 @@ export class CompaniesService {
     }
 
     // Remove the raw challenges array and return the grouped ones
-    const { challenges, ...companyData } = company;
+    const { challenges: _challenges, ...companyData } = company;
 
     return {
       ...companyData,

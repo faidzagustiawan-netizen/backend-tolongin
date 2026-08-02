@@ -20,7 +20,12 @@ export type { DirectoryEntryKind };
  */
 export type CategoryResolution =
   | { status: 'EXACT'; category: SkillRef; reason: string; aiChecked: boolean }
-  | { status: 'CREATED'; category: SkillRef; reason: string; aiChecked: boolean }
+  | {
+      status: 'CREATED';
+      category: SkillRef;
+      reason: string;
+      aiChecked: boolean;
+    }
   | {
       status: 'SUGGESTION';
       input: string;
@@ -146,7 +151,8 @@ export class SkillsService {
         const aStarts = a.name.toLowerCase().startsWith(q) ? 0 : 1;
         const bStarts = b.name.toLowerCase().startsWith(q) ? 0 : 1;
         if (aStarts !== bStarts) return aStarts - bStarts;
-        if (a.name.length !== b.name.length) return a.name.length - b.name.length;
+        if (a.name.length !== b.name.length)
+          return a.name.length - b.name.length;
         return a.name.localeCompare(b.name);
       });
     }
@@ -240,9 +246,7 @@ export class SkillsService {
     return grouped
       .map((g) => {
         const skill = g.categoryId ? byId.get(g.categoryId) : undefined;
-        return skill
-          ? { ...skill, usage: g._count.categoryId }
-          : null;
+        return skill ? { ...skill, usage: g._count.categoryId } : null;
       })
       .filter((s): s is SkillRef & { usage: number } => s !== null);
   }
@@ -376,7 +380,7 @@ export class SkillsService {
       // yang tidak ada wujudnya.
       const target = canonical
         ? candidates.find(
-            (c) => c.name.toLowerCase() === canonical!.toLowerCase(),
+            (c) => c.name.toLowerCase() === canonical.toLowerCase(),
           )
         : undefined;
 

@@ -163,7 +163,9 @@ describe('SkillsService.resolveCategory', () => {
 
   describe('saat AI tidak dapat dihubungi', () => {
     beforeEach(() => {
-      ai.resolveDirectoryEntry.mockRejectedValue(new Error('AI_NOT_CONFIGURED'));
+      ai.resolveDirectoryEntry.mockRejectedValue(
+        new Error('AI_NOT_CONFIGURED'),
+      );
     });
 
     it('menawarkan pembetulan hanya untuk kemiripan yang sangat dekat', async () => {

@@ -5,7 +5,6 @@ import {
   Role,
   VerificationStatus,
   SubscriptionTier,
-  ChallengeDifficulty,
   ChallengeStatus,
   ChallengeType,
   EnrollmentStatus,
@@ -72,7 +71,7 @@ export class SeedService {
       await this.prisma.$executeRawUnsafe(
         `TRUNCATE TABLE "challenges" CASCADE;`,
       );
-    } catch (error) {
+    } catch (_error) {
       this.logger.warn(
         'Gagal melakukan truncate, mencoba deleteMany fallback...',
       );

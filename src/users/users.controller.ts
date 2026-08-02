@@ -33,7 +33,7 @@ export class UsersController {
   @Get(':id')
   async getProfile(@Param('id') id: string, @Request() req: any) {
     const user = await this.usersService.findById(id);
-    const { passwordHash, ...safeUser } = user;
+    const { passwordHash: _passwordHash, ...safeUser } = user;
 
     const isOwner = req.user?.sub === user.id;
 
@@ -87,7 +87,7 @@ export class UsersController {
   async updateProfile(@Request() req: any, @Body() dto: UpdateProfileDto) {
     const userId = req.user.sub;
     const updatedUser = await this.usersService.updateProfile(userId, dto);
-    const { passwordHash, ...safeUser } = updatedUser;
+    const { passwordHash: _passwordHash, ...safeUser } = updatedUser;
     return safeUser;
   }
 }

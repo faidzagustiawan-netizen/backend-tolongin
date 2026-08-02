@@ -3,9 +3,6 @@ import {
   WebSocketServer,
   OnGatewayConnection,
   OnGatewayDisconnect,
-  SubscribeMessage,
-  MessageBody,
-  ConnectedSocket,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
@@ -55,7 +52,7 @@ export class NotificationsGateway
 
       client.join(`user_${userId}`);
       this.logger.log(`User ${userId} connected with socket ${client.id}`);
-    } catch (err) {
+    } catch (_err) {
       this.logger.warn(`Koneksi WebSocket ditolak: Token tidak valid`);
       client.disconnect();
     }

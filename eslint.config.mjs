@@ -35,7 +35,18 @@ export default tseslint.config(
       '@typescript-eslint/no-unsafe-return': 'off',
       '@typescript-eslint/no-require-imports': 'off',
       '@typescript-eslint/require-await': 'off',
-      '@typescript-eslint/no-unused-vars': 'off',
+      // Dimatikan sampai 2026-08; selama itu menumpuk 22 import dan variabel
+      // mati. Awalan `_` untuk yang memang disengaja — terutama destructuring
+      // yang dipakai MEMBUANG kolom sebelum mengirim balasan:
+      // `const { passwordHash: _passwordHash, ...aman } = user`.
+      '@typescript-eslint/no-unused-vars': [
+        'warn',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_',
+        },
+      ],
       '@typescript-eslint/unbound-method': 'off',
       "prettier/prettier": ["error", { endOfLine: "auto" }],
     },

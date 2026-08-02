@@ -29,7 +29,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 import { VerifiedCompanyGuard } from '../auth/guards/verified-company.guard';
-import { ChallengeDifficulty, ChallengeType, Role } from '@prisma/client';
+import { ChallengeDifficulty, Role } from '@prisma/client';
 
 @ApiTags('Challenge Directory & AI Generator')
 @Controller('challenges')

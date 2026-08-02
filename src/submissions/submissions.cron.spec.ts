@@ -10,7 +10,7 @@ describe('SubmissionsCronService', () => {
   let service: SubmissionsCronService;
   let prisma: PrismaService;
   let aiService: AiService;
-  let notifications: NotificationsService;
+  let _notifications: NotificationsService;
 
   const mockPrisma = {
     submission: {
@@ -46,7 +46,7 @@ describe('SubmissionsCronService', () => {
     service = module.get<SubmissionsCronService>(SubmissionsCronService);
     prisma = module.get<PrismaService>(PrismaService);
     aiService = module.get<AiService>(AiService);
-    notifications = module.get<NotificationsService>(NotificationsService);
+    _notifications = module.get<NotificationsService>(NotificationsService);
   });
 
   it('should be defined', () => {

@@ -41,7 +41,7 @@ describeWithDb('Alur tahap (integrasi)', () => {
   /** Penanda baris milik uji ini, supaya pembersihannya bisa tepat sasaran. */
   const TAG = `e2e-stage-${Date.now()}`;
 
-  let companyUserId: string;
+  let _companyUserId: string;
   let talentUserId: string;
   let challengeId: string;
   let enrollmentId: string;
@@ -90,7 +90,7 @@ describeWithDb('Alur tahap (integrasi)', () => {
       },
       include: { companyProfile: true },
     });
-    companyUserId = company.id;
+    _companyUserId = company.id;
 
     const talent = await prisma.user.create({
       data: {

@@ -3,13 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiService } from '../ai/ai.service';
 import { StageGateService } from '../stages/stage-gate.service';
-import {
-  ComponentType,
-  SubmissionStatus,
-  EnrollmentStatus,
-  ChallengeType,
-  HiringStatus,
-} from '@prisma/client';
+import { ComponentType, SubmissionStatus } from '@prisma/client';
 
 @Injectable()
 export class SubmissionsCronService {
@@ -271,7 +265,10 @@ export class SubmissionsCronService {
     }
   }
 
-  private async markAsManualReview(submissionId: string, enrollmentId: string) {
+  private async markAsManualReview(
+    submissionId: string,
+    _enrollmentId: string,
+  ) {
     try {
       await this.prisma.submission.update({
         where: { id: submissionId },

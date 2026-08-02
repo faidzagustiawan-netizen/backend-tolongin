@@ -484,7 +484,6 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
       isCompanyChallenge &&
       (!subscriptionLimitsEnforced() || companyTier !== 'STARTUP');
 
-    const candidateAnswers = '';
     const allComponents = new Map();
     if (enrollment.challenge.components) {
       enrollment.challenge.components.forEach((c: any) =>
@@ -498,8 +497,6 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
         }
       });
     }
-
-    const hasComponents = allComponents.size > 0;
 
     // Soal yang menjadi cakupan pengumpulan ini: satu tahap saja bila bertahap,
     // seluruh studi kasus bila menyeluruh. Nilai tahap harus dihitung dari
@@ -702,7 +699,7 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
         nearestSlaDate = deadline;
       }
 
-      const { submissions, ...challengeData } = challenge;
+      const { submissions: _submissions, ...challengeData } = challenge;
       return {
         ...challengeData,
         stats: {
