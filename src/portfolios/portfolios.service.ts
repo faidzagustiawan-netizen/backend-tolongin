@@ -137,8 +137,35 @@ export class PortfoliosService {
     return { data, total, page, limit };
   }
 
-  async getLeaderboard(limit: number = 10) {
+  /**
+   * Papan peringkat, disaring di server.
+   *
+   * Penyaringan dulu dilakukan di peramban terhadap 50 baris teratas yang sudah
+   * terlanjur diambil. Itu salah dua kali: bidang yang tidak punya wakil di 50
+   * besar global tampil kosong walau talentanya ada, dan daftar pilihannya
+   * ditulis tangan di halaman — terpisah dari nilai yang benar-benar tersimpan,
+   * sehingga tidak satu pun pilihan cocok. `take` sekarang berlaku setelah
+   * `where`, jadi yang keluar adalah peringkat teratas DI DALAM bidang itu.
+   */
+  async getLeaderboard(
+    limit: number = 10,
+    filter: { roleCategory?: string; location?: string } = {},
+  ) {
+    const where: any = {};
+
+    if (filter.roleCategory) {
+      where.roleCategory = filter.roleCategory;
+    }
+
+    // `location` adalah teks bebas yang diketik talenta sendiri, jadi
+    // pencocokan persis membuang "Jakarta Selatan" ketika yang dipilih
+    // "Jakarta".
+    if (filter.location) {
+      where.location = { contains: filter.location, mode: 'insensitive' };
+    }
+
     return this.prisma.talentProfile.findMany({
+      where,
       select: {
         id: true,
         slug: true,
@@ -152,9 +179,10 @@ export class PortfoliosService {
         location: true,
         roleCategory: true,
         faceVerificationStatus: true,
-        earnedBadges: {
-          include: { badge: true },
-        },
+        // `earnedBadges` sengaja tidak diikutkan. Papan peringkat tidak pernah
+        // menampilkannya, dan menyertakannya berarti satu join lencana untuk
+        // tiap baris. Profil talenta yang memang merendernya mengambil sendiri
+        // lewat UsersService.
       },
       orderBy: { xp: 'desc' },
       take: Number(limit),

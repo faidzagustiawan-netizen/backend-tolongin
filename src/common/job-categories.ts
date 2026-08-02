@@ -16,7 +16,3 @@ export const LEGACY_JOB_CATEGORY_NAMES = {
 } as const;
 
 export type LegacyJobCategoryCode = keyof typeof LEGACY_JOB_CATEGORY_NAMES;
-
-export const LEGACY_JOB_CATEGORY_CODES = Object.keys(
-  LEGACY_JOB_CATEGORY_NAMES,
-) as LegacyJobCategoryCode[];

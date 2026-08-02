@@ -226,6 +226,25 @@ export class SeedService {
           level: faker.number.int({ min: 1, max: 20 }),
           avatarUrl: `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`,
           tokenBalance: faker.number.int({ min: 100, max: 1000 }),
+          // Keduanya dulu tidak pernah diisi, jadi seluruh talenta semaian
+          // punya roleCategory dan location null — dan penyaring bidang serta
+          // wilayah di papan peringkat tidak punya apa pun untuk disaring
+          // walau daftar pilihannya sudah benar.
+          //
+          // Nilainya diambil dari nama bidang yang sama dengan yang dipakai
+          // direktori keahlian, bukan daftar baru: itulah yang dikembalikan
+          // GET /skills/categories ke antarmuka.
+          roleCategory: faker.helpers.arrayElement(
+            Object.values(LEGACY_JOB_CATEGORY_NAMES),
+          ),
+          location: faker.helpers.arrayElement([
+            'Jakarta',
+            'Bandung',
+            'Surabaya',
+            'Yogyakarta',
+            'Medan',
+            'Malang',
+          ]),
         },
       });
 

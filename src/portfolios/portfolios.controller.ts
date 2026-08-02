@@ -86,6 +86,16 @@ export class PortfoliosController {
     required: false,
     description: 'Batas peringkat teratas (default 10)',
   })
+  @ApiQuery({
+    name: 'roleCategory',
+    required: false,
+    description: 'Nama bidang pekerjaan, persis seperti di direktori keahlian',
+  })
+  @ApiQuery({
+    name: 'location',
+    required: false,
+    description: 'Cocok sebagian, tidak peka huruf besar-kecil',
+  })
   @ApiResponse({
     status: 200,
     description: 'Papan peringkat talenta terbaik.',
@@ -93,9 +103,12 @@ export class PortfoliosController {
   @Get('leaderboard')
   async getLeaderboard(
     @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit = 10,
+    @Query('roleCategory') roleCategory?: string,
+    @Query('location') location?: string,
   ) {
     return this.portfoliosService.getLeaderboard(
       Math.min(100, Math.max(1, limit)),
+      { roleCategory, location },
     );
   }
 }
