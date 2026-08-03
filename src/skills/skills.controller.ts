@@ -4,7 +4,6 @@ import { SkillsService } from './skills.service';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ResolveCategoryDto } from './dto/resolve-category.dto';
-import { CreateSkillDto } from './dto/create-skill.dto';
 
 /**
  * Batas khusus untuk endpoint yang memanggil AI.
@@ -39,13 +38,20 @@ export class SkillsController {
     return this.skillsService.listCategories();
   }
 
-  @ApiBearerAuth('JWT-auth')
-  @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Membuat skill baru di directory' })
-  @Post()
-  createSkill(@Body() dto: CreateSkillDto) {
-    return this.skillsService.createSkill(dto.name);
-  }
+  // `POST /skills` dihapus pada 2026-08-03.
+  //
+  // Tidak ada satu pun pemanggil: antarmuka selalu lewat `/skills/resolve` dan
+  // `/skills/categories/resolve`. Bedanya bukan sepele — `SkillsService.
+  // createSkill` hanya memeriksa bentuk dan panjang nama, sedangkan kedua rute
+  // resolve juga menanyakan ke AI apakah teksnya memang nama bidang pekerjaan.
+  //
+  // Selama endpoint ini ada, pengguna terautentikasi mana pun bisa menyuntik
+  // nama yang lolos format tetapi bukan bidang pekerjaan langsung ke direktori
+  // bersama — dan direktori itulah yang menyetir saran bidang bagi perusahaan.
+  // Persis kelas masalah yang sudah diperangi di `createSkill`.
+  //
+  // `createSkill` sendiri tetap: ia pintu tulis tunggal, dipanggil keempat
+  // jalur resolve.
 
   @ApiBearerAuth('JWT-auth')
   @UseGuards(JwtAuthGuard)

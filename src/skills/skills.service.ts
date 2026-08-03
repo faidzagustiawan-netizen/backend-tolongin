@@ -170,13 +170,17 @@ export class SkillsService {
   /**
    * Satu-satunya pintu tulis ke direktori.
    *
-   * Setiap jalur bermuara di sini — POST /skills, pemeriksaan AI, dan penukaran
-   * nama bidang saat studi kasus disimpan — jadi di sinilah kelayakan nama
-   * diperiksa. Sebelumnya pemeriksaan hanya ada di `resolveCategory`, sehingga
-   * klien yang memanggil POST /skills langsung bisa menitipkan string sepanjang
-   * apa pun, dan sejak direktori ini juga menyetir bidang pekerjaan, isian
-   * sembarangan dari layar keahlian talenta muncul sebagai saran bidang bagi
-   * perusahaan.
+   * Setiap jalur bermuara di sini — pemeriksaan AI di kedua rute resolve, dan
+   * penukaran nama bidang saat studi kasus disimpan — jadi di sinilah kelayakan
+   * nama diperiksa.
+   *
+   * Dulu ada jalur ketiga, `POST /skills`, yang menulis ke sini tanpa melewati
+   * pemeriksaan AI lebih dulu. Pemeriksaan bentuk dipindahkan ke fungsi ini
+   * justru karena rute itu; rutenya sendiri dihapus pada 2026-08-03 setelah
+   * terbukti tidak punya pemanggil. Pemeriksaan di sini tetap dipertahankan:
+   * ia tetap satu-satunya tempat yang menjamin tidak ada nama sembarangan
+   * masuk direktori, dan direktori inilah yang menyetir saran bidang pekerjaan
+   * bagi perusahaan.
    */
   async createSkill(name: string) {
     const finalName = this.normalizeName(name ?? '');

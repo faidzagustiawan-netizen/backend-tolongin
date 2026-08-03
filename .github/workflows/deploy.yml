@@ -1,4 +1,4 @@
-name: Deploy to Dual Prod VPS
+name: Deploy to Prod VPS
 
 on:
   push:
@@ -7,10 +7,10 @@ on:
   # baru ketahuan saat kodenya sedang dalam perjalanan ke produksi.
   #
   # Konsekuensinya harus disadari: sejak baris ini ada, workflow ini bisa
-  # berjalan tanpa push ke `main`. Kedua job deploy karena itu dipagari
+  # berjalan tanpa push ke `main`. Job deploy karena itu dipagari
   # `if: github.event_name == 'push' && github.ref == 'refs/heads/main'`.
-  # Tanpa pagar itu, membuka PR akan men-deploy ke kedua VPS produksi —
-  # secretnya tersedia karena cabangnya ada di repositori yang sama.
+  # Tanpa pagar itu, membuka PR akan men-deploy ke VPS produksi — secretnya
+  # tersedia karena cabangnya ada di repositori yang sama.
   pull_request:
     branches: [ main ]
 
@@ -18,7 +18,7 @@ jobs:
   # Gerbang sebelum apa pun menyentuh mesin produksi.
   #
   # Sebelumnya tidak ada satu pun uji yang berjalan di alur ini: push ke `main`
-  # langsung menjadi `git reset --hard` plus `pm2 reload` di dua VPS. Kesalahan
+  # langsung menjadi `git reset --hard` plus `pm2 reload` di mesin produksi. Kesalahan
   # penyuntikan dependensi tidak terlihat `tsc` dan baru muncul saat Nest
   # membangun container — artinya seluruh API mati, dan diketahuinya setelah
   # rilis. `app.module.spec.ts` menangkap hal itu dalam hitungan detik.
@@ -89,67 +89,35 @@ jobs:
           TEST_DATABASE_URL: postgresql://postgres@127.0.0.1:5432/tolongin_test
         run: pnpm exec jest --config ./test/jest-e2e.json
 
-  deploy-vps1:
-    name: Deploy ke VPS 1 (Utama Laptop)
+  # Job `deploy-vps1` dihapus pada 2026-08-03.
+  #
+  # Mesinnya sudah tidak aktif. Jejaknya: path `~/homelab/projects/...` menunjuk
+  # mesin homelab, bukan VPS; dijangkau lewat Tailscale, sementara tailnet hanya
+  # berisi dua laptop pemilik dan yang berlabel linux sudah offline berhari-hari;
+  # dan IP publik yang tercatat di known_hosts lokal sudah didaur ulang penyedia
+  # ke pelanggan lain — seluruh host key-nya berganti.
+  #
+  # Selama masih ada, job ini gagal pada setiap push dan menandai seluruh
+  # workflow merah walau penyebaran ke mesin yang hidup berhasil.
+  #
+  # Langkah `Connect to Tailscale` ikut dibuang: hanya job ini yang memakainya.
+  # Secret yang kini menganggur dan boleh dihapus dari repo:
+  # VPS2_IP, VPS2_USER, VPS2_SSH_KEY, TS_OAUTH_CLIENT_ID, TS_OAUTH_SECRET.
+
+  deploy:
+    name: Deploy ke VPS (Sumapod)
     runs-on: ubuntu-latest
     needs: test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
-
-      # --- LANGKAH BARU: Sambungkan GitHub runner ke Tailscale ---
-      - name: Connect to Tailscale
-        uses: tailscale/github-action@v3
-        with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
-          tags: tag:ci
-      # -----------------------------------------------------------
-        
-      - name: Eksekusi SSH dan Deploy VPS 1
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.VPS2_IP }}
-          username: ${{ secrets.VPS2_USER }}
-          key: ${{ secrets.VPS2_SSH_KEY }}
-          script: |
-            # 1. Pindah ke folder project di VPS 1
-            cd ~/homelab/projects/backend-tolongin
-            
-            # 2. Load NVM agar Node, pnpm, dan PM2 otomatis dikenali
-            export NVM_DIR="$HOME/.nvm"
-            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-            
-            # 3. Paksa Git untuk membuang perubahan lokal dan ambil kode terbaru
-            git fetch --all
-            git reset --hard origin/main
-            git pull origin main
-            
-            # 4. Install dependencies
-            pnpm install --frozen-lockfile
-
-            # 5. Generate ulang Prisma Client (WAJIB jika ada perubahan schema)
-            pnpm exec prisma generate
-            
-            # 6. Jalankan pnpm run build untuk membangun aplikasi
-            pnpm run build
-            
-            # 7. Restart aplikasi menggunakan PM2 Ecosystem Config
-            pm2 reload ecosystem.config.js --env production --update-env || pm2 start ecosystem.config.js --env production
-
-  deploy-vps2:
-    name: Deploy ke VPS 2 (Cadangan Sumapod)
-    runs-on: ubuntu-latest
-    needs: test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    steps:
-      - name: Eksekusi SSH dan Deploy VPS 2
+      - name: Eksekusi SSH dan Deploy
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VPS_IP }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
-            # 1. Pindah ke folder project di VPS 2
+            # 1. Pindah ke folder project
             cd ~/backend-tolongin
             
             # 2. Load NVM agar Node, pnpm, dan PM2 otomatis dikenali
@@ -169,10 +137,12 @@ jobs:
 
             # 5b. Terapkan migrasi yang belum berjalan.
             #
-            # Sengaja HANYA di job ini, bukan di kedua-duanya. Kedua VPS
-            # menunjuk basis data Supabase yang sama, jadi dua job yang
-            # menjalankan `migrate deploy` berbarengan adalah balapan terhadap
-            # satu tabel `_prisma_migrations`. Migrasi punya satu pintu.
+            # Migrasi punya satu pintu. Ketika masih ada dua job deploy,
+            # keduanya menunjuk basis data Supabase yang sama dan menjalankan
+            # ini berbarengan berarti balapan terhadap satu tabel
+            # `_prisma_migrations`. Job kedua kini sudah dihapus, tetapi
+            # aturannya tetap: kalau nanti ada mesin kedua, langkah ini tidak
+            # ikut disalin ke sana.
             #
             # Sebelum baris ini ada, `deploy.yml` tidak pernah menjalankan
             # migrasi sama sekali — hanya `prisma generate` — sehingga skema
