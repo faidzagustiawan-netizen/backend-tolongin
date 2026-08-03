@@ -36,11 +36,16 @@ lerna-debug.log*
 !.vscode/extensions.json
 
 # dotenv environment variable files
-.env
-.env.development.local
-.env.test.local
-.env.production.local
-.env.local
+#
+# Pola menyeluruh, bukan daftar varian. Daftar sebelumnya menyebut lima nama
+# tepat, sehingga apa pun di luarnya lolos — dan itu bukan kemungkinan teoretis:
+# VPS produksi menyimpan `.env.bak-20260728-221024` yang tidak diabaikan git.
+# `git reset --hard` di skrip deploy tidak pernah membuang berkas tak terlacak,
+# jadi berkas itu menetap, dan satu `git add -A` di sana cukup untuk mengirim
+# rahasia produksi ke repositori.
+.env*
+# Kecuali contohnya, yang memang harus ikut terlacak — isinya nama kunci saja.
+!.env.example
 
 # temp directory
 .temp
