@@ -30,6 +30,33 @@ Penggantinya adalah `prisma/migrations/0_init/`, dihasilkan dari
 `schema.prisma`. Sudah diverifikasi membangun ke-29 tabel pada basis data kosong
 tanpa menyisakan selisih terhadap `schema.prisma`.
 
+## Status per 2026-08-03: sudah selesai untuk basis data produksi
+
+Diperiksa dari VPS `~/backend-tolongin` terhadap Supabase produksi
+(`aws-0-ap-southeast-1.pooler.supabase.com`):
+
+- `prisma migrate status` → **5 migrations found, Database schema is up to
+  date.** `0_init` sudah tercatat sebagai applied; tidak ada yang perlu
+  di-`resolve` lagi.
+- `prisma migrate diff --from-config-datasource prisma.config.ts --to-schema
+  prisma/schema.prisma --exit-code` → **exit 0, selisih kosong.**
+- `deploy.yml` sudah memakai `prisma migrate deploy`, dipasang hanya di job
+  yang menyentuh `~/backend-tolongin`. Kedua VPS menunjuk basis data yang
+  sama, jadi dua job yang menjalankannya berbarengan akan berebut satu tabel
+  `_prisma_migrations`.
+
+Satu jebakan yang sempat muncul dan layak diingat: pemeriksaan pertama
+melaporkan selisih berupa `DROP COLUMN takenDownAt/takenDownById/
+takedownReason`. Itu bukan selisih basis data melainkan kode VPS yang
+tertinggal enam commit — `schema.prisma` di sana belum punya kolomnya.
+Selalu `git pull` dulu sebelum mempercayai keluaran `migrate diff`.
+
+Sisa yang belum diperiksa: VPS satunya (`~/homelab/projects/backend-tolongin`,
+dijangkau lewat Tailscale). Tidak ada VPS di tailnet saat pemeriksaan ini, dan
+host publik yang paling mungkin menolak koneksi karena host key SSH-nya
+berubah. Bila mesin itu ternyata memakai basis data yang berbeda, ia butuh
+baseline sendiri dengan langkah di bawah.
+
 ## Yang harus dilakukan pada basis data yang sudah ada
 
 Ini termasuk kedua VPS produksi dan basis data pengembangan mana pun yang sudah
@@ -64,12 +91,18 @@ jangan langsung dijalankan.
 
 ## Menyalakan migrasi otomatis
 
-`deploy.yml` sengaja BELUM diberi langkah `prisma migrate deploy`. Menyalakannya
-sebelum baseline di atas di-resolve pada kedua VPS akan membuat setiap penyebaran
-mencoba menerapkan `0_init` ke basis data yang sudah berisi tabel, lalu gagal.
+Sudah menyala sejak 2026-08-03, di satu job saja — lihat bagian status di atas.
 
-Urutannya: resolve baseline di kedua mesin, pastikan `migrate diff` keluarannya
-kosong, baru sisipkan langkahnya sesudah `pnpm exec prisma generate`:
+Yang membuatnya boleh dinyalakan: `0_init` sudah tercatat applied dan
+`migrate diff` kosong. Tanpa keduanya, setiap penyebaran akan mencoba
+menerapkan `0_init` ke basis data yang sudah berisi tabel, gagal di tengah
+transaksi, lalu menandai migrasinya `failed` di `_prisma_migrations` — keadaan
+yang lengket dan menolak setiap `migrate deploy` berikutnya sampai
+di-`resolve --rolled-back` secara manual.
+
+Urutan yang sama berlaku untuk mesin mana pun yang memakai basis data berbeda:
+resolve baseline, pastikan `migrate diff` kosong, baru sisipkan langkahnya
+sesudah `pnpm exec prisma generate`:
 
 ```yaml
 pnpm exec prisma migrate deploy

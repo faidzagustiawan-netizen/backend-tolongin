@@ -166,7 +166,22 @@ jobs:
 
             # 5. Generate ulang Prisma Client (WAJIB)
             pnpm exec prisma generate
-            
+
+            # 5b. Terapkan migrasi yang belum berjalan.
+            #
+            # Sengaja HANYA di job ini, bukan di kedua-duanya. Kedua VPS
+            # menunjuk basis data Supabase yang sama, jadi dua job yang
+            # menjalankan `migrate deploy` berbarengan adalah balapan terhadap
+            # satu tabel `_prisma_migrations`. Migrasi punya satu pintu.
+            #
+            # Sebelum baris ini ada, `deploy.yml` tidak pernah menjalankan
+            # migrasi sama sekali — hanya `prisma generate` — sehingga skema
+            # produksi diurus manual dan selisihnya tidak pernah diketahui.
+            # Prasyaratnya sudah diperiksa pada 2026-08-03: `0_init` tercatat
+            # sebagai applied, kelima migrasi tercatat, dan `migrate diff`
+            # terhadap basis data mengembalikan selisih kosong.
+            pnpm exec prisma migrate deploy
+
             # 6. Jalankan pnpm run build untuk membangun aplikasi
             pnpm run build
             
