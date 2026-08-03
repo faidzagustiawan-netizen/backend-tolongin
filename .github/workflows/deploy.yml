@@ -57,9 +57,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Versinya sengaja TIDAK disebut di sini.
+      #
+      # `package.json` menyematkan `packageManager: pnpm@11.10.0`, dan
+      # `pnpm/action-setup@v4` membaca medan itu sendiri. Ketika keduanya
+      # disebut dan berbeda, action-nya berhenti dengan galat keras:
+      #
+      #   Multiple versions of pnpm specified:
+      #     - version 10 in the GitHub Action config with the key "version"
+      #     - version pnpm@11.10.0 in the package.json with the key
+      #       "packageManager"
+      #   Remove one of them and try again.
+      #
+      # Galat itu terjadi sebelum satu langkah uji pun berjalan, sehingga job
+      # `test` merah dan `deploy` yang bergantung padanya tidak pernah jalan —
+      # cocok dengan gejalanya: VPS tertinggal enam commit sementara typecheck,
+      # lint, 213 uji satuan, dan 10 uji integrasi semuanya hijau bila
+      # dijalankan sendiri.
+      #
+      # Membiarkan `packageManager` sebagai satu-satunya sumber juga
+      # menyamakan versi di CI dengan mesin pengembang dan VPS, yang keduanya
+      # memakai 11.10.0. Sebelumnya CI memasang major version yang berbeda.
       - uses: pnpm/action-setup@v4
-        with:
-          version: 10
 
       - uses: actions/setup-node@v4
         with:
