@@ -11,6 +11,7 @@ import {
   SubmissionStatus,
 } from '@prisma/client';
 import { realChallenges, publicChallenges } from './real-data';
+import { BadgesService } from '../badges/badges.service';
 import {
   LEGACY_JOB_CATEGORY_NAMES,
   LegacyJobCategoryCode,
@@ -20,7 +21,10 @@ import {
 export class SeedService {
   private readonly logger = new Logger(SeedService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly badgesService: BadgesService,
+  ) {}
 
   /**
    * Kode bidang di `real-data.ts` masih memakai kosakata enum yang lama; di
@@ -484,8 +488,16 @@ export class SeedService {
       }
     }
 
+    // Lencana disusulkan di akhir, sesudah seluruh XP selesai ditulis.
+    //
+    // XP semaian diacak 100–5000 sementara ambang lencananya 300/400/500,
+    // jadi tanpa langkah ini tab lencana tetap kosong persis seperti sebelum
+    // pemberian otomatis ada — dan fiturnya tampak masih mati padahal sudah
+    // hidup.
+    const lencanaDiberikan = await this.badgesService.backfillAll();
+
     this.logger.log(
-      '✅ Mass Seeding Selesai! Berhasil membuat 30+ Talent, 5 Company, 30 Challenge, dan ratusan data Enrollment/Submission.',
+      `✅ Mass Seeding Selesai! Berhasil membuat 30+ Talent, 5 Company, 30 Challenge, ratusan data Enrollment/Submission, dan ${lencanaDiberikan} lencana.`,
     );
     return {
       success: true,

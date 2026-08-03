@@ -1,5 +1,6 @@
 import { GUARDS_METADATA } from '@nestjs/common/constants';
 import { Test } from '@nestjs/testing';
+import { ConfigModule } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Role } from '@prisma/client';
 import { SeedController } from './seed.controller';
@@ -72,7 +73,14 @@ describe('SeedController', () => {
    */
   it('menyediakan dependensi JwtAuthGuard di konteks SeedModule', async () => {
     const moduleRef = await Test.createTestingModule({
-      imports: [SeedModule],
+      // Menirukan `app.module.ts`. Sejak SeedModule memberikan lencana, ia
+      // menarik BadgesModule -> NotificationsModule -> MailModule, dan
+      // MailService butuh ConfigService. Di aplikasi utuh ConfigModule global;
+      // modul uji tidak mewarisinya, jadi harus disebut di sini.
+      imports: [
+        ConfigModule.forRoot({ isGlobal: true, envFilePath: '.env' }),
+        SeedModule,
+      ],
     }).compile();
 
     const konteksSeed = moduleRef.select(SeedModule);

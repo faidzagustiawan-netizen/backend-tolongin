@@ -20,6 +20,7 @@ import { CompaniesService } from '../companies/companies.service';
 import { subscriptionLimitsEnforced } from '../common/dev-flags';
 import { computePsychometricProfile } from './psychometric';
 import { StageGateService } from '../stages/stage-gate.service';
+import { BadgesService, AwardedBadge } from '../badges/badges.service';
 import {
   CHALLENGE_CATEGORY_SELECT,
   flattenCategory,
@@ -48,6 +49,7 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
     private readonly notificationsService: NotificationsService,
     private readonly companiesService: CompaniesService,
     private readonly stageGateService: StageGateService,
+    private readonly badgesService: BadgesService,
   ) {}
 
   onModuleInit() {
@@ -83,6 +85,9 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
         talent: true,
       },
     });
+
+    // Dikumpulkan di dalam transaksi, dikabarkan sesudahnya.
+    const lencanaBaru: { userId: string; badges: AwardedBadge[] }[] = [];
 
     for (const sub of neglectedSubmissions) {
       const companyId = sub.challenge.companyId;
@@ -123,6 +128,14 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
           await tx.talentProfile.update({
             where: { id: sub.talentId },
             data: { xp: { increment: rewards.xp } },
+          });
+
+          // Lencana menyusul XP pada transaksi yang sama: kalau auto-pass ini
+          // batal, lencananya ikut batal. Kabarnya dikirim setelah commit —
+          // sendNotification ikut mengirim email.
+          lencanaBaru.push({
+            userId: sub.talent.userId,
+            badges: await this.badgesService.awardForXpWithin(tx, sub.talentId),
           });
 
           // Panggil tokenService (bukan di dalam tx untuk menghindari block)
@@ -193,6 +206,11 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
       console.log(
         `[Cron] Submisi ${sub.id} di-auto-pass. Trust score company diturunkan.`,
       );
+    }
+
+    // Sesudah seluruh transaksi ditutup: email tidak boleh menahan kunci baris.
+    for (const { userId, badges } of lencanaBaru) {
+      await this.badgesService.notifyAwarded(userId, badges);
     }
   }
 
@@ -971,6 +989,9 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
       );
     }
 
+    // Diisi di dalam transaksi, dikabarkan sesudah commit.
+    let lencanaBaru: AwardedBadge[] = [];
+
     const result = await this.prisma.$transaction(async (tx) => {
       const updatedSubmission = await tx.submission.update({
         where: { id: submissionId },
@@ -1022,6 +1043,12 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
           where: { id: submission.talentId },
           data: { xp: { increment: rewards.xp } },
         });
+
+        // Sehidup-semati dengan penilaiannya, sama seperti token di bawah.
+        lencanaBaru = await this.badgesService.awardForXpWithin(
+          tx,
+          submission.talentId,
+        );
 
         // Token dulu diberikan setelah transaksi selesai dan kegagalannya
         // hanya dicatat ke konsol: talenta lulus, XP masuk, token hilang, dan
@@ -1084,6 +1111,11 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
         { finalScore: dto.finalScore, talentId: submission.talentId },
       );
     }
+
+    await this.badgesService.notifyAwarded(
+      submission.talent.userId,
+      lencanaBaru,
+    );
 
     return result;
   }

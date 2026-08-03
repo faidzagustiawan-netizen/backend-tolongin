@@ -7,6 +7,7 @@ import { TokensService } from '../tokens/tokens.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CompaniesService } from '../companies/companies.service';
 import { StageGateService } from '../stages/stage-gate.service';
+import { BadgesService } from '../badges/badges.service';
 import { GradeSubmissionDto } from './dto/grade-submission.dto';
 
 describe('SubmissionsService — penilaian', () => {
@@ -15,6 +16,7 @@ describe('SubmissionsService — penilaian', () => {
   let tx: any;
   let tokens: any;
   let stageGate: any;
+  let badges: any;
 
   const baseSubmission = {
     id: 'sub-1',
@@ -63,6 +65,11 @@ describe('SubmissionsService — penilaian', () => {
       settleStageScore: jest.fn().mockResolvedValue(null),
     };
 
+    badges = {
+      awardForXpWithin: jest.fn().mockResolvedValue([]),
+      notifyAwarded: jest.fn().mockResolvedValue(undefined),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         SubmissionsService,
@@ -72,6 +79,7 @@ describe('SubmissionsService — penilaian', () => {
         { provide: NotificationsService, useValue: {} },
         { provide: CompaniesService, useValue: { logAction: jest.fn() } },
         { provide: StageGateService, useValue: stageGate },
+        { provide: BadgesService, useValue: badges },
       ],
     }).compile();
 
