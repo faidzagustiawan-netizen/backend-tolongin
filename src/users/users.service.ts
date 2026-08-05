@@ -9,10 +9,14 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import * as bcrypt from 'bcrypt';
 import { Role } from '@prisma/client';
+import { BadgesService } from '../badges/badges.service';
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly badgesService: BadgesService,
+  ) {}
 
   async create(createUserDto: CreateUserDto) {
     const {
@@ -433,6 +437,13 @@ export class UsersService {
           });
         }
       }
+    }
+
+    // Lencana SKILLS_LISTED dinilai di sini; daftar keahlian hanya berubah
+    // lewat pembaruan profil. Perusahaan tidak punya TalentProfile, jadi
+    // penjagaan `user.talentProfile` di atas juga yang menentukan di sini.
+    if (user.talentProfile) {
+      await this.badgesService.syncForTalent(user.talentProfile.id, userId);
     }
 
     return this.findById(userId);

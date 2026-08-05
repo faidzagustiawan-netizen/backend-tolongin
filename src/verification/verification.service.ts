@@ -14,6 +14,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import * as crypto from 'crypto';
 import { EncryptionUtil } from '../utils/encryption.util';
 import { IdentityDedupeService } from './identity-dedupe.service';
+import { BadgesService } from '../badges/badges.service';
 
 @Injectable()
 export class VerificationService {
@@ -24,6 +25,7 @@ export class VerificationService {
     private readonly aiService: AiService,
     private readonly notificationsService: NotificationsService,
     private readonly identityDedupe: IdentityDedupeService,
+    private readonly badgesService: BadgesService,
   ) {}
 
   async verifyTalentFace(talentId: string, dto: VerifyFaceDto) {
@@ -223,6 +225,12 @@ export class VerificationService {
         `Selamat! Verifikasi KTP & Wajah Anda telah terverifikasi dengan tingkat kecocokan ${finalConfidence}%. Catatan: ${verificationDetail}${reviewNote}`,
         '/profile',
       );
+
+      // Lencana IDENTITY_VERIFIED hanya bisa dinilai di sini: statusnya tidak
+      // pernah berubah lewat penilaian submisi, satu-satunya tempat lain yang
+      // memberi lencana. `syncForTalent` menelan kegagalannya sendiri —
+      // verifikasi yang sudah berhasil tidak boleh dibatalkan karena lencana.
+      await this.badgesService.syncForTalent(talentId, profile.userId);
     } catch (error: any) {
       // Gangguan mesin biometrik bukan keputusan tentang identitas pengguna.
       // Statusnya dikembalikan ke UNVERIFIED supaya pengguna bisa mencoba lagi

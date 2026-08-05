@@ -9,6 +9,10 @@ import {
   ChallengeType,
   EnrollmentStatus,
   SubmissionStatus,
+  HiringStatus,
+  BadgeCriteria,
+  ChallengeDifficulty,
+  Prisma,
 } from '@prisma/client';
 import { realChallenges, publicChallenges } from './real-data';
 import { BadgesService } from '../badges/badges.service';
@@ -88,24 +92,86 @@ export class SeedService {
     const defaultPassword = await bcrypt.hash('password123', saltRounds);
 
     // 1. Create Badges
-    const badges = [
+    //
+    // Sepuluh pencapaian dengan kriteria yang benar-benar berbeda, bukan satu
+    // angka pada tiga ambang. Judulnya menyebut apa yang diukur — versi lama
+    // berbunyi "Bug Hunter — Squashed 100 bugs" untuk sesuatu yang sebenarnya
+    // berarti "XP >= 300", dan tidak ada penghitung bug di mana pun.
+    //
+    // Ambangnya juga direnggangkan. XP talenta teratas menyentuh 4995 sementara
+    // ambang lama tertinggi cuma 500, sehingga 83 dari maksimal 90 lencana
+    // terbagi pada 30 talenta semaian — 92% jenuh. Sesuatu yang dimiliki
+    // hampir semua orang tidak menyampaikan informasi apa pun.
+    const badges: Prisma.BadgeCreateInput[] = [
       {
-        title: 'Top Coder',
-        description: 'Master of algorithms',
-        iconUrl: 'https://placehold.co/100/10b981/fff?text=Code',
-        requiredXp: 500,
+        title: 'Langkah Pertama',
+        description: 'Menyelesaikan studi kasus pertama.',
+        iconUrl: 'https://placehold.co/100/64748b/fff?text=1',
+        criteria: BadgeCriteria.CHALLENGES_PASSED,
+        threshold: 1,
       },
       {
-        title: 'UI Wizard',
-        description: 'Design perfectionist',
-        iconUrl: 'https://placehold.co/100/ec4899/fff?text=UI',
-        requiredXp: 400,
+        title: 'Pekerja Tetap',
+        description: 'Menyelesaikan tiga studi kasus.',
+        iconUrl: 'https://placehold.co/100/0ea5e9/fff?text=3',
+        criteria: BadgeCriteria.CHALLENGES_PASSED,
+        threshold: 3,
       },
       {
-        title: 'Bug Hunter',
-        description: 'Squashed 100 bugs',
-        iconUrl: 'https://placehold.co/100/ef4444/fff?text=Bug',
-        requiredXp: 300,
+        title: 'Nilai Sempurna',
+        description: 'Lulus dengan nilai 90 ke atas.',
+        iconUrl: 'https://placehold.co/100/f59e0b/fff?text=90',
+        criteria: BadgeCriteria.HIGH_SCORES,
+        threshold: 1,
+      },
+      {
+        title: 'Penakluk Tingkat Lanjut',
+        description: 'Lulus dua studi kasus tingkat ADVANCED.',
+        iconUrl: 'https://placehold.co/100/dc2626/fff?text=ADV',
+        criteria: BadgeCriteria.DIFFICULTY_PASSED,
+        threshold: 2,
+        param: ChallengeDifficulty.ADVANCED,
+      },
+      {
+        title: 'Lintas Bidang',
+        description: 'Lulus di dua bidang pekerjaan yang berbeda.',
+        iconUrl: 'https://placehold.co/100/8b5cf6/fff?text=2x',
+        criteria: BadgeCriteria.CATEGORY_BREADTH,
+        threshold: 2,
+      },
+      {
+        title: 'Identitas Terverifikasi',
+        description: 'Wajah dan KTP sudah dicocokkan sistem.',
+        iconUrl: 'https://placehold.co/100/10b981/fff?text=KYC',
+        criteria: BadgeCriteria.IDENTITY_VERIFIED,
+      },
+      {
+        title: 'Etalase Terisi',
+        description: 'Tiga karya tampil di portofolio publik.',
+        iconUrl: 'https://placehold.co/100/14b8a6/fff?text=P3',
+        criteria: BadgeCriteria.PORTFOLIO_ENTRIES,
+        threshold: 3,
+      },
+      {
+        title: 'Suara Komunitas',
+        description: 'Enam tulisan di diskusi studi kasus.',
+        iconUrl: 'https://placehold.co/100/ec4899/fff?text=6',
+        criteria: BadgeCriteria.DISCUSSION_POSTS,
+        threshold: 6,
+      },
+      {
+        title: 'Direkrut',
+        description: 'Sebuah submisi berakhir dengan status HIRED.',
+        iconUrl: 'https://placehold.co/100/16a34a/fff?text=HIRE',
+        criteria: BadgeCriteria.HIRED,
+        threshold: 1,
+      },
+      {
+        title: 'Veteran',
+        description: 'Mengumpulkan 4.500 XP.',
+        iconUrl: 'https://placehold.co/100/eab308/fff?text=4K5',
+        criteria: BadgeCriteria.TOTAL_XP,
+        threshold: 4500,
       },
     ];
     for (const b of badges) {
@@ -482,6 +548,62 @@ export class SeedService {
             await this.prisma.talentProfile.update({
               where: { id: talent.profile.id },
               data: { showcasedSubmissionIds: { push: submission.id } },
+            });
+          }
+
+          // Tiga hal berikut dulu tidak pernah disemai sama sekali, dan itu
+          // membuat basis data pengembangan berbohong tentang keadaan aplikasi:
+          //
+          //   portofolio  0 baris  -> GET /portfolios selalu kosong
+          //   diskusi     0 baris  -> utas di setiap studi kasus selalu kosong
+          //   hiringStatus semua NONE -> corong rekrutmen tidak pernah terlihat
+          //
+          // Ketiganya juga kriteria lencana, jadi tanpa ini tiga lencana
+          // mustahil menyala dan fiturnya tampak mati padahal sudah hidup.
+          if (isPassed) {
+            // Di aplikasi sungguhan baris ini dibuat `gradeSubmission`.
+            // Penyemai menulis submisi langsung ke basis data, jadi jalur itu
+            // tidak pernah dilewati.
+            await this.prisma.portfolio.create({
+              data: {
+                talentId: talent.profile.id,
+                submissionId: submission.id,
+                showcaseSummary: `Menyelesaikan ${challenge.title} dengan nilai ${finalScore}/100.`,
+              },
+            });
+
+            // Corong rekrutmen: sebagian kecil berakhir diterima, sebagian
+            // berhenti di tahap sebelumnya. Bukan semua, supaya lencana
+            // "Direkrut" tetap berarti sesuatu.
+            const hiringStatus = faker.helpers.weightedArrayElement([
+              { weight: 6, value: HiringStatus.NONE },
+              { weight: 2, value: HiringStatus.SHORTLISTED },
+              { weight: 1, value: HiringStatus.INTERVIEW_INVITED },
+              { weight: 1, value: HiringStatus.HIRED },
+            ]);
+            if (hiringStatus !== HiringStatus.NONE) {
+              await this.prisma.submission.update({
+                where: { id: submission.id },
+                data: { hiringStatus },
+              });
+            }
+          }
+
+          // Diskusi tidak bergantung pada kelulusan — orang bertanya justru
+          // ketika sedang kesulitan.
+          for (let d = 0; d < faker.number.int({ min: 0, max: 4 }); d++) {
+            await this.prisma.discussion.create({
+              data: {
+                challengeId: challenge.id,
+                userId: talent.user.id,
+                message: faker.helpers.arrayElement([
+                  'Apakah dataset yang dilampirkan sudah final?',
+                  'Saya menemukan cara lain untuk bagian integrasi, boleh?',
+                  'Terima kasih, penjelasan di brief-nya sangat membantu.',
+                  'Ada yang sudah mencoba pendekatan caching di sini?',
+                  'Batas waktunya masih bisa diperpanjang tidak ya?',
+                ]),
+              },
             });
           }
         }

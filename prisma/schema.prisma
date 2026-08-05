@@ -902,12 +902,64 @@ model Portfolio {
 // 7. GAMIFICATION & NOTIFICATIONS
 // ==========================================
 
+/**
+ * Apa yang diukur sebuah lencana.
+ *
+ * Sebelumnya `Badge` hanya punya `requiredXp`, jadi setiap lencana membaca
+ * angka yang sama pada ambang berbeda — dan judulnya menjanjikan hal yang
+ * tidak pernah diukur: "Bug Hunter — Squashed 100 bugs" sebenarnya berarti
+ * "XP >= 300". Lencana yang menyatakan hal palsu tentang seseorang lebih buruk
+ * daripada tidak ada lencana, terutama di profil yang dilihat perusahaan.
+ *
+ * Setiap nilai di sini punya satu penilai di `BadgesService`. Menambah jenis
+ * pencapaian berarti menambah satu nilai dan satu penilai — bukan kolom baru.
+ */
+enum BadgeCriteria {
+  /// `threshold` = XP minimum. Perilaku lama.
+  TOTAL_XP
+
+  /// Jumlah studi kasus utuh yang lulus. Mengukur volume.
+  CHALLENGES_PASSED
+
+  /// Jumlah kelulusan dengan `finalScore` >= 90. Mengukur mutu, bukan volume.
+  HIGH_SCORES
+
+  /// Kelulusan pada tingkat kesulitan tertentu; `param` diisi ChallengeDifficulty.
+  DIFFICULTY_PASSED
+
+  /// Banyaknya bidang pekerjaan BERBEDA yang pernah dilalui. Mengukur keluasan.
+  CATEGORY_BREADTH
+
+  /// Identitas terverifikasi. `threshold` diabaikan.
+  IDENTITY_VERIFIED
+
+  /// Jumlah entri portofolio publik.
+  PORTFOLIO_ENTRIES
+
+  /// Jumlah tulisan di diskusi studi kasus. Mengukur kontribusi komunitas.
+  DISCUSSION_POSTS
+
+  /// Jumlah submisi yang berakhir HIRED. Mengukur hasil, bukan usaha.
+  HIRED
+
+  /// Banyaknya keahlian tercantum di profil. Mengukur kelengkapan profil.
+  SKILLS_LISTED
+}
+
 model Badge {
   id          String @id @default(uuid())
   title       String @unique
   description String
   iconUrl     String
-  requiredXp  Int    @default(0)
+
+  criteria BadgeCriteria @default(TOTAL_XP)
+
+  /// Ambang minimum untuk kriteria yang menghitung. Diabaikan oleh kriteria
+  /// yang sifatnya ya/tidak seperti IDENTITY_VERIFIED.
+  threshold Int @default(0)
+
+  /// Pelengkap kriteria yang butuh sasaran, mis. DIFFICULTY_PASSED = "ADVANCED".
+  param String?
 
   earnedBy TalentBadge[]
 

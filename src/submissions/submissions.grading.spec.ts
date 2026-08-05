@@ -66,7 +66,7 @@ describe('SubmissionsService — penilaian', () => {
     };
 
     badges = {
-      awardForXpWithin: jest.fn().mockResolvedValue([]),
+      awardWithin: jest.fn().mockResolvedValue([]),
       notifyAwarded: jest.fn().mockResolvedValue(undefined),
     };
 

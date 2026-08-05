@@ -2,10 +2,14 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateDiscussionDto } from './dto/create-discussion.dto';
 import { DISCUSSION_AUTHOR_SELECT } from '../common/selects/discussion-author.select';
+import { BadgesService } from '../badges/badges.service';
 
 @Injectable()
 export class DiscussionsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly badgesService: BadgesService,
+  ) {}
 
   async create(userId: string, challengeId: string, dto: CreateDiscussionDto) {
     const challenge = await this.prisma.challenge.findUnique({
@@ -53,6 +57,17 @@ export class DiscussionsService {
           },
         });
       }
+    }
+
+    // Lencana DISCUSSION_POSTS dinilai di sini; jumlah tulisan tidak pernah
+    // berubah lewat penilaian submisi. Hanya untuk talenta — perusahaan tidak
+    // punya TalentProfile, dan `syncForTalent` diam saja bila tidak ketemu.
+    const talent = await this.prisma.talentProfile.findUnique({
+      where: { userId },
+      select: { id: true },
+    });
+    if (talent) {
+      await this.badgesService.syncForTalent(talent.id, userId);
     }
 
     return newDiscussion;

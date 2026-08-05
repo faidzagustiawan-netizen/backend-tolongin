@@ -130,14 +130,6 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
             data: { xp: { increment: rewards.xp } },
           });
 
-          // Lencana menyusul XP pada transaksi yang sama: kalau auto-pass ini
-          // batal, lencananya ikut batal. Kabarnya dikirim setelah commit —
-          // sendNotification ikut mengirim email.
-          lencanaBaru.push({
-            userId: sub.talent.userId,
-            badges: await this.badgesService.awardForXpWithin(tx, sub.talentId),
-          });
-
           // Panggil tokenService (bukan di dalam tx untuk menghindari block)
           this.tokensService
             .earnTokens(
@@ -160,6 +152,19 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
             update: {
               showcaseSummary: `Berhasil menyelesaikan studi kasus otomatis (Auto-Passed) dari challenge ${sub.challenge.title}.`,
             },
+          });
+
+          // PALING AKHIR di dalam blok ini, sesudah XP, submisi, dan portofolio
+          // semuanya tertulis. Penilai lencana membaca ketiganya — dijalankan
+          // lebih awal, kriteria PORTFOLIO_ENTRIES dan CHALLENGES_PASSED
+          // membaca keadaan sebelum kelulusan ini dan meleset satu langkah.
+          //
+          // Masih di transaksi yang sama: kalau auto-pass ini batal, lencananya
+          // ikut batal. Kabarnya dikirim setelah commit — sendNotification ikut
+          // mengirim email.
+          lencanaBaru.push({
+            userId: sub.talent.userId,
+            badges: await this.badgesService.awardWithin(tx, sub.talentId),
           });
         }
 
@@ -1044,12 +1049,6 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
           data: { xp: { increment: rewards.xp } },
         });
 
-        // Sehidup-semati dengan penilaiannya, sama seperti token di bawah.
-        lencanaBaru = await this.badgesService.awardForXpWithin(
-          tx,
-          submission.talentId,
-        );
-
         // Token dulu diberikan setelah transaksi selesai dan kegagalannya
         // hanya dicatat ke konsol: talenta lulus, XP masuk, token hilang, dan
         // tidak ada yang tahu. Kini sehidup-semati dengan penilaiannya.
@@ -1073,6 +1072,14 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
             showcaseSummary: `Berhasil menyelesaikan studi kasus ${submission.challenge.title} dengan nilai ${dto.finalScore}/100.`,
           },
         });
+
+        // PALING AKHIR, sesudah XP, token, dan portofolio tertulis. Penilai
+        // lencana membaca ketiganya; dijalankan lebih awal ia membaca keadaan
+        // sebelum kelulusan ini dan meleset satu langkah.
+        lencanaBaru = await this.badgesService.awardWithin(
+          tx,
+          submission.talentId,
+        );
       }
 
       await tx.notification.create({
@@ -1188,6 +1195,15 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
           linkUrl: `/workspace/${submission.enrollmentId}`,
         },
       });
+    }
+
+    // Lencana HIRED hanya bisa dinilai di sini: status rekrutmen berpindah di
+    // jalur ini, bukan lewat penilaian submisi.
+    if (dto.hiringStatus === HiringStatus.HIRED) {
+      await this.badgesService.syncForTalent(
+        submission.talentId,
+        submission.talent.userId,
+      );
     }
 
     if (role === Role.COMPANY && userId && submission.challenge.companyId) {
