@@ -5,6 +5,52 @@ Modules under `src/`: admin, ai, auth, challenges, common, companies, discussion
 notifications, payments, portfolios, prisma, question-bank, seed, skills, stages, storage,
 submissions, subscriptions, tokens, users, utils, verification.
 
+## Project docs must stay current — `dokumen/`
+
+`dokumen/` holds eight documents describing the **whole project — backend and frontend both**,
+indexed by `dokumen/README.md`: `PRD.md`, `SystemArchitecture.md`, `DatabaseSchema.md`,
+`APISpecification.md`, `TechStack.md`, `Changelog.md`, `TestingPlan.md`, `DeploymentGuide.md`.
+They live in this repo so they are versioned and shared; a change in `../frontend` still updates
+them here.
+
+**Update them in the same turn as the code change — never defer.** A change is not done until the
+affected documents match it.
+
+| Code change | Documents that must change with it |
+|---|---|
+| Feature, role, business rule, pricing, quota | `PRD.md` |
+| New module/guard/cron/integration, bootstrap change | `SystemArchitecture.md` |
+| `schema.prisma`, migration, index, seed | `DatabaseSchema.md` (+ `PRD.md` if a rule changes) |
+| Controller, route, DTO, endpoint guard, WebSocket event | `APISpecification.md` |
+| `package.json`, `requirements.txt`, tool version | `TechStack.md` (+ `DeploymentGuide.md` if env vars change) |
+| Test file, jest/vitest/playwright config, CI workflow | `TestingPlan.md` |
+| Env var, `ecosystem.config.js`, `deploy.yml`, release step | `DeploymentGuide.md` |
+
+`Changelog.md` always gets an entry under the current period — it is the one document every
+meaningful change touches. Entries carry the repo tag `[BE]`/`[FE]` and the commit type.
+
+Never copy `.env` values into any document; list variable *names* and their purpose only.
+
+### After pulling someone else's work
+
+A teammate also pushes to both repos. Right after `git pull` here or in `../frontend` (or when a
+session starts on a tree that moved), audit the incoming commits against the table above before
+doing anything else:
+
+```bash
+git -C backend log --oneline --stat HEAD@{1}..HEAD
+```
+
+```bash
+git -C frontend log --oneline --stat HEAD@{1}..HEAD
+```
+
+Trigger paths to look for: `prisma/`, `src/**/*.controller.ts`, `src/**/*.module.ts`,
+`package.json`, `requirements.txt`, `.github/workflows/`, `**/*.spec.ts`, `ecosystem.config.js`,
+and on the frontend `app/**/page.tsx`, `services/`, `next.config.ts`, `lib/plans.ts`. Reconcile the
+drift, then report what was out of date and what was updated. If a commit's intent is unclear from
+its message and diff, say so rather than guessing in the docs.
+
 ## Commands
 
 - dev server: prefer the `backend` entry in `../.claude/launch.json` (port 3001), not a raw shell
