@@ -235,6 +235,7 @@ types/ · utils/ · e2e/
 
 - **`useUserStore` (Zustand)** — simpul dengan keterkaitan terbanyak kedua di proyek (89 sisi): sesi, peran, dan penanda `isCompanyOwner` dibaca hampir seluruh halaman. Sesi dipertahankan lewat `lib/authStorage.ts`.
 - **`AuthGuard`** global mencegat rute non-publik dan membawa alamat tujuan sebagai `?redirect=` (hanya lintasan internal, agar halaman masuk tidak menjadi pengalih terbuka). Daftar publiknya mencakup seluruh etalase — direktori studi kasus, direktori talenta, profil perusahaan, papan peringkat, halaman hukum, dan alur pemulihan kata sandi — dengan halaman rincian dicocokkan tepat satu ruas sesudah awalan, sehingga `/challenges/create`, `/challenges/mine`, dan `/challenges/<slug>/edit` tetap tertutup. `useAdminGuard` memulangkan non-admin dari panel admin, dan tata letaknya menampilkan alasan alih-alih layar kosong.
+- **`components/admin/AdminActionDialog.tsx`** — satu-satunya jalan konfirmasi untuk keputusan admin yang berisiko. Mendukung mode konfirmasi biasa dan mode beralasan (pengganti `prompt()`), lengkap dengan panjang minimum yang ditegakkan sebelum permintaan dikirim. Di baliknya `Modal` + `useDialogA11y`.
 - **`services/api.ts` (`apiClient`)** — satu instance axios yang menyisipkan bearer token; seluruh modul service memakainya.
 - **`useStageGate`** memakai keputusan gerbang dari server; browser tidak menghitung ulang aturan.
 - **Dua jenis draf**: `lib/challengeDraftStorage.ts` (localStorage, builder challenge) dan autosave ke server untuk pengerjaan kandidat.

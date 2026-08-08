@@ -50,6 +50,7 @@ Kalau hanya sempat membaca satu tabel, baca yang ini. Semuanya lahir dari masala
 - **Lupa kata sandi berfungsi kembali.** Halaman pemulihannya ikut terkunci, jadi tidak seorang pun bisa menyelesaikannya.
 - **Gangguan server tidak lagi menyamar sebagai "belum ada data".** Sepuluh layar dulu menampilkan daftar kosong ketika sebenarnya permintaannya gagal — termasuk antrean verifikasi perusahaan yang dibaca admin.
 - **Tugas yang hangus tidak lagi tampil hijau seperti tugas yang lulus**, dan tombol kirim setelah waktu habis menjelaskan dirinya alih-alih diam.
+- **Keputusan admin punya layar konfirmasinya sendiri.** Blokir akun, tolak verifikasi, turunkan studi kasus, tutup tiket — semuanya dulu memakai kotak dialog bawaan peramban yang tidak menyebut siapa yang terdampak dan tidak bisa memeriksa alasan yang diketik.
 
 ### Rincian teknis
 
@@ -74,6 +75,17 @@ cacat parah. Yang terpenting:
 - [FE] `fix` izin kamera yang ditolak tidak lagi langsung dicatat sebagai pelanggaran ke laporan rekruter; kandidat diberi jalan mencoba lagi dulu.
 - [FE] `refactor` istilah disatukan menjadi "studi kasus" di navbar, footer, direktori, dan dasbor.
 - [BE] `fix` notifikasi berbunyi "Skor AI: null." saat penilaian masih mengantre; nama paket "Paket Murah" pada pesan galat kuota dan kunci AI disamakan dengan "Startup" yang dilihat pengguna.
+
+Putaran kedua, menuntaskan sisanya:
+
+- [FE] `feat` `AdminActionDialog` menggantikan seluruh `confirm()` dan `prompt()` bawaan peramban pada keputusan admin — blokir akun, kirim peringatan, verifikasi/tolak KYB, tinjauan identitas, turunkan/pulihkan studi kasus, tutup tiket, hapus pengumuman. Syarat "alasan minimal 10 karakter" pada moderasi akhirnya ditegakkan di tempat pengetikan; sebelumnya hanya tertulis di teks prompt sementara kodenya cuma memeriksa `!reason`.
+- [FE] `fix` `company/team` menampilkan cabang galat untuk daftar anggota dan log aktivitas; `isError`/`refetch` sudah diambil tetapi tidak pernah dipakai, jadi query gagal tetap merender tabel kosong.
+- [FE] `fix` galat jaringan di tab KYC profil tidak lagi berjudul "Verifikasi Ditolak:" — putusan penolakan hanya sah bila server mencatat status `FAILED`.
+- [FE] `fix` alasan tahap terkunci ditampilkan di pemilih tahap halaman sesi, bukan hanya ikon gembok.
+- [FE] `fix` penanda "tahap selesai" yang gagal tersimpan membatalkan perpindahan tahap alih-alih memindahkan kandidat lalu kehilangan penandanya saat halaman dimuat ulang.
+- [FE] `fix` modal kamera KYC memakai `useDialogA11y` — Esc, jebakan fokus, dan pengembalian fokus.
+- [FE] `fix` `alert()` berisi dump JSON jawaban di pratinjau studi kasus diganti toast.
+- [FE] `chore` `useCallback` di `settings/skills` membaca `userId` alih-alih `user?.id`; ketidakcocokan kebergantungan membatalkan optimasi React Compiler untuk seluruh komponen.
 
 **8 Agu**
 - [FE] `fix` verifikasi KTP yang **ditolak** akhirnya terdeteksi dan tampil sebagai penolakan. Halaman KYC membandingkan status dengan `'REJECTED'`, sedangkan backend mengirim `'FAILED'` — cabangnya tidak pernah benar, dan penolakan jatuh ke tampilan hijau "Identitas Terverifikasi!".
