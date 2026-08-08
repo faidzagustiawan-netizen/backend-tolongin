@@ -92,6 +92,7 @@ Tiga hal di proyek ini akan rusak diam-diam bila versinya digeser tanpa pemeriks
 | `recharts` | ^3.9.2 | Grafik panel admin |
 | `react-resizable-panels` | ^4.12.2 | Panel yang bisa diatur ukurannya di ruang kerja kandidat |
 | `react-easy-crop` | ^6.1.0 | Pemotongan foto profil dan KTP |
+| `react-parallax` | ^3.5.2 | Efek gulir berlapis pada halaman publik — terpasang, belum dipakai di kode |
 | `react-hot-toast` | ^2.6.0 | Pesan singkat di layar |
 | `date-fns` | ^4.4.0 | Format tanggal |
 | `socket.io-client` | ^4.8.3 | Saluran notifikasi langsung |

@@ -123,8 +123,8 @@ grep -oE '^[A-Z0-9_]+' backend/.env
 
 | Variabel | Keterangan |
 |---|---|
-| `NEXT_PUBLIC_API_URL` | Basis alamat API |
-| `BACKEND_ORIGIN` | Tujuan proxy `/api/:path*`; bawaan `http://localhost:3001` |
+| `NEXT_PUBLIC_API_URL` | Basis alamat API; bawaan `https://podorukunspk.fun` (backend produksi) |
+| `BACKEND_ORIGIN` | Tujuan proxy `/api/:path*`; bawaan `https://podorukunspk.fun` (backend produksi) |
 | `NEXT_PUBLIC_STORAGE_HOST` | Host gambar penyimpanan; bawaan `storage.tolongin.co` |
 | `NEXT_PUBLIC_EXTRA_IMAGE_HOSTS` | Host gambar tambahan, dipisah koma |
 | `NEXT_PUBLIC_MIDTRANS_CLIENT_KEY` | Kunci publik pembayaran |

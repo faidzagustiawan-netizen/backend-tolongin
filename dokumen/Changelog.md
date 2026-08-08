@@ -1,6 +1,6 @@
 # Riwayat Perubahan — Tolongin.co
 
-**Dokumen**: Changelog · sumber riwayat Git backend (135 catatan perubahan) dan frontend (131), 2026-05-24 s.d. 2026-08-06
+**Dokumen**: Changelog · sumber riwayat Git backend (136 catatan perubahan) dan frontend (135), 2026-05-24 s.d. 2026-08-07
 
 > Istilah teknis dijelaskan di [glosarium](README.md#glosarium). Bagian berjudul **"— rincian teknis"** aman dilewati bila Anda tidak menulis kode.
 
@@ -42,8 +42,18 @@ Kalau hanya sempat membaca satu tabel, baca yang ini. Semuanya lahir dari masala
 - **Panel admin tertutup rapat.** Akun bukan admin yang mencoba membuka halaman admin dipulangkan.
 - **Tombol hapus di pengaturan profil benar-benar menghapus.** Sebelumnya beberapa di antaranya tidak tersambung ke server — tampak berhasil, padahal tidak.
 - **Papan peringkat bisa disaring**, dan bidang pekerjaan talenta akhirnya tampil terisi.
+- **Verifikasi KTP jadi syarat, bukan saran.** Pada studi kasus berpengawasan, kandidat yang belum terverifikasi tidak lagi bisa membuka kamera atau memulai pengerjaan — muncul ajakan verifikasi lengkap dengan tautan langsung ke halamannya. Sebelumnya cuma peringatan kuning yang bisa dilewati.
+- **Pemindaian wajah pindah ke pop-up.** Kamera KYC dan pengecekan wajah peserta kini muncul sebagai jendela mengambang yang bisa ditutup, bukan menyisip di tengah halaman.
+- **Kartu studi kasus dan halaman depan dirombak tampilannya**, termasuk area unggah KTP yang sekarang memberi tanggapan saat berkas ditarik ke atasnya.
 
 ### Rincian teknis
+
+**7 Agu**
+- [FE] `feat` gerbang KYC di `workspace/[enrollmentId]`: `handleStartWebcam` dan tombol mulai pada mode berpengawasan berhenti bila `isKycVerified` bernilai salah, menampilkan modal ajakan ke `/settings/kyc`. Status dibaca berlapis — `verificationStatusData.status`, `.data.status`, lalu `user.profile.faceVerificationStatus`.
+- [FE] `feat` `FaceScanner` dibungkus modal `AnimatePresence` di halaman KYC dan ruang kerja; `DraftStatusBar` dapat mode `isExamMode` sehingga sekaligus menjadi navbar pengerjaan soal (judul, sisa waktu tahap, status simpan, tombol keluar).
+- [FE] `style` kartu studi kasus, hero, footer, dan bagian nilai inti dirombak; delapan aset SVG maskot dan latar ditambahkan.
+- [FE] `fix` `@vladmandic/face-api` dilepas dari `optimizePackageImports` di `next.config.ts` — paketnya sudah tidak lagi menjadi dependensi, dan build gagal karenanya.
+- [FE] `chore` bawaan alamat backend di `next.config.ts` dan `lib/apiConfig.ts` berpindah dari `http://localhost:3001` ke `https://podorukunspk.fun`; `pnpm-lock.yaml` disinkronkan; `react-parallax` ^3.5.2 ditambahkan (belum terpakai di kode).
 
 **6 Agu** — [BE] `feat` enum `BadgeCriteria` + kolom `threshold`/`param`, satu penilai per kriteria di `BadgesService`; migrasi `badge_criteria`.
 
