@@ -630,9 +630,15 @@ export class SubmissionsService implements OnModuleInit, OnModuleDestroy {
           data: {
             userId: talentProfile.userId,
             title: 'Solusi Berhasil Dikumpulkan',
-            content: shouldRunAi
-              ? `Solusi Anda untuk tantangan "${enrollment.challenge.title}" telah dikumpulkan dan dievaluasi oleh AI. Skor AI: ${aiScore}.`
-              : `Solusi Anda untuk tantangan "${enrollment.challenge.title}" berhasil dikumpulkan dan sedang menunggu ulasan.`,
+            // `aiScore` masih null selama penilaian mengantre (status
+            // PENDING_AI), dan kalimat lama menyulapnya menjadi "Skor AI: null."
+            // di layar kandidat.
+            content:
+              shouldRunAi && aiScore !== null && aiScore !== undefined
+                ? `Solusi Anda untuk tantangan "${enrollment.challenge.title}" telah dikumpulkan dan dievaluasi oleh AI. Skor AI: ${aiScore}.`
+                : shouldRunAi
+                  ? `Solusi Anda untuk tantangan "${enrollment.challenge.title}" berhasil dikumpulkan dan sedang dinilai AI. Anda akan diberi tahu begitu nilainya keluar.`
+                  : `Solusi Anda untuk tantangan "${enrollment.challenge.title}" berhasil dikumpulkan dan sedang menunggu ulasan.`,
             linkUrl: `/workspace/${dto.enrollmentId}`,
           },
         });

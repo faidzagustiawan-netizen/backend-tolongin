@@ -46,8 +46,34 @@ Kalau hanya sempat membaca satu tabel, baca yang ini. Semuanya lahir dari masala
 - **Pemindaian wajah pindah ke pop-up.** Kamera KYC dan pengecekan wajah peserta kini muncul sebagai jendela mengambang yang bisa ditutup, bukan menyisip di tengah halaman.
 - **Kartu studi kasus dan halaman depan dirombak tampilannya**, termasuk area unggah KTP yang sekarang memberi tanggapan saat berkas ditarik ke atasnya.
 - **Verifikasi yang ditolak akhirnya terlihat ditolak.** Sebelumnya layarnya tetap hijau dan berbunyi "Identitas Terverifikasi!" — kandidat yang gagal tidak pernah tahu ia gagal, apalagi alasannya.
+- **Halaman publik bisa dibuka tanpa masuk lagi.** Direktori studi kasus, direktori talenta, profil perusahaan, dan papan peringkat sempat memantulkan setiap pengunjung ke halaman masuk.
+- **Lupa kata sandi berfungsi kembali.** Halaman pemulihannya ikut terkunci, jadi tidak seorang pun bisa menyelesaikannya.
+- **Gangguan server tidak lagi menyamar sebagai "belum ada data".** Sepuluh layar dulu menampilkan daftar kosong ketika sebenarnya permintaannya gagal — termasuk antrean verifikasi perusahaan yang dibaca admin.
+- **Tugas yang hangus tidak lagi tampil hijau seperti tugas yang lulus**, dan tombol kirim setelah waktu habis menjelaskan dirinya alih-alih diam.
 
 ### Rincian teknis
+
+**8 Agu — putaran evaluasi UX**
+
+Satu putaran evaluasi pengalaman pengguna atas seluruh fitur (protokolnya di
+`frontend/e2e/UX_EVALUATION_PROMPT.md`, temuannya di `frontend/e2e/ux-findings.md`) menemukan 23
+cacat parah. Yang terpenting:
+
+- [FE] `fix` **seluruh etalase publik terkunci.** `AuthGuard` hanya mengizinkan `/`, `/login`, dan `/register`, sehingga pengunjung anonim yang membuka `/challenges`, `/talents`, `/companies`, `/leaderboard`, `/terms`, atau `/privacy` dipantulkan ke halaman masuk — padahal `app/sitemap.ts` mendaftarkan alamat itu ke mesin pencari. Daftar publik kini lengkap, dengan pencocokan satu ruas untuk halaman rincian agar `/challenges/create` dan `/challenges/<slug>/edit` tetap tertutup.
+- [FE] `fix` **pemulihan kata sandi tidak pernah bisa diselesaikan siapa pun.** `/forgot-password` dan `/reset-password` ikut terkunci, sementara tautan "Lupa kata sandi?" ada di halaman masuk itu sendiri — lingkaran tertutup.
+- [FE] `feat` alamat tujuan dibawa sebagai `?redirect=` saat dipantulkan, dan halaman masuk kini membacanya (hanya lintasan internal, agar tidak menjadi pengalih terbuka).
+- [FE] `fix` **gerbang KYC bisa dilewati lewat URL.** `/workspace/<id>/session` tidak memeriksa status verifikasi sama sekali; gerbang di halaman ringkasan saja bukan gerbang. Soal kini tidak dirender sebelum identitas terverifikasi.
+- [FE] `fix` **unggah KTP tidak bisa dicapai papan tik.** Inputnya `display:none` di dalam `<label>` tanpa `tabindex`; verifikasi KTP wajib sebelum ujian, jadi pengguna papan tik terkunci dari seluruh platform.
+- [FE] `fix` kegagalan memuat berhenti menyamar sebagai keadaan kosong di sepuluh layar (`talents`, `support`, `notifications`, `CandidateBrowser`, `company/team`, `admin`, `admin/billing`, dan lainnya). Antrean KYB admin yang gagal dimuat dulu berbunyi "Tidak ada perusahaan yang menunggu verifikasi".
+- [FE] `fix` tahap `EXPIRED` tidak lagi dirender di blok hijau bercentang bersama tahap yang lulus; galat pengumpulan dipindahkan keluar dari cabang `currentStep` yang tidak pernah aktif.
+- [FE] `fix` tombol "Kirim Seluruh Jawaban" setelah tenggat, galat simpan draf yang ditelan `console.error`, dan "Keluar Sesi" tanpa konfirmasi selagi jam tahap berjalan.
+- [FE] `fix` `enforceFullscreen` akhirnya ditegakkan di halaman tempat soal benar-benar dikerjakan — pendengar `fullscreenchange` tidak pernah dipasang di sana.
+- [FE] `fix` autosave halaman penyuntingan tidak lagi bisa membuat studi kasus baru diam-diam (`allowCreate: false`); ini duplikat pemakan kuota.
+- [FE] `fix` `window.snap.pay` di `/talent/tokens` dipanggil tanpa skrip Midtrans pernah dimuat di rute itu.
+- [FE] `fix` tombol "Jadwalkan Demo AI" di halaman depan menuju `/contact` yang tidak ada — 404 pada ajakan bertindak paling menonjol.
+- [FE] `fix` izin kamera yang ditolak tidak lagi langsung dicatat sebagai pelanggaran ke laporan rekruter; kandidat diberi jalan mencoba lagi dulu.
+- [FE] `refactor` istilah disatukan menjadi "studi kasus" di navbar, footer, direktori, dan dasbor.
+- [BE] `fix` notifikasi berbunyi "Skor AI: null." saat penilaian masih mengantre; nama paket "Paket Murah" pada pesan galat kuota dan kunci AI disamakan dengan "Startup" yang dilihat pengguna.
 
 **8 Agu**
 - [FE] `fix` verifikasi KTP yang **ditolak** akhirnya terdeteksi dan tampil sebagai penolakan. Halaman KYC membandingkan status dengan `'REJECTED'`, sedangkan backend mengirim `'FAILED'` — cabangnya tidak pernah benar, dan penolakan jatuh ke tampilan hijau "Identitas Terverifikasi!".

@@ -670,7 +670,7 @@ export class ChallengesService {
 
     if (company.subscriptionTier === 'STARTUP' && activeCount >= 1) {
       throw new ForbiddenException(
-        'Paket Murah hanya mengizinkan 1 studi kasus aktif/draf. Silakan tingkatkan langganan Anda.',
+        'Paket Startup hanya mengizinkan 1 studi kasus aktif/draf. Silakan tingkatkan langganan Anda.',
       );
     }
     if (company.subscriptionTier === 'KONGLOMERAT' && activeCount >= 5) {
@@ -1191,7 +1191,7 @@ export class ChallengesService {
       company.subscriptionTier === 'STARTUP'
     ) {
       throw new ForbiddenException(
-        'Fitur AI Generator dikunci pada Paket Murah. Silakan tingkatkan langganan Anda.',
+        'Fitur AI Generator dikunci pada paket Startup. Silakan tingkatkan langganan Anda.',
       );
     }
 
@@ -1375,14 +1375,14 @@ export class ChallengesService {
           async (tx) => {
             const company = await this.lockCompany(tx, companyId);
 
-            // Diperiksa sebelum kuota supaya paket Murah menerima pesan
+            // Diperiksa sebelum kuota supaya paket Startup menerima pesan
             // "fitur AI dikunci", bukan pesan kuota yang menyesatkan.
             if (
               subscriptionLimitsEnforced() &&
               company.subscriptionTier === 'STARTUP'
             ) {
               throw new ForbiddenException(
-                'Fitur AI Generator dikunci pada Paket Murah. Silakan tingkatkan langganan Anda.',
+                'Fitur AI Generator dikunci pada paket Startup. Silakan tingkatkan langganan Anda.',
               );
             }
 

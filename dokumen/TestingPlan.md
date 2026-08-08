@@ -111,6 +111,22 @@ Bagian [§8](#8-area-berisiko-yang-belum-tercakup) memuat daftar lengkap area be
 
 Konfigurasi: `baseURL http://localhost:3000`, `webServer: npm run dev` dengan `reuseExistingServer` di luar CI, `retries: 2` dan `workers: 1` di CI, trace `on-first-retry`, reporter HTML.
 
+### Evaluasi UX manual (bukan gerbang otomatis)
+
+`frontend/e2e/UX_EVALUATION_PROMPT.md` adalah protokol evaluasi pengalaman pengguna yang dijalankan
+oleh agen atau manusia, bukan oleh CI. Isinya enam pertanyaan per layar — keadaan kosong, keadaan
+memuat, keadaan gagal, pintu terkunci, jalan keluar, kesinambungan kata — beserta pembagian sepuluh
+area dan format pelaporannya.
+
+Sasarannya berbeda dari suite di atas: `tsc` dan `vitest` menjawab "apakah kodenya benar", protokol
+ini menjawab "apakah orang yang memakainya paham apa yang terjadi". Kelas cacat yang paling sering
+ditemukannya — kegagalan yang tampil sebagai keberhasilan, dan keadaan kosong yang sebenarnya
+kegagalan — tidak terlihat oleh satu pun uji otomatis yang ada.
+
+Hasil putaran terakhir: `frontend/e2e/ux-findings.md` (8 Agustus 2026, 23 temuan parah).
+Akun uji berasal dari seeder: `talent1@test.com` dan `company1@test.com`, sandi `password123`.
+Seeder belum membuat akun admin, sehingga panel admin hanya bisa diuji dari sisi penolakan akses.
+
 ## 6. Gerbang otomatis — rincian teknis
 
 ### 6.1 Hook lokal (`backend/scripts/verify.ps1`)

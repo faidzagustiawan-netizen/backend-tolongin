@@ -108,6 +108,7 @@ Tersedia tujuh jenis soal: pilihan ganda, esai, unggah berkas, unggah video, kir
 - Wajah kandidat dicek ulang saat ujian berjalan, dibandingkan dengan foto verifikasi awal.
 - Pengaturan pengawasan diatur per studi kasus.
 - Pada studi kasus berpengawasan, kandidat yang **belum terverifikasi KTP** tidak bisa memulai pengerjaan sama sekali: tombol mulai dan pembuka kamera menampilkan ajakan verifikasi ke `/settings/kyc`. Sebelumnya keadaan ini hanya berupa peringatan kuning yang bisa diabaikan — pencocokan biometrik lalu berjalan tanpa foto pembanding.
+- Gerbang itu berlaku di **halaman ringkasan maupun halaman sesi**. Soal tidak dirender sebelum identitas terverifikasi, karena menyembunyikan tombol kirim saja masih membiarkan isi ujian terbaca oleh siapa pun yang mengetikkan alamatnya langsung.
 
 ### 3.4 Penilaian dan keputusan
 
