@@ -45,8 +45,16 @@ Kalau hanya sempat membaca satu tabel, baca yang ini. Semuanya lahir dari masala
 - **Verifikasi KTP jadi syarat, bukan saran.** Pada studi kasus berpengawasan, kandidat yang belum terverifikasi tidak lagi bisa membuka kamera atau memulai pengerjaan — muncul ajakan verifikasi lengkap dengan tautan langsung ke halamannya. Sebelumnya cuma peringatan kuning yang bisa dilewati.
 - **Pemindaian wajah pindah ke pop-up.** Kamera KYC dan pengecekan wajah peserta kini muncul sebagai jendela mengambang yang bisa ditutup, bukan menyisip di tengah halaman.
 - **Kartu studi kasus dan halaman depan dirombak tampilannya**, termasuk area unggah KTP yang sekarang memberi tanggapan saat berkas ditarik ke atasnya.
+- **Verifikasi yang ditolak akhirnya terlihat ditolak.** Sebelumnya layarnya tetap hijau dan berbunyi "Identitas Terverifikasi!" — kandidat yang gagal tidak pernah tahu ia gagal, apalagi alasannya.
 
 ### Rincian teknis
+
+**8 Agu**
+- [FE] `fix` verifikasi KTP yang **ditolak** akhirnya terdeteksi dan tampil sebagai penolakan. Halaman KYC membandingkan status dengan `'REJECTED'`, sedangkan backend mengirim `'FAILED'` — cabangnya tidak pernah benar, dan penolakan jatuh ke tampilan hijau "Identitas Terverifikasi!".
+- [FE] `fix` gerbang KYC ruang kerja membaca satu sumber: `status` dari `GET /verification/status`, dengan nilai store hanya sebagai isian sementara sebelum jawaban tiba. Cabang `'APPROVED'` dan pembacaan `.data.status` dibuang — keduanya tidak pernah cocok dengan bentuk jawaban maupun enum `VerificationStatus`.
+- [FE] `fix` bawaan alamat backend dipilih per lingkungan di `next.config.ts` dan `lib/apiConfig.ts`. Bawaan produksi yang dipatok membuat `next dev` tanpa `NEXT_PUBLIC_API_URL` menulis ke basis data produksi tanpa satu pun galat.
+- [FE] `refactor` tipe `VerificationStatus` di `types/index.ts` mencerminkan enum Prisma, dan `verificationService.getStatus()` memakainya sebagai tipe kembalian — salah ketik status kini menjadi galat tipe, bukan cabang mati.
+- [FE] `chore` `react-parallax` dilepas; tidak diimpor satu berkas pun.
 
 **7 Agu**
 - [FE] `feat` gerbang KYC di `workspace/[enrollmentId]`: `handleStartWebcam` dan tombol mulai pada mode berpengawasan berhenti bila `isKycVerified` bernilai salah, menampilkan modal ajakan ke `/settings/kyc`. Status dibaca berlapis — `verificationStatusData.status`, `.data.status`, lalu `user.profile.faceVerificationStatus`.

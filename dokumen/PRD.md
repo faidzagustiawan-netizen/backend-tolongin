@@ -49,6 +49,7 @@ Format: **sebagai [siapa], saya ingin [apa], sehingga [manfaatnya]** — diikuti
 - Bila wajah saya ternyata sama dengan akun lain yang sudah ada, pendaftaran saya **ditolak** — satu orang hanya boleh satu akun.
 - Bila kemiripannya berada di zona abu-abu (misalnya saya punya saudara kembar), akun saya tidak langsung ditolak melainkan masuk antrean untuk diperiksa manusia.
 - Bila mesin pemeriksanya sedang bermasalah, pesannya berbunyi "coba lagi nanti" — **bukan** "wajah Anda tidak cocok". Kesalahan sistem tidak boleh ditimpakan kepada saya.
+- Bila pemeriksaan gagal, layarnya berbunyi **gagal** beserta alasannya. Hasil yang ditolak tidak boleh tampil sebagai keberhasilan.
 - Foto KTP dan selfie saya disimpan dalam keadaan terenkripsi.
 
 **Sebagai perusahaan, saya ingin membuktikan usaha saya sah, sehingga kandidat mau mengerjakan tes dari saya.**
