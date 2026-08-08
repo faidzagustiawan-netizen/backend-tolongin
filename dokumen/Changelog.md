@@ -87,6 +87,10 @@ Putaran kedua, menuntaskan sisanya:
 - [FE] `fix` `alert()` berisi dump JSON jawaban di pratinjau studi kasus diganti toast.
 - [FE] `chore` `useCallback` di `settings/skills` membaca `userId` alih-alih `user?.id`; ketidakcocokan kebergantungan membatalkan optimasi React Compiler untuk seluruh komponen.
 
+Putaran verifikasi UX kedua menemukan satu cacat sisa:
+
+- [FE] `fix` dasbor beranda (`app/page.tsx`) memakai `data?.data || []`, sehingga kegagalan memuat tampil sebagai ruang kerja kosong — kandidat dengan empat pendaftaran diberi tahu ia belum pernah ikut satu pun studi kasus. Berkas ini tidak masuk pembagian area pada putaran pertama. Kini ada cabang galat beserta tombol coba lagi, berlaku untuk sisi talenta maupun perusahaan.
+
 **8 Agu**
 - [FE] `fix` verifikasi KTP yang **ditolak** akhirnya terdeteksi dan tampil sebagai penolakan. Halaman KYC membandingkan status dengan `'REJECTED'`, sedangkan backend mengirim `'FAILED'` — cabangnya tidak pernah benar, dan penolakan jatuh ke tampilan hijau "Identitas Terverifikasi!".
 - [FE] `fix` gerbang KYC ruang kerja membaca satu sumber: `status` dari `GET /verification/status`, dengan nilai store hanya sebagai isian sementara sebelum jawaban tiba. Cabang `'APPROVED'` dan pembacaan `.data.status` dibuang — keduanya tidak pernah cocok dengan bentuk jawaban maupun enum `VerificationStatus`.
