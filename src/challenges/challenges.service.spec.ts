@@ -260,12 +260,15 @@ describe('ChallengesService', () => {
       );
     });
 
-    it('menolak pembuatan saat kuota paket Murah sudah penuh', async () => {
+    it('menolak pembuatan saat kuota paket Startup sudah penuh', async () => {
       tx.challenge.count.mockResolvedValue(1);
 
+      // Namanya harus yang dilihat pengguna. Pesan ini ditampilkan mentah di
+      // layar pembuatan studi kasus, dan "Paket Murah" tidak ada di `lib/plans.ts`
+      // maupun di mana pun pada antarmuka.
       await expect(
         service.create('co-1', companyDto, 'user-1'),
-      ).rejects.toThrow(/Paket Murah/);
+      ).rejects.toThrow(/Paket Startup/);
       expect(tx.challenge.create).not.toHaveBeenCalled();
     });
 
