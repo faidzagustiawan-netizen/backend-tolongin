@@ -117,7 +117,24 @@ grep -oE '^[A-Z0-9_]+' backend/.env
 | `ENFORCE_SUBSCRIPTION_LIMITS` | — | `true` menegakkan kuota paket dan kunci fitur AI |
 | `ENABLE_SEED_ENDPOINT` | — | `true` mendaftarkan `SeedModule` **bahkan di produksi**. Jangan disetel kecuali sengaja |
 | `SECRET` | — | Dipakai `src/seed/real-data.ts` |
+| `SEED_ADMIN_EMAIL` | — | Alamat akun admin semaian; bawaan `admin@tolongin.co` |
+| `SEED_ADMIN_PASSWORD` | — | Kata sandi akun admin semaian. **Wajib** bila seeding dijalankan dengan `NODE_ENV=production`; tanpa ini sandi bawaan pengembangan dipakai dan pembuatan admin ditolak di produksi |
 | `TEST_DATABASE_URL` | — | Hanya untuk uji integrasi |
+
+### 4.1.1 Akun admin pertama
+
+`POST /seed` dijaga `@Roles(Role.ADMIN)`, sementara satu-satunya yang membuat akun admin adalah
+seeder itu sendiri — pada basis data tanpa admin, tidak seorang pun bisa memanggilnya. Pemutus
+lingkaran itu adalah skrip terpisah:
+
+```bash
+pnpm run seed:admin
+```
+
+Skrip ini **tidak menghapus apa pun** (tidak seperti `POST /seed` yang diawali `TRUNCATE`), jadi aman
+dijalankan pada basis data pengembangan yang sedang dipakai bersama, dan aman diulang — akun yang
+sudah ada hanya disetel ulang sandi dan perannya. Bawaan pengembangan: `admin@tolongin.co` /
+`AdminPassword123`, sama dengan yang diisikan tombol "Dev Auto Login → Admin" di halaman masuk.
 
 ### 4.2 Frontend (`frontend/.env`, contoh di `.env.example`)
 

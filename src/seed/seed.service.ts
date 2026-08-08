@@ -178,6 +178,41 @@ export class SeedService {
       await this.prisma.badge.create({ data: b });
     }
 
+    // 1b. Akun admin.
+    //
+    // Sebelumnya seeder tidak pernah membuatnya, padahal tombol "Dev Auto Login
+    // → Admin" di halaman masuk mengisikan `admin@tolongin.co`. Akibatnya panel
+    // admin tidak pernah bisa dibuka di lingkungan pengembangan, dan seluruh
+    // halaman di bawah `/admin` hanya bisa diuji dari sisi penolakan akses.
+    // Kredensialnya sengaja sama dengan yang diisikan tombol itu.
+    //
+    // Kata sandinya bisa ditimpa lewat `SEED_ADMIN_PASSWORD`. Di NODE_ENV
+    // produksi, tanpa variabel itu adminnya **tidak dibuat sama sekali**:
+    // seeder ini bisa terdaftar di produksi bila `ENABLE_SEED_ENDPOINT` disetel
+    // (lihat peringatan di DeploymentGuide), dan akun admin bersandi tetap yang
+    // diketahui publik mengubah kecelakaan konfigurasi menjadi pengambilalihan
+    // platform.
+    const adminPasswordPlain =
+      process.env.SEED_ADMIN_PASSWORD ||
+      (process.env.NODE_ENV === 'production' ? null : 'AdminPassword123');
+
+    if (adminPasswordPlain) {
+      await this.prisma.user.create({
+        data: {
+          email: 'admin@tolongin.co',
+          passwordHash: await bcrypt.hash(adminPasswordPlain, saltRounds),
+          fullName: 'Admin Tolongin',
+          role: Role.ADMIN,
+          isVerified: true,
+        },
+      });
+      this.logger.log('Akun admin dibuat: admin@tolongin.co');
+    } else {
+      this.logger.warn(
+        'NODE_ENV=production tanpa SEED_ADMIN_PASSWORD — akun admin dilewati.',
+      );
+    }
+
     // 2. Create 5 Companies
     const companies: any[] = [];
     for (let i = 0; i < 5; i++) {
@@ -619,7 +654,7 @@ export class SeedService {
     const lencanaDiberikan = await this.badgesService.backfillAll();
 
     this.logger.log(
-      `✅ Mass Seeding Selesai! Berhasil membuat 30+ Talent, 5 Company, 30 Challenge, ratusan data Enrollment/Submission, dan ${lencanaDiberikan} lencana.`,
+      `✅ Mass Seeding Selesai! Berhasil membuat 1 Admin, 30+ Talent, 5 Company, 30 Challenge, ratusan data Enrollment/Submission, dan ${lencanaDiberikan} lencana.`,
     );
     return {
       success: true,

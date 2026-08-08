@@ -27,6 +27,7 @@
     "test:e2e:local": "bash -c 'TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:5433/tolongin_test jest --config ./test/jest-e2e.json'",
     "seed": "prisma db seed",
     "seed:question-bank": "ts-node -r tsconfig-paths/register prisma/seed-question-bank.ts",
+    "seed:admin": "ts-node -r tsconfig-paths/register prisma/seed-admin.ts",
     "script:backfill-biometric-vectors": "ts-node -r tsconfig-paths/register scripts/backfill-biometric-vectors.ts",
     "script:reencrypt-identity-data": "ts-node -r tsconfig-paths/register scripts/reencrypt-identity-data.ts",
     "script:migrate-slugs": "node scripts/migrate-slugs.js",

@@ -125,7 +125,8 @@ kegagalan — tidak terlihat oleh satu pun uji otomatis yang ada.
 
 Hasil putaran terakhir: `frontend/e2e/ux-findings.md` (8 Agustus 2026, 23 temuan parah).
 Akun uji berasal dari seeder: `talent1@test.com` dan `company1@test.com`, sandi `password123`.
-Seeder belum membuat akun admin, sehingga panel admin hanya bisa diuji dari sisi penolakan akses.
+Akun admin: `admin@tolongin.co` / `AdminPassword123`, dibuat oleh `pnpm run seed:admin` (idempoten,
+tidak menghapus data) atau ikut terbentuk pada seeding massal — lihat DeploymentGuide §4.1.1.
 
 ## 6. Gerbang otomatis — rincian teknis
 
